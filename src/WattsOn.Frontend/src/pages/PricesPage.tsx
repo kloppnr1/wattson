@@ -10,15 +10,9 @@ const formatDKK = (amount: number) =>
   new Intl.NumberFormat('da-DK', { minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(amount);
 
 const typeColors: Record<string, string> = {
-  Tariff: 'teal',
-  Fee: 'orange',
-  Subscription: 'purple',
-};
-
-const typeLabels: Record<string, string> = {
-  Tariff: 'Tarif',
-  Fee: 'Gebyr',
-  Subscription: 'Abonnement',
+  Tarif: 'teal',
+  Gebyr: 'orange',
+  Abonnement: 'purple',
 };
 
 export default function PricesPage() {
@@ -49,7 +43,7 @@ export default function PricesPage() {
   });
 
   const now = new Date();
-  const tariffs = prices.filter(p => p.type === 'Tariff').length;
+  const tariffs = prices.filter(p => p.type === 'Tarif').length;
   const active = prices.filter(p => !p.validTo || new Date(p.validTo) > now).length;
   const taxCount = prices.filter(p => p.isTax).length;
 
@@ -74,8 +68,7 @@ export default function PricesPage() {
       width: 130,
       render: (type: string) => {
         const color = typeColors[type] || 'default';
-        const label = typeLabels[type] || type;
-        return <Tag color={color}>{label}</Tag>;
+        return <Tag color={color}>{type}</Tag>;
       },
     },
     {
@@ -88,7 +81,8 @@ export default function PricesPage() {
       title: 'DESCRIPTION',
       dataIndex: 'description',
       key: 'description',
-      ellipsis: true,
+      width: 220,
+      ellipsis: { showTitle: true },
     },
     {
       title: 'OWNER GLN',
@@ -243,9 +237,9 @@ export default function PricesPage() {
             style={{ flex: 1 }}
             options={[
               { value: 'all', label: 'All types' },
-              { value: 'Tariff', label: 'Tarif' },
-              { value: 'Fee', label: 'Gebyr' },
-              { value: 'Subscription', label: 'Abonnement' },
+              { value: 'Tarif', label: 'Tarif' },
+              { value: 'Gebyr', label: 'Gebyr' },
+              { value: 'Abonnement', label: 'Abonnement' },
             ]}
           />
           <Input
