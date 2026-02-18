@@ -11,7 +11,7 @@ namespace WattsOn.Application.Interfaces;
 /// </summary>
 public interface IWattsOnDbContext
 {
-    DbSet<Actor> Actors { get; }
+    DbSet<SupplierIdentity> SupplierIdentities { get; }
     DbSet<Customer> Customers { get; }
     DbSet<MeteringPoint> MeteringPoints { get; }
     DbSet<Supply> Supplies { get; }

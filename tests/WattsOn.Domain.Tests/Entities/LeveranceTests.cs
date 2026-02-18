@@ -10,14 +10,14 @@ public class SupplyTests
     {
         var mpId = Guid.NewGuid();
         var customerId = Guid.NewGuid();
-        var actorId = Guid.NewGuid();
+        var supplierIdentityId = Guid.NewGuid();
         var period = Period.From(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
 
-        var supply = Supply.Create(mpId, customerId, actorId, period);
+        var supply = Supply.Create(mpId, customerId, supplierIdentityId, period);
 
         Assert.Equal(mpId, supply.MeteringPointId);
         Assert.Equal(customerId, supply.CustomerId);
-        Assert.Equal(actorId, supply.ActorId);
+        Assert.Equal(supplierIdentityId, supply.SupplierIdentityId);
         Assert.True(supply.SupplyPeriod.IsOpenEnded);
     }
 

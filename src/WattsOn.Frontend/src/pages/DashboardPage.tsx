@@ -18,10 +18,13 @@ export default function DashboardPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    Promise.all([getDashboard(), getSettlementDocuments('all')])
+    Promise.all([
+      getDashboard(),
+      getSettlementDocuments('all').catch(() => ({ data: [] })),
+    ])
       .then(([statsRes, docsRes]) => {
         setStats(statsRes.data);
-        setRecentDocs(docsRes.data.slice(0, 8));
+        setRecentDocs(Array.isArray(docsRes.data) ? docsRes.data.slice(0, 8) : []);
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));

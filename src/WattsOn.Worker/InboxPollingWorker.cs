@@ -140,17 +140,17 @@ public class InboxPollingWorker : BackgroundService
                                 .FirstOrDefaultAsync(ct);
 
                             // Find our actor
-                            var ownActor = await db.Actors.FirstOrDefaultAsync(a => a.IsOwn, ct);
+                            var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive, ct);
 
                             // Find or get customer from process context
                             var customerId = supply?.CustomerId;
                             if (customerId.HasValue)
                             {
                                 var customer = await db.Customers.FindAsync(new object[] { customerId.Value }, ct);
-                                if (customer != null && ownActor != null)
+                                if (customer != null && identity != null)
                                 {
                                     var result = Brs001Handler.ExecuteSupplierChange(
-                                        process, mp, customer, ownActor.Id, supply);
+                                        process, mp, customer, identity.Id, supply);
 
                                     if (result.NewSupply != null)
                                         db.Supplies.Add(result.NewSupply);

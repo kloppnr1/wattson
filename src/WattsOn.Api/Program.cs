@@ -22,12 +22,23 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Auto-migrate on startup (dev only)
+// Auto-migrate + seed own actor on startup (dev only)
 if (app.Environment.IsDevelopment())
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<WattsOnDbContext>();
     await db.Database.MigrateAsync();
+
+    // Ensure at least one supplier identity exists
+    if (!await db.SupplierIdentities.AnyAsync())
+    {
+        var identity = SupplierIdentity.Create(
+            GlnNumber.Create("5790001330552"),
+            "WattsOn Energy A/S",
+            CvrNumber.Create("12345678"));
+        db.SupplierIdentities.Add(identity);
+        await db.SaveChangesAsync();
+    }
     app.MapOpenApi();
 }
 
@@ -38,42 +49,38 @@ app.UseCors();
 app.MapGet("/api/health", () => Results.Ok(new { status = "healthy", timestamp = DateTimeOffset.UtcNow }))
     .WithName("Health");
 
-// ==================== AKTØRER ====================
+// ==================== SUPPLIER IDENTITIES ====================
 
-app.MapGet("/api/actors", async (WattsOnDbContext db) =>
+app.MapGet("/api/supplier-identities", async (WattsOnDbContext db) =>
 {
-    var actors = await db.Actors
+    var identities = await db.SupplierIdentities
         .AsNoTracking()
-        .OrderBy(a => a.Name)
-        .Select(a => new
+        .OrderBy(s => s.Name)
+        .Select(s => new
         {
-            a.Id,
-            Gln = a.Gln.Value,
-            a.Name,
-            Role = a.Role.ToString(),
-            Cvr = a.Cvr != null ? a.Cvr.Value : null,
-            a.IsOwn,
-            a.CreatedAt
+            s.Id,
+            Gln = s.Gln.Value,
+            s.Name,
+            Cvr = s.Cvr != null ? s.Cvr.Value : null,
+            s.IsActive,
+            s.CreatedAt
         })
         .ToListAsync();
-    return Results.Ok(actors);
-}).WithName("GetActors");
+    return Results.Ok(identities);
+}).WithName("GetSupplierIdentities");
 
-app.MapPost("/api/actors", async (CreateActorRequest req, WattsOnDbContext db) =>
+app.MapPost("/api/supplier-identities", async (CreateSupplierIdentityRequest req, WattsOnDbContext db) =>
 {
     var gln = GlnNumber.Create(req.Gln);
     var cvr = req.Cvr != null ? CvrNumber.Create(req.Cvr) : null;
-    var role = Enum.Parse<ActorRole>(req.Role);
 
-    var actor = req.IsOwn
-        ? Actor.CreateOwn(gln, req.Name, cvr ?? throw new ArgumentException("CVR required for own actor"))
-        : Actor.Create(gln, req.Name, role, cvr);
+    var identity = SupplierIdentity.Create(gln, req.Name, cvr, req.IsActive);
 
-    db.Actors.Add(actor);
+    db.SupplierIdentities.Add(identity);
     await db.SaveChangesAsync();
 
-    return Results.Created($"/api/actors/{actor.Id}", new { actor.Id, Gln = actor.Gln.Value, actor.Name });
-}).WithName("CreateActor");
+    return Results.Created($"/api/supplier-identities/{identity.Id}", new { identity.Id, Gln = identity.Gln.Value, identity.Name });
+}).WithName("CreateSupplierIdentity");
 
 // ==================== KUNDER ====================
 
@@ -306,14 +313,14 @@ app.MapPost("/api/supplies", async (CreateSupplyRequest req, WattsOnDbContext db
     var customer = await db.Customers.FindAsync(req.CustomerId);
     if (customer is null) return Results.BadRequest(new { error = "Customer not found" });
 
-    var actor = await db.Actors.FindAsync(req.ActorId);
-    if (actor is null) return Results.BadRequest(new { error = "Actor not found" });
+    var supplierIdentity = await db.SupplierIdentities.FindAsync(req.SupplierIdentityId);
+    if (supplierIdentity is null) return Results.BadRequest(new { error = "Supplier identity not found" });
 
     var supplyPeriod = req.SupplyEnd.HasValue
         ? Period.Create(req.SupplyStart, req.SupplyEnd.Value)
         : Period.From(req.SupplyStart);
 
-    var supply = Supply.Create(req.MeteringPointId, req.CustomerId, req.ActorId, supplyPeriod);
+    var supply = Supply.Create(req.MeteringPointId, req.CustomerId, req.SupplierIdentityId, supplyPeriod);
 
     mp.SetActiveSupply(true);
 
@@ -751,15 +758,13 @@ app.MapGet("/api/time_series/{id:guid}", async (Guid id, WattsOnDbContext db) =>
 /// </summary>
 app.MapGet("/api/settlement-documents", async (string? status, WattsOnDbContext db) =>
 {
-    // Get our own company info (seller)
-    var seller = await db.Actors.AsNoTracking().FirstOrDefaultAsync(a => a.IsOwn);
-    if (seller is null) return Results.Problem("No own actor configured");
-
     var query = db.Settlements
         .Include(a => a.Lines)
         .Include(a => a.MeteringPoint)
         .Include(a => a.Supply)
             .ThenInclude(l => l.Customer)
+        .Include(a => a.Supply)
+            .ThenInclude(l => l.SupplierIdentity)
         .AsNoTracking();
 
     // Filter: "ready" = Beregnet (default), "all" = everything
@@ -858,10 +863,10 @@ app.MapGet("/api/settlement-documents", async (string? status, WattsOnDbContext 
 
             seller = new
             {
-                name = seller.Name,
-                identifier = seller.Cvr?.Value,
+                name = a.Supply.SupplierIdentity.Name,
+                identifier = a.Supply.SupplierIdentity.Cvr?.Value,
                 identifierScheme = "DK:CVR",
-                glnNumber = seller.Gln.Value
+                glnNumber = a.Supply.SupplierIdentity.Gln.Value
             },
             buyer = new
             {
@@ -907,14 +912,13 @@ app.MapGet("/api/settlement-documents", async (string? status, WattsOnDbContext 
 /// </summary>
 app.MapGet("/api/settlement-documents/{id:guid}", async (Guid id, WattsOnDbContext db) =>
 {
-    var seller = await db.Actors.AsNoTracking().FirstOrDefaultAsync(a => a.IsOwn);
-    if (seller is null) return Results.Problem("No own actor configured");
-
     var a = await db.Settlements
         .Include(a => a.Lines)
         .Include(a => a.MeteringPoint)
         .Include(a => a.Supply)
             .ThenInclude(l => l.Customer)
+        .Include(a => a.Supply)
+            .ThenInclude(l => l.SupplierIdentity)
         .AsNoTracking()
         .FirstOrDefaultAsync(a => a.Id == id);
 
@@ -996,10 +1000,10 @@ app.MapGet("/api/settlement-documents/{id:guid}", async (Guid id, WattsOnDbConte
 
         seller = new
         {
-            name = seller.Name,
-            identifier = seller.Cvr?.Value,
+            name = a.Supply.SupplierIdentity.Name,
+            identifier = a.Supply.SupplierIdentity.Cvr?.Value,
             identifierScheme = "DK:CVR",
-            glnNumber = seller.Gln.Value
+            glnNumber = a.Supply.SupplierIdentity.Gln.Value
         },
         buyer = new
         {
@@ -1077,8 +1081,8 @@ app.MapPost("/api/settlement-documents/{id:guid}/confirm", async (Guid id, Confi
 /// </summary>
 app.MapPost("/api/simulation/supplier-change", async (SimulateSupplierChangeRequest req, WattsOnDbContext db) =>
 {
-    var ownActor = await db.Actors.FirstOrDefaultAsync(a => a.IsOwn);
-    if (ownActor is null) return Results.Problem("No own actor configured");
+    var identity = await db.SupplierIdentities.FirstOrDefaultAsync(a => a.IsActive);
+    if (identity is null) return Results.Problem("No supplier identity configured");
 
     // 1. Find or create the metering point
     var gsrn = Gsrn.Create(req.Gsrn);
@@ -1136,14 +1140,14 @@ app.MapPost("/api/simulation/supplier-change", async (SimulateSupplierChangeRequ
 
     // 6. Execute the supplier change
     var result = Brs001Handler.ExecuteSupplierChange(
-        process, mp, customer, ownActor.Id, currentSupply);
+        process, mp, customer, identity.Id, currentSupply);
 
     mp.SetActiveSupply(true);
 
     // 7. Create simulated inbox messages (audit trail)
     var requestMsg = InboxMessage.Create(
         $"MSG-{Guid.NewGuid().ToString()[..8]}",
-        "RSM-001", "5790000432752", ownActor.Gln.Value,
+        "RSM-001", "5790000432752", identity.Gln.Value,
         System.Text.Json.JsonSerializer.Serialize(new
         {
             businessReason = "E03",
@@ -1158,7 +1162,7 @@ app.MapPost("/api/simulation/supplier-change", async (SimulateSupplierChangeRequ
 
     var confirmMsg = InboxMessage.Create(
         $"MSG-{Guid.NewGuid().ToString()[..8]}",
-        "RSM-001", "5790000432752", ownActor.Gln.Value,
+        "RSM-001", "5790000432752", identity.Gln.Value,
         System.Text.Json.JsonSerializer.Serialize(new
         {
             businessReason = "E03",
@@ -1279,10 +1283,10 @@ app.MapPost("/api/simulation/supplier-change-outgoing", async (SimulateOutgoingS
     supply.MeteringPoint.SetActiveSupply(false);
 
     // Create audit trail inbox message
-    var ownActor = await db.Actors.FirstOrDefaultAsync(a => a.IsOwn);
+    var identity = await db.SupplierIdentities.FirstOrDefaultAsync(a => a.IsActive);
     var msg = InboxMessage.Create(
         $"MSG-{Guid.NewGuid().ToString()[..8]}",
-        "RSM-004", "5790000432752", ownActor?.Gln.Value ?? "unknown",
+        "RSM-004", "5790000432752", identity?.Gln.Value ?? "unknown",
         System.Text.Json.JsonSerializer.Serialize(new
         {
             businessReason = "E03",
@@ -1319,8 +1323,8 @@ app.MapPost("/api/simulation/supplier-change-outgoing", async (SimulateOutgoingS
 /// </summary>
 app.MapPost("/api/simulation/move-in", async (SimulateMoveInRequest req, WattsOnDbContext db) =>
 {
-    var ownActor = await db.Actors.FirstOrDefaultAsync(a => a.IsOwn);
-    if (ownActor is null) return Results.Problem("No own actor configured");
+    var identity = await db.SupplierIdentities.FirstOrDefaultAsync(a => a.IsActive);
+    if (identity is null) return Results.Problem("No supplier identity configured");
 
     // Find or create metering point
     var gsrn = Gsrn.Create(req.Gsrn);
@@ -1366,7 +1370,7 @@ app.MapPost("/api/simulation/move-in", async (SimulateMoveInRequest req, WattsOn
 
     var result = Brs009Handler.ExecuteMoveIn(
         gsrn, req.EffectiveDate, req.CprNumber, req.CvrNumber,
-        mp, customer, ownActor.Id, currentSupply);
+        mp, customer, identity.Id, currentSupply);
 
     mp.SetActiveSupply(true);
 
@@ -1416,7 +1420,7 @@ app.MapPost("/api/simulation/move-in", async (SimulateMoveInRequest req, WattsOn
     // Audit trail
     var inboxMsg = InboxMessage.Create(
         $"MSG-{Guid.NewGuid().ToString()[..8]}",
-        "RSM-001", "5790000432752", ownActor.Gln.Value,
+        "RSM-001", "5790000432752", identity.Gln.Value,
         System.Text.Json.JsonSerializer.Serialize(new
         {
             businessReason = "E65",
@@ -1481,10 +1485,10 @@ app.MapPost("/api/simulation/move-out", async (SimulateMoveOutRequest req, Watts
     supply.MeteringPoint.SetActiveSupply(false);
 
     // Audit trail
-    var ownActor = await db.Actors.FirstOrDefaultAsync(a => a.IsOwn);
+    var identity = await db.SupplierIdentities.FirstOrDefaultAsync(a => a.IsActive);
     var msg = InboxMessage.Create(
         $"MSG-{Guid.NewGuid().ToString()[..8]}",
-        "RSM-001", "5790000432752", ownActor?.Gln.Value ?? "unknown",
+        "RSM-001", "5790000432752", identity?.Gln.Value ?? "unknown",
         System.Text.Json.JsonSerializer.Serialize(new
         {
             businessReason = "E01",
@@ -1621,7 +1625,7 @@ app.Run();
 
 // ==================== REQUEST DTOs ====================
 
-record CreateActorRequest(string Gln, string Name, string Role, string? Cvr, bool IsOwn = false);
+record CreateSupplierIdentityRequest(string Gln, string Name, string? Cvr, bool IsActive = true);
 
 record AddressDto(string StreetName, string BuildingNumber, string PostCode, string CityName,
     string? Floor = null, string? Suite = null);
@@ -1631,7 +1635,7 @@ record CreateCustomerRequest(string Name, string? Cpr, string? Cvr, string? Emai
 record CreateMeteringPointRequest(string Gsrn, string Type, string Art, string SettlementMethod,
     string Resolution, string GridArea, string GridCompanyGln, AddressDto? Address);
 
-record CreateSupplyRequest(Guid MeteringPointId, Guid CustomerId, Guid ActorId,
+record CreateSupplyRequest(Guid MeteringPointId, Guid CustomerId, Guid SupplierIdentityId,
     DateTimeOffset SupplyStart, DateTimeOffset? SupplyEnd);
 
 record MarkInvoicedRequest(string ExternalInvoiceReference);

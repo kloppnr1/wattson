@@ -4,7 +4,7 @@ using WattsOn.Domain.ValueObjects;
 namespace WattsOn.Domain.Entities;
 
 /// <summary>
-/// Supply — a supply agreement linking our company to a metering point for a customer.
+/// Supply — a supply agreement linking a supplier identity to a metering point for a customer.
 /// Represents the period during which we supply electricity to a specific metering point.
 /// Created via BRS-001 (supplier change), BRS-009 (move-in).
 /// Ended via BRS-002 (supply cessation), BRS-010 (move-out), or another BRS-001.
@@ -13,7 +13,7 @@ public class Supply : Entity
 {
     public Guid MeteringPointId { get; private set; }
     public Guid CustomerId { get; private set; }
-    public Guid ActorId { get; private set; }
+    public Guid SupplierIdentityId { get; private set; }
 
     /// <summary>The period during which this supply is active [start, end)</summary>
     public Period SupplyPeriod { get; private set; } = null!;
@@ -30,14 +30,14 @@ public class Supply : Entity
     // Navigation properties
     public MeteringPoint MeteringPoint { get; private set; } = null!;
     public Customer Customer { get; private set; } = null!;
-    public Actor Actor { get; private set; } = null!;
+    public SupplierIdentity SupplierIdentity { get; private set; } = null!;
 
     private Supply() { } // EF Core
 
     public static Supply Create(
         Guid meteringPointId,
         Guid customerId,
-        Guid actorId,
+        Guid supplierIdentityId,
         Period supplyPeriod,
         Guid? createdByProcessId = null)
     {
@@ -45,7 +45,7 @@ public class Supply : Entity
         {
             MeteringPointId = meteringPointId,
             CustomerId = customerId,
-            ActorId = actorId,
+            SupplierIdentityId = supplierIdentityId,
             SupplyPeriod = supplyPeriod,
             CreatedByProcessId = createdByProcessId
         };

@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5100';
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 const api = axios.create({
   baseURL: `${API_URL}/api`,
@@ -25,13 +25,12 @@ export interface DashboardStats {
   };
 }
 
-export interface Actor {
+export interface SupplierIdentity {
   id: string;
   gln: string;
   name: string;
-  role: string;
   cvr: string | null;
-  isOwn: boolean;
+  isActive: boolean;
   createdAt: string;
 }
 
@@ -209,10 +208,10 @@ export interface SettlementDocument {
 // Dashboard
 export const getDashboard = () => api.get<DashboardStats>('/dashboard');
 
-// Actors
-export const getActors = () => api.get<Actor[]>('/actors');
-export const createActor = (data: { gln: string; name: string; role: string; cvr?: string; isOwn?: boolean }) =>
-  api.post('/actors', data);
+// Supplier Identities
+export const getSupplierIdentities = () => api.get<SupplierIdentity[]>('/supplier-identities');
+export const createSupplierIdentity = (data: { gln: string; name: string; cvr?: string; isActive?: boolean }) =>
+  api.post('/supplier-identities', data);
 
 // Customers
 export const getCustomers = () => api.get<Customer[]>('/customers');
@@ -233,7 +232,7 @@ export const createMeteringPoint = (data: {
 // Supplies
 export const getSupplies = () => api.get<Supply[]>('/supplies');
 export const createSupply = (data: {
-  meteringPointId: string; customerId: string; actorId: string;
+  meteringPointId: string; customerId: string; supplierIdentityId: string;
   supplyStart: string; supplyEnd?: string;
 }) => api.post('/supplies', data);
 

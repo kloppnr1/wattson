@@ -13,10 +13,10 @@ public class SettlementCalculatorTests
 
     private static readonly Guid MpId = Guid.NewGuid();
     private static readonly Guid CustomerId = Guid.NewGuid();
-    private static readonly Guid ActorId = Guid.NewGuid();
+    private static readonly Guid SupplierIdentityId = Guid.NewGuid();
 
     private static Supply CreateSupply() =>
-        Supply.Create(MpId, CustomerId, ActorId, Period.From(Jan1));
+        Supply.Create(MpId, CustomerId, SupplierIdentityId, Period.From(Jan1));
 
     /// <summary>Create a simple hourly time series for January with constant consumption</summary>
     private static TimeSeries CreateJanuaryTimeSeries(decimal kwhPerHour = 1.0m, int version = 1)

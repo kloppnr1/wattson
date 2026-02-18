@@ -14,24 +14,6 @@ namespace WattsOn.Infrastructure.Migrations
             migrationBuilder.Sql("CREATE SEQUENCE IF NOT EXISTS settlement_document_seq START WITH 1 INCREMENT BY 1;");
 
             migrationBuilder.CreateTable(
-                name: "actors",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uuid", nullable: false),
-                    gln = table.Column<string>(type: "character varying(13)", maxLength: 13, nullable: false),
-                    name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
-                    role = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
-                    cvr = table.Column<string>(type: "character varying(8)", maxLength: 8, nullable: true),
-                    is_own = table.Column<bool>(type: "boolean", nullable: false),
-                    created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_actors", x => x.id);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "brs_processes",
                 columns: table => new
                 {
@@ -202,6 +184,23 @@ namespace WattsOn.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "supplier_identities",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "uuid", nullable: false),
+                    gln = table.Column<string>(type: "character varying(13)", maxLength: 13, nullable: false),
+                    name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
+                    cvr = table.Column<string>(type: "character varying(8)", maxLength: 8, nullable: true),
+                    is_active = table.Column<bool>(type: "boolean", nullable: false),
+                    created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_supplier_identities", x => x.id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "process_state_transitions",
                 columns: table => new
                 {
@@ -223,44 +222,6 @@ namespace WattsOn.Infrastructure.Migrations
                         principalTable: "brs_processes",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "supplies",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uuid", nullable: false),
-                    metering_point_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    customer_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    actor_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    supply_start = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    supply_end = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                    created_by_process_id = table.Column<Guid>(type: "uuid", nullable: true),
-                    ended_by_process_id = table.Column<Guid>(type: "uuid", nullable: true),
-                    created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_supplies", x => x.id);
-                    table.ForeignKey(
-                        name: "FK_supplies_actors_actor_id",
-                        column: x => x.actor_id,
-                        principalTable: "actors",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_supplies_customers_customer_id",
-                        column: x => x.customer_id,
-                        principalTable: "customers",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_supplies_metering_points_metering_point_id",
-                        column: x => x.metering_point_id,
-                        principalTable: "metering_points",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
@@ -339,6 +300,44 @@ namespace WattsOn.Infrastructure.Migrations
                         principalTable: "prices",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "supplies",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "uuid", nullable: false),
+                    metering_point_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    customer_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    supplier_identity_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    supply_start = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    supply_end = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    created_by_process_id = table.Column<Guid>(type: "uuid", nullable: true),
+                    ended_by_process_id = table.Column<Guid>(type: "uuid", nullable: true),
+                    created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_supplies", x => x.id);
+                    table.ForeignKey(
+                        name: "FK_supplies_customers_customer_id",
+                        column: x => x.customer_id,
+                        principalTable: "customers",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_supplies_metering_points_metering_point_id",
+                        column: x => x.metering_point_id,
+                        principalTable: "metering_points",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_supplies_supplier_identities_supplier_identity_id",
+                        column: x => x.supplier_identity_id,
+                        principalTable: "supplier_identities",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
@@ -441,12 +440,6 @@ namespace WattsOn.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_actors_gln",
-                table: "actors",
-                column: "gln",
-                unique: true);
-
-            migrationBuilder.CreateIndex(
                 name: "IX_brs_processes_status",
                 table: "brs_processes",
                 column: "status");
@@ -545,9 +538,10 @@ namespace WattsOn.Infrastructure.Migrations
                 columns: new[] { "PriceArea", "HourUtc" });
 
             migrationBuilder.CreateIndex(
-                name: "IX_supplies_actor_id",
-                table: "supplies",
-                column: "actor_id");
+                name: "IX_supplier_identities_gln",
+                table: "supplier_identities",
+                column: "gln",
+                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_supplies_customer_id",
@@ -558,6 +552,11 @@ namespace WattsOn.Infrastructure.Migrations
                 name: "IX_supplies_metering_point_id",
                 table: "supplies",
                 column: "metering_point_id");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_supplies_supplier_identity_id",
+                table: "supplies",
+                column: "supplier_identity_id");
 
             migrationBuilder.CreateIndex(
                 name: "IX_time_series_metering_point_id_is_latest",
@@ -610,10 +609,10 @@ namespace WattsOn.Infrastructure.Migrations
                 name: "time_series");
 
             migrationBuilder.DropTable(
-                name: "actors");
+                name: "customers");
 
             migrationBuilder.DropTable(
-                name: "customers");
+                name: "supplier_identities");
 
             migrationBuilder.DropTable(
                 name: "metering_points");

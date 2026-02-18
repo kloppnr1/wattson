@@ -22,42 +22,6 @@ namespace WattsOn.Infrastructure.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Actor", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<bool>("IsOwn")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_own");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("name");
-
-                    b.Property<string>("Role")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("role");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("actors", (string)null);
-                });
-
             modelBuilder.Entity("WattsOn.Domain.Entities.Customer", b =>
                 {
                     b.Property<Guid>("Id")
@@ -464,16 +428,42 @@ namespace WattsOn.Infrastructure.Migrations
                     b.ToTable("spot_prices", (string)null);
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Supply", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.SupplierIdentity", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
-                    b.Property<Guid>("ActorId")
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("supplier_identities", (string)null);
+                });
+
+            modelBuilder.Entity("WattsOn.Domain.Entities.Supply", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
-                        .HasColumnName("actor_id");
+                        .HasColumnName("id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -495,17 +485,21 @@ namespace WattsOn.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("metering_point_id");
 
+                    b.Property<Guid>("SupplierIdentityId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("supplier_identity_id");
+
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ActorId");
-
                     b.HasIndex("CustomerId");
 
                     b.HasIndex("MeteringPointId");
+
+                    b.HasIndex("SupplierIdentityId");
 
                     b.ToTable("supplies", (string)null);
                 });
@@ -841,55 +835,6 @@ namespace WattsOn.Infrastructure.Migrations
                     b.HasIndex("ProcessId");
 
                     b.ToTable("process_state_transitions", (string)null);
-                });
-
-            modelBuilder.Entity("WattsOn.Domain.Entities.Actor", b =>
-                {
-                    b.OwnsOne("WattsOn.Domain.ValueObjects.CvrNumber", "Cvr", b1 =>
-                        {
-                            b1.Property<Guid>("ActorId")
-                                .HasColumnType("uuid");
-
-                            b1.Property<string>("Value")
-                                .IsRequired()
-                                .HasMaxLength(8)
-                                .HasColumnType("character varying(8)")
-                                .HasColumnName("cvr");
-
-                            b1.HasKey("ActorId");
-
-                            b1.ToTable("actors");
-
-                            b1.WithOwner()
-                                .HasForeignKey("ActorId");
-                        });
-
-                    b.OwnsOne("WattsOn.Domain.ValueObjects.GlnNumber", "Gln", b1 =>
-                        {
-                            b1.Property<Guid>("ActorId")
-                                .HasColumnType("uuid");
-
-                            b1.Property<string>("Value")
-                                .IsRequired()
-                                .HasMaxLength(13)
-                                .HasColumnType("character varying(13)")
-                                .HasColumnName("gln");
-
-                            b1.HasKey("ActorId");
-
-                            b1.HasIndex("Value")
-                                .IsUnique();
-
-                            b1.ToTable("actors");
-
-                            b1.WithOwner()
-                                .HasForeignKey("ActorId");
-                        });
-
-                    b.Navigation("Cvr");
-
-                    b.Navigation("Gln")
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("WattsOn.Domain.Entities.Customer", b =>
@@ -1425,14 +1370,57 @@ namespace WattsOn.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("WattsOn.Domain.Entities.SupplierIdentity", b =>
+                {
+                    b.OwnsOne("WattsOn.Domain.ValueObjects.CvrNumber", "Cvr", b1 =>
+                        {
+                            b1.Property<Guid>("SupplierIdentityId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<string>("Value")
+                                .IsRequired()
+                                .HasMaxLength(8)
+                                .HasColumnType("character varying(8)")
+                                .HasColumnName("cvr");
+
+                            b1.HasKey("SupplierIdentityId");
+
+                            b1.ToTable("supplier_identities");
+
+                            b1.WithOwner()
+                                .HasForeignKey("SupplierIdentityId");
+                        });
+
+                    b.OwnsOne("WattsOn.Domain.ValueObjects.GlnNumber", "Gln", b1 =>
+                        {
+                            b1.Property<Guid>("SupplierIdentityId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<string>("Value")
+                                .IsRequired()
+                                .HasMaxLength(13)
+                                .HasColumnType("character varying(13)")
+                                .HasColumnName("gln");
+
+                            b1.HasKey("SupplierIdentityId");
+
+                            b1.HasIndex("Value")
+                                .IsUnique();
+
+                            b1.ToTable("supplier_identities");
+
+                            b1.WithOwner()
+                                .HasForeignKey("SupplierIdentityId");
+                        });
+
+                    b.Navigation("Cvr");
+
+                    b.Navigation("Gln")
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("WattsOn.Domain.Entities.Supply", b =>
                 {
-                    b.HasOne("WattsOn.Domain.Entities.Actor", "Actor")
-                        .WithMany()
-                        .HasForeignKey("ActorId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.HasOne("WattsOn.Domain.Entities.Customer", "Customer")
                         .WithMany("Supplies")
                         .HasForeignKey("CustomerId")
@@ -1442,6 +1430,12 @@ namespace WattsOn.Infrastructure.Migrations
                     b.HasOne("WattsOn.Domain.Entities.MeteringPoint", "MeteringPoint")
                         .WithMany("Supplies")
                         .HasForeignKey("MeteringPointId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("WattsOn.Domain.Entities.SupplierIdentity", "SupplierIdentity")
+                        .WithMany()
+                        .HasForeignKey("SupplierIdentityId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
@@ -1466,11 +1460,11 @@ namespace WattsOn.Infrastructure.Migrations
                                 .HasForeignKey("SupplyId");
                         });
 
-                    b.Navigation("Actor");
-
                     b.Navigation("Customer");
 
                     b.Navigation("MeteringPoint");
+
+                    b.Navigation("SupplierIdentity");
 
                     b.Navigation("SupplyPeriod")
                         .IsRequired();

@@ -22,9 +22,9 @@ public class SettlementPipelineTests
     {
         await using var db = await _fixture.CreateCleanContext();
 
-        // === Setup: Actor, Customer, MeteringPoint, Supply ===
-        var actor = Actor.Create(GlnNumber.Create("5790001330552"), "WattsOn Energy A/S", ActorRole.Supplier, isOwn: true);
-        db.Actors.Add(actor);
+        // === Setup: SupplierIdentity, Customer, MeteringPoint, Supply ===
+        var identity = SupplierIdentity.Create(GlnNumber.Create("5790001330552"), "WattsOn Energy A/S", CvrNumber.Create("12345678"));
+        db.SupplierIdentities.Add(identity);
 
         var customer = Customer.CreatePerson("Hans Jensen", CprNumber.Create("0101901234"));
         db.Customers.Add(customer);
@@ -39,7 +39,7 @@ public class SettlementPipelineTests
             GlnNumber.Create("5790000610099"));
         db.MeteringPoints.Add(mp);
 
-        var supply = Supply.Create(mp.Id, customer.Id, actor.Id,
+        var supply = Supply.Create(mp.Id, customer.Id, identity.Id,
             Period.From(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero)));
         db.Supplies.Add(supply);
 

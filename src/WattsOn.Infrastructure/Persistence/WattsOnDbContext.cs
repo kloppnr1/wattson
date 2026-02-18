@@ -10,7 +10,7 @@ public class WattsOnDbContext : DbContext, IWattsOnDbContext
 {
     public WattsOnDbContext(DbContextOptions<WattsOnDbContext> options) : base(options) { }
 
-    public DbSet<Actor> Actors => Set<Actor>();
+    public DbSet<SupplierIdentity> SupplierIdentities => Set<SupplierIdentity>();
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<MeteringPoint> MeteringPoints => Set<MeteringPoint>();
     public DbSet<Supply> Supplies => Set<Supply>();

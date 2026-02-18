@@ -33,7 +33,7 @@ public static class Brs009Handler
         string? cvrNumber,
         MeteringPoint metering_point,
         Customer customer,
-        Guid ownActorId,
+        Guid supplierIdentityId,
         Supply? currentSupply)
     {
         if (cprNumber is null && cvrNumber is null)
@@ -62,7 +62,7 @@ public static class Brs009Handler
 
         // Create new supply
         var newSupply = Supply.Create(
-            metering_point.Id, customer.Id, ownActorId,
+            metering_point.Id, customer.Id, supplierIdentityId,
             Period.From(effectiveDate), process.Id);
 
         process.TransitionTo(Brs009StateMachine.Completed, "Tilflytning gennemført");

@@ -99,7 +99,7 @@ public static class Brs001Handler
         BrsProcess process,
         MeteringPoint metering_point,
         Customer customer,
-        Guid ownActorId,
+        Guid supplierIdentityId,
         Supply? currentSupply)
     {
         process.TransitionTo(Brs001StateMachine.Active, "Master data received, executing change");
@@ -115,7 +115,7 @@ public static class Brs001Handler
         var newSupply = Supply.Create(
             metering_point.Id,
             customer.Id,
-            ownActorId,
+            supplierIdentityId,
             supplyPeriod);
 
         process.TransitionTo(Brs001StateMachine.Completed, "Supplier change completed");

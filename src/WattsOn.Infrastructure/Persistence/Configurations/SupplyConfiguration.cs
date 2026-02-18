@@ -17,7 +17,7 @@ public class SupplyConfiguration : IEntityTypeConfiguration<Supply>
 
         builder.Property(l => l.MeteringPointId).HasColumnName("metering_point_id").IsRequired();
         builder.Property(l => l.CustomerId).HasColumnName("customer_id").IsRequired();
-        builder.Property(l => l.ActorId).HasColumnName("actor_id").IsRequired();
+        builder.Property(l => l.SupplierIdentityId).HasColumnName("supplier_identity_id").IsRequired();
         builder.Property(l => l.CreatedByProcessId).HasColumnName("created_by_process_id");
         builder.Property(l => l.EndedByProcessId).HasColumnName("ended_by_process_id");
 
@@ -27,9 +27,9 @@ public class SupplyConfiguration : IEntityTypeConfiguration<Supply>
             period.Property(p => p.End).HasColumnName("supply_end");
         });
 
-        builder.HasOne(l => l.Actor)
+        builder.HasOne(l => l.SupplierIdentity)
             .WithMany()
-            .HasForeignKey(l => l.ActorId)
+            .HasForeignKey(l => l.SupplierIdentityId)
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.Ignore(l => l.IsActive);

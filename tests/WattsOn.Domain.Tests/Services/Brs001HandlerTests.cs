@@ -87,9 +87,9 @@ public class Brs001HandlerTests
         var mp = MeteringPoint.Create(TestGsrn, MeteringPointType.Forbrug, MeteringPointCategory.Fysisk,
             SettlementMethod.Flex, Resolution.PT1H, "DK1", GlnNumber.Create("5790000610976"));
         var customer = Customer.CreatePerson("Test Customer", CprNumber.Create("0101901234"));
-        var ownActorId = Guid.NewGuid();
+        var supplierIdentityId = Guid.NewGuid();
 
-        var result = Brs001Handler.ExecuteSupplierChange(process, mp, customer, ownActorId, null);
+        var result = Brs001Handler.ExecuteSupplierChange(process, mp, customer, supplierIdentityId, null);
 
         Assert.NotNull(result.NewSupply);
         Assert.Equal(mp.Id, result.NewSupply!.MeteringPointId);
@@ -112,9 +112,9 @@ public class Brs001HandlerTests
         var customer = Customer.CreatePerson("Test Customer", CprNumber.Create("0101901234"));
         var oldSupply = Supply.Create(mp.Id, Guid.NewGuid(), Guid.NewGuid(),
             Period.From(DateTimeOffset.UtcNow.AddYears(-1)));
-        var ownActorId = Guid.NewGuid();
+        var supplierIdentityId = Guid.NewGuid();
 
-        var result = Brs001Handler.ExecuteSupplierChange(process, mp, customer, ownActorId, oldSupply);
+        var result = Brs001Handler.ExecuteSupplierChange(process, mp, customer, supplierIdentityId, oldSupply);
 
         Assert.NotNull(result.EndedSupply);
         Assert.False(result.EndedSupply!.SupplyPeriod.IsOpenEnded);
