@@ -702,12 +702,60 @@ app.MapGet("/api/prices", async (WattsOnDbContext db) =>
             ValidFrom = p.ValidityPeriod.Start,
             ValidTo = p.ValidityPeriod.End,
             p.VatExempt,
+            p.IsTax,
+            p.IsPassThrough,
             PriceResolution = p.PriceResolution != null ? p.PriceResolution.ToString() : null,
-            PricePointCount = p.PricePoints.Count
+            PricePointCount = p.PricePoints.Count,
+            LinkedMeteringPoints = db.PriceLinks.Count(pl => pl.PriceId == p.Id)
         })
         .ToListAsync();
     return Results.Ok(prices);
 }).WithName("GetPrices");
+
+app.MapGet("/api/prices/{id:guid}", async (Guid id, WattsOnDbContext db) =>
+{
+    var price = await db.Prices
+        .AsNoTracking()
+        .Include(p => p.PricePoints)
+        .FirstOrDefaultAsync(p => p.Id == id);
+    
+    if (price is null) return Results.NotFound();
+    
+    var links = await db.PriceLinks
+        .AsNoTracking()
+        .Include(pl => pl.MeteringPoint)
+        .Where(pl => pl.PriceId == id)
+        .Select(pl => new
+        {
+            pl.Id,
+            pl.MeteringPointId,
+            Gsrn = pl.MeteringPoint.Gsrn.Value,
+            LinkFrom = pl.LinkPeriod.Start,
+            LinkTo = pl.LinkPeriod.End
+        })
+        .ToListAsync();
+    
+    return Results.Ok(new
+    {
+        price.Id,
+        price.ChargeId,
+        OwnerGln = price.OwnerGln.Value,
+        Type = price.Type.ToString(),
+        price.Description,
+        ValidFrom = price.ValidityPeriod.Start,
+        ValidTo = price.ValidityPeriod.End,
+        price.VatExempt,
+        price.IsTax,
+        price.IsPassThrough,
+        PriceResolution = price.PriceResolution?.ToString(),
+        PricePoints = price.PricePoints
+            .OrderByDescending(pp => pp.Timestamp)
+            .Take(100)
+            .Select(pp => new { pp.Timestamp, pp.Price }),
+        TotalPricePoints = price.PricePoints.Count,
+        LinkedMeteringPoints = links
+    });
+}).WithName("GetPrice");
 
 app.MapPost("/api/prices", async (CreatePrisRequest req, WattsOnDbContext db) =>
 {

@@ -205,6 +205,41 @@ export interface SettlementDocument {
   invoicedAt: string | null;
 }
 
+export interface PriceSummary {
+  id: string;
+  chargeId: string;
+  ownerGln: string;
+  type: string;
+  description: string;
+  validFrom: string;
+  validTo: string | null;
+  vatExempt: boolean;
+  isTax: boolean;
+  isPassThrough: boolean;
+  priceResolution: string | null;
+  pricePointCount: number;
+  linkedMeteringPoints: number;
+}
+
+export interface PricePointDto {
+  timestamp: string;
+  price: number;
+}
+
+export interface PriceLinkDto {
+  id: string;
+  meteringPointId: string;
+  gsrn: string;
+  linkFrom: string;
+  linkTo: string | null;
+}
+
+export interface PriceDetail extends Omit<PriceSummary, 'pricePointCount' | 'linkedMeteringPoints'> {
+  pricePoints: PricePointDto[];
+  totalPricePoints: number;
+  linkedMeteringPoints: PriceLinkDto[];
+}
+
 // ==================== API Calls ====================
 
 // Dashboard
@@ -258,5 +293,9 @@ export const confirmSettlement = (id: string, externalInvoiceReference: string) 
 // Inbox / Outbox
 export const getInbox = (unprocessed?: boolean) => api.get<InboxMessage[]>('/inbox', { params: { unprocessed } });
 export const getOutbox = (unsent?: boolean) => api.get<any[]>('/outbox', { params: { unsent } });
+
+// Prices
+export const getPrices = () => api.get<PriceSummary[]>('/prices');
+export const getPrice = (id: string) => api.get<PriceDetail>(`/prices/${id}`);
 
 export default api;

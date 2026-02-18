@@ -7,6 +7,7 @@ import {
   InboxOutlined,
   ExperimentOutlined,
   SettingOutlined,
+  DollarOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import WattsOnIcon from './WattsOnIcon';
@@ -20,6 +21,7 @@ const menuItems = [
   ]},
   { type: 'group' as const, label: 'BILLING', children: [
     { key: '/settlements', icon: <CalculatorOutlined />, label: 'Settlements' },
+    { key: '/prices', icon: <DollarOutlined />, label: 'Prices' },
   ]},
   { type: 'group' as const, label: 'DATAHUB', children: [
     { key: '/processes', icon: <SyncOutlined />, label: 'Processes' },
