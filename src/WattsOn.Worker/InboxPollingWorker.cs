@@ -11,7 +11,8 @@ namespace WattsOn.Worker;
 
 /// <summary>
 /// Polls for unprocessed inbox messages and routes them to the appropriate BRS handler.
-/// Supports BRS-001 (Leverandørskift) and BRS-009 (Tilflytning/Fraflytning) messages.
+/// Supports BRS-001 (Leverandørskift), BRS-009 (Tilflytning/Fraflytning),
+/// BRS-031 (Prisoplysninger) and BRS-037 (Pristilknytninger) messages.
 /// </summary>
 public class InboxPollingWorker : BackgroundService
 {
@@ -97,6 +98,7 @@ public class InboxPollingWorker : BackgroundService
                 break;
 
             case "BRS-031":
+            case "BRS-037": // Price link updates — same D17/D08/D18 message format as BRS-031
                 await HandleBrs031Message(db, message, payload, ct);
                 break;
 
@@ -267,6 +269,7 @@ public class InboxPollingWorker : BackgroundService
 
     private async Task HandleBrs031Message(WattsOnDbContext db, InboxMessage message, JsonElement payload, CancellationToken ct)
     {
+        var brs = message.BusinessProcess; // BRS-031 or BRS-037
         var businessReason = GetPayloadString(payload, "businessReason") ?? message.DocumentType;
 
         switch (businessReason)
@@ -301,8 +304,8 @@ public class InboxPollingWorker : BackgroundService
                 if (result.IsNew)
                     db.Prices.Add(result.Price);
 
-                _logger.LogInformation("BRS-031 D18: {Action} price info {ChargeId} for {OwnerGln}",
-                    result.IsNew ? "Created" : "Updated", chargeId, ownerGln);
+                _logger.LogInformation("{Brs} D18: {Action} price info {ChargeId} for {OwnerGln}",
+                    brs, result.IsNew ? "Created" : "Updated", chargeId, ownerGln);
                 break;
             }
 
@@ -320,7 +323,7 @@ public class InboxPollingWorker : BackgroundService
 
                 if (price is null)
                 {
-                    _logger.LogWarning("BRS-031 D08: Price not found for {ChargeId}/{OwnerGln}", chargeId, ownerGln);
+                    _logger.LogWarning("{Brs} D08: Price not found for {ChargeId}/{OwnerGln}", brs, chargeId, ownerGln);
                     break;
                 }
 
@@ -337,7 +340,7 @@ public class InboxPollingWorker : BackgroundService
 
                 var result = Brs031Handler.ProcessPriceSeries(price, startDate, endDate, points);
 
-                _logger.LogInformation("BRS-031 D08: Added {Count} price points to {ChargeId}", result.PointsAdded, chargeId);
+                _logger.LogInformation("{Brs} D08: Added {Count} price points to {ChargeId}", brs, result.PointsAdded, chargeId);
                 break;
             }
 
@@ -355,7 +358,7 @@ public class InboxPollingWorker : BackgroundService
                 var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn, ct);
                 if (mp is null)
                 {
-                    _logger.LogWarning("BRS-031 D17: Metering point not found for GSRN {Gsrn}", gsrnStr);
+                    _logger.LogWarning("{Brs} D17: Metering point not found for GSRN {Gsrn}", brs, gsrnStr);
                     break;
                 }
 
@@ -366,7 +369,7 @@ public class InboxPollingWorker : BackgroundService
 
                 if (price is null)
                 {
-                    _logger.LogWarning("BRS-031 D17: Price not found for {ChargeId}/{OwnerGln}", chargeId, ownerGln);
+                    _logger.LogWarning("{Brs} D17: Price not found for {ChargeId}/{OwnerGln}", brs, chargeId, ownerGln);
                     break;
                 }
 
@@ -380,13 +383,13 @@ public class InboxPollingWorker : BackgroundService
                 if (result.IsNew)
                     db.PriceLinks.Add(result.Link);
 
-                _logger.LogInformation("BRS-031 D17: {Action} price link for GSRN {Gsrn} → {ChargeId}",
-                    result.IsNew ? "Created" : "Updated", gsrnStr, chargeId);
+                _logger.LogInformation("{Brs} D17: {Action} price link for GSRN {Gsrn} → {ChargeId}",
+                    brs, result.IsNew ? "Created" : "Updated", gsrnStr, chargeId);
                 break;
             }
 
             default:
-                _logger.LogInformation("BRS-031: Unknown business reason '{Reason}' — skipping", businessReason);
+                _logger.LogInformation("{Brs}: Unknown business reason '{Reason}' — skipping", brs, businessReason);
                 break;
         }
     }
