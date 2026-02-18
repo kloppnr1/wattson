@@ -11,6 +11,7 @@ import SettlementDetailPage from './pages/SettlementDetailPage';
 import ProcesserPage from './pages/ProcesserPage';
 import SimulationPage from './pages/SimulationPage';
 import InboxPage from './pages/InboxPage';
+import AdminPage from './pages/AdminPage';
 
 export default function App() {
   return (
@@ -24,6 +25,7 @@ export default function App() {
             <Route path="/settlements" element={<SettlementsPage />} />
             <Route path="/settlements/:id" element={<SettlementDetailPage />} />
             <Route path="/processes" element={<ProcesserPage />} />
+            <Route path="/admin" element={<AdminPage />} />
             <Route path="/simulation" element={<SimulationPage />} />
             <Route path="/messages" element={<InboxPage />} />
           </Route>

@@ -82,6 +82,23 @@ app.MapPost("/api/supplier-identities", async (CreateSupplierIdentityRequest req
     return Results.Created($"/api/supplier-identities/{identity.Id}", new { identity.Id, Gln = identity.Gln.Value, identity.Name });
 }).WithName("CreateSupplierIdentity");
 
+app.MapPatch("/api/supplier-identities/{id:guid}", async (Guid id, PatchSupplierIdentityRequest req, WattsOnDbContext db) =>
+{
+    var identity = await db.SupplierIdentities.FindAsync(id);
+    if (identity is null) return Results.NotFound();
+
+    if (req.IsActive.HasValue)
+    {
+        if (req.IsActive.Value) identity.Activate();
+        else identity.Deactivate();
+    }
+
+    if (req.Name != null) identity.UpdateName(req.Name);
+
+    await db.SaveChangesAsync();
+    return Results.Ok(new { identity.Id, Gln = identity.Gln.Value, identity.Name, identity.IsActive });
+}).WithName("PatchSupplierIdentity");
+
 // ==================== KUNDER ====================
 
 app.MapGet("/api/customers", async (WattsOnDbContext db) =>
@@ -1626,6 +1643,8 @@ app.Run();
 // ==================== REQUEST DTOs ====================
 
 record CreateSupplierIdentityRequest(string Gln, string Name, string? Cvr, bool IsActive = true);
+
+record PatchSupplierIdentityRequest(bool? IsActive = null, string? Name = null);
 
 record AddressDto(string StreetName, string BuildingNumber, string PostCode, string CityName,
     string? Floor = null, string? Suite = null);

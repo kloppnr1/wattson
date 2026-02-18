@@ -6,6 +6,7 @@ import {
   SyncOutlined,
   InboxOutlined,
   ExperimentOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import WattsOnIcon from './WattsOnIcon';
@@ -24,7 +25,8 @@ const menuItems = [
     { key: '/processes', icon: <SyncOutlined />, label: 'Processes' },
     { key: '/messages', icon: <InboxOutlined />, label: 'Messages' },
   ]},
-  { type: 'group' as const, label: 'DEVELOPMENT', children: [
+  { type: 'group' as const, label: 'SYSTEM', children: [
+    { key: '/admin', icon: <SettingOutlined />, label: 'Administration' },
     { key: '/simulation', icon: <ExperimentOutlined />, label: 'Simulator' },
   ]},
 ];
