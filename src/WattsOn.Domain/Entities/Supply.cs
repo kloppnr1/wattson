@@ -13,7 +13,6 @@ public class Supply : Entity
 {
     public Guid MeteringPointId { get; private set; }
     public Guid CustomerId { get; private set; }
-    public Guid SupplierIdentityId { get; private set; }
 
     /// <summary>The period during which this supply is active [start, end)</summary>
     public Period SupplyPeriod { get; private set; } = null!;
@@ -30,14 +29,12 @@ public class Supply : Entity
     // Navigation properties
     public MeteringPoint MeteringPoint { get; private set; } = null!;
     public Customer Customer { get; private set; } = null!;
-    public SupplierIdentity SupplierIdentity { get; private set; } = null!;
 
     private Supply() { } // EF Core
 
     public static Supply Create(
         Guid meteringPointId,
         Guid customerId,
-        Guid supplierIdentityId,
         Period supplyPeriod,
         Guid? createdByProcessId = null)
     {
@@ -45,7 +42,6 @@ public class Supply : Entity
         {
             MeteringPointId = meteringPointId,
             CustomerId = customerId,
-            SupplierIdentityId = supplierIdentityId,
             SupplyPeriod = supplyPeriod,
             CreatedByProcessId = createdByProcessId
         };

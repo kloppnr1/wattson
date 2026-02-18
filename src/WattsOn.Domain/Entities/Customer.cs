@@ -17,28 +17,36 @@ public class Customer : Entity
     public string? Phone { get; private set; }
     public Address? Address { get; private set; }
 
+    /// <summary>The supplier identity (GLN) that owns this customer</summary>
+    public Guid SupplierIdentityId { get; private set; }
+
+    // Navigation
+    public SupplierIdentity SupplierIdentity { get; private set; } = null!;
+
     /// <summary>Customer's active supply agreements</summary>
     private readonly List<Supply> _supplies = new();
     public IReadOnlyList<Supply> Supplies => _supplies.AsReadOnly();
 
     private Customer() { } // EF Core
 
-    public static Customer CreatePerson(string name, CprNumber cpr, Address? address = null)
+    public static Customer CreatePerson(string name, CprNumber cpr, Guid supplierIdentityId, Address? address = null)
     {
         return new Customer
         {
             Name = name,
             Cpr = cpr,
+            SupplierIdentityId = supplierIdentityId,
             Address = address
         };
     }
 
-    public static Customer CreateCompany(string name, CvrNumber cvr, Address? address = null)
+    public static Customer CreateCompany(string name, CvrNumber cvr, Guid supplierIdentityId, Address? address = null)
     {
         return new Customer
         {
             Name = name,
             Cvr = cvr,
+            SupplierIdentityId = supplierIdentityId,
             Address = address
         };
     }

@@ -105,11 +105,11 @@ export default function DashboardPage() {
               <Statistic
                 title={card.title}
                 value={card.value}
-                valueStyle={{
+                styles={{ content: {
                   fontSize: 36,
                   fontWeight: 700,
                   color: card.color || '#1a202c',
-                }}
+                } }}
               />
             </Card>
           </Col>

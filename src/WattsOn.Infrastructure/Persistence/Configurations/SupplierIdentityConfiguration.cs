@@ -23,6 +23,7 @@ public class SupplierIdentityConfiguration : IEntityTypeConfiguration<SupplierId
 
         builder.Property(s => s.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
         builder.Property(s => s.IsActive).HasColumnName("is_active");
+        builder.Property(s => s.IsArchived).HasColumnName("is_archived").HasDefaultValue(false);
 
         builder.OwnsOne(s => s.Cvr, cvr =>
         {

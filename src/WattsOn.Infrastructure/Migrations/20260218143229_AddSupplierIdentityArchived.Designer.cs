@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using WattsOn.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using WattsOn.Infrastructure.Persistence;
 namespace WattsOn.Infrastructure.Migrations
 {
     [DbContext(typeof(WattsOnDbContext))]
-    partial class WattsOnDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260218143229_AddSupplierIdentityArchived")]
+    partial class AddSupplierIdentityArchived
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -49,17 +52,11 @@ namespace WattsOn.Infrastructure.Migrations
                         .HasColumnType("character varying(20)")
                         .HasColumnName("phone");
 
-                    b.Property<Guid>("SupplierIdentityId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("supplier_identity_id");
-
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("SupplierIdentityId");
 
                     b.ToTable("customers", (string)null);
                 });
@@ -497,6 +494,10 @@ namespace WattsOn.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("metering_point_id");
 
+                    b.Property<Guid>("SupplierIdentityId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("supplier_identity_id");
+
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
@@ -506,6 +507,8 @@ namespace WattsOn.Infrastructure.Migrations
                     b.HasIndex("CustomerId");
 
                     b.HasIndex("MeteringPointId");
+
+                    b.HasIndex("SupplierIdentityId");
 
                     b.ToTable("supplies", (string)null);
                 });
@@ -845,12 +848,6 @@ namespace WattsOn.Infrastructure.Migrations
 
             modelBuilder.Entity("WattsOn.Domain.Entities.Customer", b =>
                 {
-                    b.HasOne("WattsOn.Domain.Entities.SupplierIdentity", "SupplierIdentity")
-                        .WithMany()
-                        .HasForeignKey("SupplierIdentityId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.OwnsOne("WattsOn.Domain.ValueObjects.Address", "Address", b1 =>
                         {
                             b1.Property<Guid>("CustomerId")
@@ -952,8 +949,6 @@ namespace WattsOn.Infrastructure.Migrations
                     b.Navigation("Cpr");
 
                     b.Navigation("Cvr");
-
-                    b.Navigation("SupplierIdentity");
                 });
 
             modelBuilder.Entity("WattsOn.Domain.Entities.MeteringPoint", b =>
@@ -1447,6 +1442,12 @@ namespace WattsOn.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("WattsOn.Domain.Entities.SupplierIdentity", "SupplierIdentity")
+                        .WithMany()
+                        .HasForeignKey("SupplierIdentityId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.OwnsOne("WattsOn.Domain.ValueObjects.Period", "SupplyPeriod", b1 =>
                         {
                             b1.Property<Guid>("SupplyId")
@@ -1471,6 +1472,8 @@ namespace WattsOn.Infrastructure.Migrations
                     b.Navigation("Customer");
 
                     b.Navigation("MeteringPoint");
+
+                    b.Navigation("SupplierIdentity");
 
                     b.Navigation("SupplyPeriod")
                         .IsRequired();

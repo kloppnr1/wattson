@@ -12,6 +12,7 @@ public class Brs001HandlerTests
     private static readonly Gsrn TestGsrn = Gsrn.Create("571313100000000099");
     private static readonly GlnNumber CounterpartGln = GlnNumber.Create("5790000000005");
     private static readonly DateTimeOffset FutureDate = DateTimeOffset.UtcNow.AddDays(30);
+    private static readonly Guid SupplierId = Guid.NewGuid();
 
     // --- Initiation ---
 
@@ -86,10 +87,9 @@ public class Brs001HandlerTests
 
         var mp = MeteringPoint.Create(TestGsrn, MeteringPointType.Forbrug, MeteringPointCategory.Fysisk,
             SettlementMethod.Flex, Resolution.PT1H, "DK1", GlnNumber.Create("5790000610976"));
-        var customer = Customer.CreatePerson("Test Customer", CprNumber.Create("0101901234"));
-        var supplierIdentityId = Guid.NewGuid();
+        var customer = Customer.CreatePerson("Test Customer", CprNumber.Create("0101901234"), SupplierId);
 
-        var result = Brs001Handler.ExecuteSupplierChange(process, mp, customer, supplierIdentityId, null);
+        var result = Brs001Handler.ExecuteSupplierChange(process, mp, customer, null);
 
         Assert.NotNull(result.NewSupply);
         Assert.Equal(mp.Id, result.NewSupply!.MeteringPointId);
@@ -106,15 +106,13 @@ public class Brs001HandlerTests
             TestGsrn, FutureDate, "0101901234", null, CounterpartGln);
         Brs001Handler.HandleConfirmation(process, "DH-TX-001");
 
-        var mpId = Guid.NewGuid();
         var mp = MeteringPoint.Create(TestGsrn, MeteringPointType.Forbrug, MeteringPointCategory.Fysisk,
             SettlementMethod.Flex, Resolution.PT1H, "DK1", GlnNumber.Create("5790000610976"));
-        var customer = Customer.CreatePerson("Test Customer", CprNumber.Create("0101901234"));
-        var oldSupply = Supply.Create(mp.Id, Guid.NewGuid(), Guid.NewGuid(),
+        var customer = Customer.CreatePerson("Test Customer", CprNumber.Create("0101901234"), SupplierId);
+        var oldSupply = Supply.Create(mp.Id, Guid.NewGuid(),
             Period.From(DateTimeOffset.UtcNow.AddYears(-1)));
-        var supplierIdentityId = Guid.NewGuid();
 
-        var result = Brs001Handler.ExecuteSupplierChange(process, mp, customer, supplierIdentityId, oldSupply);
+        var result = Brs001Handler.ExecuteSupplierChange(process, mp, customer, oldSupply);
 
         Assert.NotNull(result.EndedSupply);
         Assert.False(result.EndedSupply!.SupplyPeriod.IsOpenEnded);
@@ -130,9 +128,9 @@ public class Brs001HandlerTests
 
         var mp = MeteringPoint.Create(TestGsrn, MeteringPointType.Forbrug, MeteringPointCategory.Fysisk,
             SettlementMethod.Flex, Resolution.PT1H, "DK1", GlnNumber.Create("5790000610976"));
-        var customer = Customer.CreatePerson("Test Customer", CprNumber.Create("0101901234"));
+        var customer = Customer.CreatePerson("Test Customer", CprNumber.Create("0101901234"), SupplierId);
 
-        Brs001Handler.ExecuteSupplierChange(process, mp, customer, Guid.NewGuid(), null);
+        Brs001Handler.ExecuteSupplierChange(process, mp, customer, null);
 
         Assert.Equal(Brs001StateMachine.Completed, process.CurrentState);
         Assert.Equal(ProcessStatus.Completed, process.Status);
@@ -145,7 +143,7 @@ public class Brs001HandlerTests
     public void HandleAsRecipient_EndsSupplyAndCompletes()
     {
         var mpId = Guid.NewGuid();
-        var oldSupply = Supply.Create(mpId, Guid.NewGuid(), Guid.NewGuid(),
+        var oldSupply = Supply.Create(mpId, Guid.NewGuid(),
             Period.From(DateTimeOffset.UtcNow.AddYears(-1)));
 
         var result = Brs001Handler.HandleAsRecipient(
@@ -171,8 +169,8 @@ public class Brs001HandlerTests
 
         var mp = MeteringPoint.Create(TestGsrn, MeteringPointType.Forbrug, MeteringPointCategory.Fysisk,
             SettlementMethod.Flex, Resolution.PT1H, "DK1", GlnNumber.Create("5790000610976"));
-        var customer = Customer.CreatePerson("Test Customer", CprNumber.Create("0101901234"));
-        Brs001Handler.ExecuteSupplierChange(process, mp, customer, Guid.NewGuid(), null);
+        var customer = Customer.CreatePerson("Test Customer", CprNumber.Create("0101901234"), SupplierId);
+        Brs001Handler.ExecuteSupplierChange(process, mp, customer, null);
 
         // Should have: Initial→Created, Created→Submitted, Submitted→Confirmed, Confirmed→Active, Active→Completed
         Assert.True(process.Transitions.Count >= 4);

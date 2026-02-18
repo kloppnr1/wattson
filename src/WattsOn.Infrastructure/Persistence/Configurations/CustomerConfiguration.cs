@@ -19,6 +19,12 @@ public class CustomerConfiguration : IEntityTypeConfiguration<Customer>
         builder.Property(k => k.Email).HasColumnName("email").HasMaxLength(200);
         builder.Property(k => k.Phone).HasColumnName("phone").HasMaxLength(20);
 
+        builder.Property(k => k.SupplierIdentityId).HasColumnName("supplier_identity_id").IsRequired();
+        builder.HasOne(k => k.SupplierIdentity)
+            .WithMany()
+            .HasForeignKey(k => k.SupplierIdentityId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.OwnsOne(k => k.Cpr, cpr =>
         {
             cpr.Property(c => c.Value).HasColumnName("cpr").HasMaxLength(10);

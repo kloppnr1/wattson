@@ -26,7 +26,7 @@ public class SettlementPipelineTests
         var identity = SupplierIdentity.Create(GlnNumber.Create("5790001330552"), "WattsOn Energy A/S", CvrNumber.Create("12345678"));
         db.SupplierIdentities.Add(identity);
 
-        var customer = Customer.CreatePerson("Hans Jensen", CprNumber.Create("0101901234"));
+        var customer = Customer.CreatePerson("Hans Jensen", CprNumber.Create("0101901234"), identity.Id);
         db.Customers.Add(customer);
 
         var mp = MeteringPoint.Create(
@@ -39,7 +39,7 @@ public class SettlementPipelineTests
             GlnNumber.Create("5790000610099"));
         db.MeteringPoints.Add(mp);
 
-        var supply = Supply.Create(mp.Id, customer.Id, identity.Id,
+        var supply = Supply.Create(mp.Id, customer.Id,
             Period.From(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero)));
         db.Supplies.Add(supply);
 
@@ -188,7 +188,11 @@ public class SettlementPipelineTests
     {
         await using var db = await _fixture.CreateCleanContext();
 
-        var customer = Customer.CreatePerson("Maria Nielsen", CprNumber.Create("1505851234"));
+        var identity = SupplierIdentity.Create(GlnNumber.Create("5790001330552"), "Test A/S");
+        db.SupplierIdentities.Add(identity);
+        await db.SaveChangesAsync();
+
+        var customer = Customer.CreatePerson("Maria Nielsen", CprNumber.Create("1505851234"), identity.Id);
         customer.UpdateAddress(Address.Create("Vestergade", "12", "8000", "Aarhus C"));
         customer.UpdateContactInfo("maria@example.dk", "+4512345678");
         db.Customers.Add(customer);

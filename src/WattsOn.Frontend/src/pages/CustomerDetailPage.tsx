@@ -209,7 +209,7 @@ export default function CustomerDetailPage() {
               <Statistic
                 title={s.title} value={s.value}
                 prefix={<span style={{ color: s.color }}>{s.icon}</span>}
-                valueStyle={{ color: s.color, fontSize: 24 }}
+                styles={{ content: { color: s.color, fontSize: 24 } }}
               />
             </Card>
           </Col>
@@ -260,6 +260,12 @@ export default function CustomerDetailPage() {
                       </Descriptions.Item>
                       <Descriptions.Item label={customer.isPrivate ? 'CPR' : 'CVR'}>
                         <Text className="mono">{customer.cpr || customer.cvr || '—'}</Text>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Supplier">
+                        <Space size={4}>
+                          <Text>{customer.supplierName}</Text>
+                          <Text type="secondary" className="mono" style={{ fontSize: 12 }}>{customer.supplierGln}</Text>
+                        </Space>
                       </Descriptions.Item>
                       <Descriptions.Item label="Created">
                         {new Date(customer.createdAt).toLocaleString('da-DK')}

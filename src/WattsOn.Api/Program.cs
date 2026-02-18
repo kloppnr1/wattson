@@ -44,6 +44,21 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors();
 
+// Global validation error handler — catches domain ArgumentExceptions (GLN, CVR, GSRN etc.)
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next(context);
+    }
+    catch (ArgumentException ex) when (context.Request.Path.StartsWithSegments("/api"))
+    {
+        context.Response.StatusCode = 400;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsJsonAsync(new { error = ex.Message });
+    }
+});
+
 // --- API Endpoints ---
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "healthy", timestamp = DateTimeOffset.UtcNow }))
@@ -51,10 +66,13 @@ app.MapGet("/api/health", () => Results.Ok(new { status = "healthy", timestamp =
 
 // ==================== SUPPLIER IDENTITIES ====================
 
-app.MapGet("/api/supplier-identities", async (WattsOnDbContext db) =>
+app.MapGet("/api/supplier-identities", async (bool? includeArchived, WattsOnDbContext db) =>
 {
-    var identities = await db.SupplierIdentities
-        .AsNoTracking()
+    var query = db.SupplierIdentities.AsNoTracking();
+    if (includeArchived != true)
+        query = query.Where(s => !s.IsArchived);
+
+    var identities = await query
         .OrderBy(s => s.Name)
         .Select(s => new
         {
@@ -63,6 +81,7 @@ app.MapGet("/api/supplier-identities", async (WattsOnDbContext db) =>
             s.Name,
             Cvr = s.Cvr != null ? s.Cvr.Value : null,
             s.IsActive,
+            s.IsArchived,
             s.CreatedAt
         })
         .ToListAsync();
@@ -71,15 +90,26 @@ app.MapGet("/api/supplier-identities", async (WattsOnDbContext db) =>
 
 app.MapPost("/api/supplier-identities", async (CreateSupplierIdentityRequest req, WattsOnDbContext db) =>
 {
-    var gln = GlnNumber.Create(req.Gln);
-    var cvr = req.Cvr != null ? CvrNumber.Create(req.Cvr) : null;
+    try
+    {
+        var gln = GlnNumber.Create(req.Gln);
+        var cvr = req.Cvr != null ? CvrNumber.Create(req.Cvr) : null;
 
-    var identity = SupplierIdentity.Create(gln, req.Name, cvr, req.IsActive);
+        var identity = SupplierIdentity.Create(gln, req.Name, cvr, req.IsActive);
 
-    db.SupplierIdentities.Add(identity);
-    await db.SaveChangesAsync();
+        db.SupplierIdentities.Add(identity);
+        await db.SaveChangesAsync();
 
-    return Results.Created($"/api/supplier-identities/{identity.Id}", new { identity.Id, Gln = identity.Gln.Value, identity.Name });
+        return Results.Created($"/api/supplier-identities/{identity.Id}", new { identity.Id, Gln = identity.Gln.Value, identity.Name });
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+    catch (Microsoft.EntityFrameworkCore.DbUpdateException)
+    {
+        return Results.Conflict(new { error = "A supplier identity with this GLN already exists." });
+    }
 }).WithName("CreateSupplierIdentity");
 
 app.MapPatch("/api/supplier-identities/{id:guid}", async (Guid id, PatchSupplierIdentityRequest req, WattsOnDbContext db) =>
@@ -95,15 +125,40 @@ app.MapPatch("/api/supplier-identities/{id:guid}", async (Guid id, PatchSupplier
 
     if (req.Name != null) identity.UpdateName(req.Name);
 
+    if (req.Cvr != null)
+    {
+        var cvr = string.IsNullOrWhiteSpace(req.Cvr) ? null : CvrNumber.Create(req.Cvr);
+        identity.UpdateCvr(cvr);
+    }
+
     await db.SaveChangesAsync();
-    return Results.Ok(new { identity.Id, Gln = identity.Gln.Value, identity.Name, identity.IsActive });
+    return Results.Ok(new { identity.Id, Gln = identity.Gln.Value, identity.Name, Cvr = identity.Cvr?.Value, identity.IsActive, identity.IsArchived });
 }).WithName("PatchSupplierIdentity");
+
+app.MapPost("/api/supplier-identities/{id:guid}/archive", async (Guid id, WattsOnDbContext db) =>
+{
+    var identity = await db.SupplierIdentities.FindAsync(id);
+    if (identity is null) return Results.NotFound();
+    identity.Archive();
+    await db.SaveChangesAsync();
+    return Results.Ok(new { identity.Id, Gln = identity.Gln.Value, identity.Name, identity.IsActive, identity.IsArchived });
+}).WithName("ArchiveSupplierIdentity");
+
+app.MapPost("/api/supplier-identities/{id:guid}/unarchive", async (Guid id, WattsOnDbContext db) =>
+{
+    var identity = await db.SupplierIdentities.FindAsync(id);
+    if (identity is null) return Results.NotFound();
+    identity.Unarchive();
+    await db.SaveChangesAsync();
+    return Results.Ok(new { identity.Id, Gln = identity.Gln.Value, identity.Name, identity.IsActive, identity.IsArchived });
+}).WithName("UnarchiveSupplierIdentity");
 
 // ==================== KUNDER ====================
 
 app.MapGet("/api/customers", async (WattsOnDbContext db) =>
 {
     var customers = await db.Customers
+        .Include(k => k.SupplierIdentity)
         .AsNoTracking()
         .OrderBy(k => k.Name)
         .Select(k => new
@@ -116,6 +171,9 @@ app.MapGet("/api/customers", async (WattsOnDbContext db) =>
             k.Phone,
             IsPrivate = k.Cpr != null,
             IsCompany = k.Cvr != null,
+            k.SupplierIdentityId,
+            SupplierGln = k.SupplierIdentity.Gln.Value,
+            SupplierName = k.SupplierIdentity.Name,
             k.CreatedAt
         })
         .ToListAsync();
@@ -125,6 +183,7 @@ app.MapGet("/api/customers", async (WattsOnDbContext db) =>
 app.MapGet("/api/customers/{id:guid}", async (Guid id, WattsOnDbContext db) =>
 {
     var customer = await db.Customers
+        .Include(k => k.SupplierIdentity)
         .Include(k => k.Supplies)
             .ThenInclude(l => l.MeteringPoint)
         .AsNoTracking()
@@ -140,6 +199,9 @@ app.MapGet("/api/customers/{id:guid}", async (Guid id, WattsOnDbContext db) =>
         Cvr = customer.Cvr?.Value,
         customer.Email,
         customer.Phone,
+        customer.SupplierIdentityId,
+        SupplierGln = customer.SupplierIdentity.Gln.Value,
+        SupplierName = customer.SupplierIdentity.Name,
         Address = customer.Address != null ? new
         {
             customer.Address.StreetName,
@@ -171,14 +233,18 @@ app.MapPost("/api/customers", async (CreateCustomerRequest req, WattsOnDbContext
             req.Address.Floor, req.Address.Suite)
         : null;
 
+    // Verify supplier identity exists
+    var supplierIdentity = await db.SupplierIdentities.FindAsync(req.SupplierIdentityId);
+    if (supplierIdentity is null) return Results.BadRequest(new { error = "Supplier identity not found" });
+
     Customer customer;
     if (req.Cpr != null)
     {
-        customer = Customer.CreatePerson(req.Name, CprNumber.Create(req.Cpr), address);
+        customer = Customer.CreatePerson(req.Name, CprNumber.Create(req.Cpr), req.SupplierIdentityId, address);
     }
     else if (req.Cvr != null)
     {
-        customer = Customer.CreateCompany(req.Name, CvrNumber.Create(req.Cvr), address);
+        customer = Customer.CreateCompany(req.Name, CvrNumber.Create(req.Cvr), req.SupplierIdentityId, address);
     }
     else
     {
@@ -330,14 +396,11 @@ app.MapPost("/api/supplies", async (CreateSupplyRequest req, WattsOnDbContext db
     var customer = await db.Customers.FindAsync(req.CustomerId);
     if (customer is null) return Results.BadRequest(new { error = "Customer not found" });
 
-    var supplierIdentity = await db.SupplierIdentities.FindAsync(req.SupplierIdentityId);
-    if (supplierIdentity is null) return Results.BadRequest(new { error = "Supplier identity not found" });
-
     var supplyPeriod = req.SupplyEnd.HasValue
         ? Period.Create(req.SupplyStart, req.SupplyEnd.Value)
         : Period.From(req.SupplyStart);
 
-    var supply = Supply.Create(req.MeteringPointId, req.CustomerId, req.SupplierIdentityId, supplyPeriod);
+    var supply = Supply.Create(req.MeteringPointId, req.CustomerId, supplyPeriod);
 
     mp.SetActiveSupply(true);
 
@@ -780,8 +843,7 @@ app.MapGet("/api/settlement-documents", async (string? status, WattsOnDbContext 
         .Include(a => a.MeteringPoint)
         .Include(a => a.Supply)
             .ThenInclude(l => l.Customer)
-        .Include(a => a.Supply)
-            .ThenInclude(l => l.SupplierIdentity)
+                .ThenInclude(c => c.SupplierIdentity)
         .AsNoTracking();
 
     // Filter: "ready" = Beregnet (default), "all" = everything
@@ -880,10 +942,10 @@ app.MapGet("/api/settlement-documents", async (string? status, WattsOnDbContext 
 
             seller = new
             {
-                name = a.Supply.SupplierIdentity.Name,
-                identifier = a.Supply.SupplierIdentity.Cvr?.Value,
+                name = a.Supply.Customer.SupplierIdentity.Name,
+                identifier = a.Supply.Customer.SupplierIdentity.Cvr?.Value,
                 identifierScheme = "DK:CVR",
-                glnNumber = a.Supply.SupplierIdentity.Gln.Value
+                glnNumber = a.Supply.Customer.SupplierIdentity.Gln.Value
             },
             buyer = new
             {
@@ -934,8 +996,7 @@ app.MapGet("/api/settlement-documents/{id:guid}", async (Guid id, WattsOnDbConte
         .Include(a => a.MeteringPoint)
         .Include(a => a.Supply)
             .ThenInclude(l => l.Customer)
-        .Include(a => a.Supply)
-            .ThenInclude(l => l.SupplierIdentity)
+                .ThenInclude(c => c.SupplierIdentity)
         .AsNoTracking()
         .FirstOrDefaultAsync(a => a.Id == id);
 
@@ -1017,10 +1078,10 @@ app.MapGet("/api/settlement-documents/{id:guid}", async (Guid id, WattsOnDbConte
 
         seller = new
         {
-            name = a.Supply.SupplierIdentity.Name,
-            identifier = a.Supply.SupplierIdentity.Cvr?.Value,
+            name = a.Supply.Customer.SupplierIdentity.Name,
+            identifier = a.Supply.Customer.SupplierIdentity.Cvr?.Value,
             identifierScheme = "DK:CVR",
-            glnNumber = a.Supply.SupplierIdentity.Gln.Value
+            glnNumber = a.Supply.Customer.SupplierIdentity.Gln.Value
         },
         buyer = new
         {
@@ -1130,8 +1191,8 @@ app.MapPost("/api/simulation/supplier-change", async (SimulateSupplierChangeRequ
                 req.Address.PostCode, req.Address.CityName, req.Address.Floor, req.Address.Suite)
             : null;
         customer = req.CprNumber != null
-            ? Customer.CreatePerson(req.CustomerName, CprNumber.Create(req.CprNumber), address)
-            : Customer.CreateCompany(req.CustomerName, CvrNumber.Create(req.CvrNumber!), address);
+            ? Customer.CreatePerson(req.CustomerName, CprNumber.Create(req.CprNumber), identity.Id, address)
+            : Customer.CreateCompany(req.CustomerName, CvrNumber.Create(req.CvrNumber!), identity.Id, address);
         if (req.Email != null || req.Phone != null)
             customer.UpdateContactInfo(req.Email, req.Phone);
         db.Customers.Add(customer);
@@ -1157,7 +1218,7 @@ app.MapPost("/api/simulation/supplier-change", async (SimulateSupplierChangeRequ
 
     // 6. Execute the supplier change
     var result = Brs001Handler.ExecuteSupplierChange(
-        process, mp, customer, identity.Id, currentSupply);
+        process, mp, customer, currentSupply);
 
     mp.SetActiveSupply(true);
 
@@ -1372,8 +1433,8 @@ app.MapPost("/api/simulation/move-in", async (SimulateMoveInRequest req, WattsOn
                 req.Address.PostCode, req.Address.CityName, req.Address.Floor, req.Address.Suite)
             : null;
         customer = req.CprNumber != null
-            ? Customer.CreatePerson(req.CustomerName, CprNumber.Create(req.CprNumber), address)
-            : Customer.CreateCompany(req.CustomerName, CvrNumber.Create(req.CvrNumber!), address);
+            ? Customer.CreatePerson(req.CustomerName, CprNumber.Create(req.CprNumber), identity.Id, address)
+            : Customer.CreateCompany(req.CustomerName, CvrNumber.Create(req.CvrNumber!), identity.Id, address);
         if (req.Email != null || req.Phone != null)
             customer.UpdateContactInfo(req.Email, req.Phone);
         db.Customers.Add(customer);
@@ -1387,7 +1448,7 @@ app.MapPost("/api/simulation/move-in", async (SimulateMoveInRequest req, WattsOn
 
     var result = Brs009Handler.ExecuteMoveIn(
         gsrn, req.EffectiveDate, req.CprNumber, req.CvrNumber,
-        mp, customer, identity.Id, currentSupply);
+        mp, customer, currentSupply);
 
     mp.SetActiveSupply(true);
 
@@ -1644,17 +1705,17 @@ app.Run();
 
 record CreateSupplierIdentityRequest(string Gln, string Name, string? Cvr, bool IsActive = true);
 
-record PatchSupplierIdentityRequest(bool? IsActive = null, string? Name = null);
+record PatchSupplierIdentityRequest(bool? IsActive = null, string? Name = null, string? Cvr = null);
 
 record AddressDto(string StreetName, string BuildingNumber, string PostCode, string CityName,
     string? Floor = null, string? Suite = null);
 
-record CreateCustomerRequest(string Name, string? Cpr, string? Cvr, string? Email, string? Phone, AddressDto? Address);
+record CreateCustomerRequest(string Name, string? Cpr, string? Cvr, Guid SupplierIdentityId, string? Email, string? Phone, AddressDto? Address);
 
 record CreateMeteringPointRequest(string Gsrn, string Type, string Art, string SettlementMethod,
     string Resolution, string GridArea, string GridCompanyGln, AddressDto? Address);
 
-record CreateSupplyRequest(Guid MeteringPointId, Guid CustomerId, Guid SupplierIdentityId,
+record CreateSupplyRequest(Guid MeteringPointId, Guid CustomerId,
     DateTimeOffset SupplyStart, DateTimeOffset? SupplyEnd);
 
 record MarkInvoicedRequest(string ExternalInvoiceReference);

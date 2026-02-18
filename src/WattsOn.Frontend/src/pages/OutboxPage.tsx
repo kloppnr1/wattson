@@ -92,7 +92,7 @@ export default function OutboxPage() {
               title="Sendt"
               value={sent}
               prefix={<CheckCircleOutlined style={{ color: '#059669' }} />}
-              valueStyle={{ color: '#059669', fontSize: 28 }}
+              styles={{ content: { color: '#059669', fontSize: 28 } }}
             />
           </Card>
         </Col>
@@ -102,7 +102,7 @@ export default function OutboxPage() {
               title="Venter"
               value={pending}
               prefix={<ClockCircleOutlined style={{ color: '#3b82f6' }} />}
-              valueStyle={{ color: '#3b82f6', fontSize: 28 }}
+              styles={{ content: { color: '#3b82f6', fontSize: 28 } }}
             />
           </Card>
         </Col>
@@ -112,7 +112,7 @@ export default function OutboxPage() {
               title="Fejl"
               value={errors}
               prefix={<ExclamationCircleOutlined style={{ color: errors > 0 ? '#e11d48' : '#99afc2' }} />}
-              valueStyle={{ color: errors > 0 ? '#e11d48' : '#99afc2', fontSize: 28 }}
+              styles={{ content: { color: errors > 0 ? '#e11d48' : '#99afc2', fontSize: 28 } }}
             />
           </Card>
         </Col>

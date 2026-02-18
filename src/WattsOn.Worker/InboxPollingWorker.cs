@@ -150,7 +150,7 @@ public class InboxPollingWorker : BackgroundService
                                 if (customer != null && identity != null)
                                 {
                                     var result = Brs001Handler.ExecuteSupplierChange(
-                                        process, mp, customer, identity.Id, supply);
+                                        process, mp, customer, supply);
 
                                     if (result.NewSupply != null)
                                         db.Supplies.Add(result.NewSupply);

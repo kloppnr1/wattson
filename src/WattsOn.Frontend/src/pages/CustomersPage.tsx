@@ -54,6 +54,13 @@ export default function CustomersPage() {
       ),
     },
     {
+      title: 'SUPPLIER',
+      key: 'supplier',
+      render: (_: any, record: Customer) => (
+        <Text style={{ color: '#6b7280', fontSize: 13 }}>{record.supplierName || '—'}</Text>
+      ),
+    },
+    {
       title: 'KONTAKT',
       key: 'contact',
       render: (_: any, record: Customer) => (
@@ -93,7 +100,7 @@ export default function CustomersPage() {
               <Statistic
                 title={s.title}
                 value={s.value}
-                valueStyle={{ fontSize: 36, fontWeight: 700, color: '#1a202c' }}
+                styles={{ content: { fontSize: 36, fontWeight: 700, color: '#1a202c' } }}
               />
             </Card>
           </Col>

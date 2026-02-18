@@ -1,9 +1,8 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || '';
-
+// v2 — relative URLs, proxied through Vite
 const api = axios.create({
-  baseURL: `${API_URL}/api`,
+  baseURL: '/api',
   timeout: 10000,
 });
 
@@ -43,6 +42,9 @@ export interface Customer {
   phone: string | null;
   isPrivate: boolean;
   isCompany: boolean;
+  supplierIdentityId: string;
+  supplierGln?: string;
+  supplierName?: string;
   createdAt: string;
 }
 
@@ -212,12 +214,14 @@ export const getDashboard = () => api.get<DashboardStats>('/dashboard');
 export const getSupplierIdentities = () => api.get<SupplierIdentity[]>('/supplier-identities');
 export const createSupplierIdentity = (data: { gln: string; name: string; cvr?: string; isActive?: boolean }) =>
   api.post('/supplier-identities', data);
+export const patchSupplierIdentity = (id: string, data: { isActive?: boolean; name?: string }) =>
+  api.patch(`/supplier-identities/${id}`, data);
 
 // Customers
 export const getCustomers = () => api.get<Customer[]>('/customers');
 export const getCustomer = (id: string) => api.get<CustomerDetail>(`/customers/${id}`);
 export const createCustomer = (data: {
-  name: string; cpr?: string; cvr?: string;
+  name: string; cpr?: string; cvr?: string; supplierIdentityId: string;
   email?: string; phone?: string; address?: AddressDto;
 }) => api.post('/customers', data);
 
@@ -232,7 +236,7 @@ export const createMeteringPoint = (data: {
 // Supplies
 export const getSupplies = () => api.get<Supply[]>('/supplies');
 export const createSupply = (data: {
-  meteringPointId: string; customerId: string; supplierIdentityId: string;
+  meteringPointId: string; customerId: string;
   supplyStart: string; supplyEnd?: string;
 }) => api.post('/supplies', data);
 

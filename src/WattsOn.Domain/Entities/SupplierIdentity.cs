@@ -20,6 +20,12 @@ public class SupplierIdentity : Entity
     /// </summary>
     public bool IsActive { get; private set; } = true;
 
+    /// <summary>
+    /// Archived = fully retired, no longer receives any corrections.
+    /// Hidden from all operational views.
+    /// </summary>
+    public bool IsArchived { get; private set; }
+
     private SupplierIdentity() { } // EF Core
 
     public static SupplierIdentity Create(GlnNumber gln, string name, CvrNumber? cvr = null, bool isActive = true)
@@ -45,6 +51,12 @@ public class SupplierIdentity : Entity
         MarkUpdated();
     }
 
+    public void UpdateCvr(CvrNumber? cvr)
+    {
+        Cvr = cvr;
+        MarkUpdated();
+    }
+
     public void Deactivate()
     {
         IsActive = false;
@@ -54,6 +66,20 @@ public class SupplierIdentity : Entity
     public void Activate()
     {
         IsActive = true;
+        MarkUpdated();
+    }
+
+    /// <summary>Archive — no more corrections expected for any metering points on this GLN.</summary>
+    public void Archive()
+    {
+        IsActive = false;
+        IsArchived = true;
+        MarkUpdated();
+    }
+
+    public void Unarchive()
+    {
+        IsArchived = false;
         MarkUpdated();
     }
 }

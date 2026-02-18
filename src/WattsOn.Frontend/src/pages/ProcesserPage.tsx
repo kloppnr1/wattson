@@ -180,7 +180,7 @@ export default function ProcesserPage() {
               <Statistic
                 title={s.title}
                 value={s.value}
-                valueStyle={{ fontSize: 36, fontWeight: 700, color: s.color || '#1a202c' }}
+                styles={{ content: { fontSize: 36, fontWeight: 700, color: s.color || '#1a202c' } }}
               />
             </Card>
           </Col>
