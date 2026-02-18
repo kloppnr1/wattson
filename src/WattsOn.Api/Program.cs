@@ -616,6 +616,50 @@ app.MapGet("/api/settlements/adjustments", async (WattsOnDbContext db) =>
 }).WithName("GetAdjustmentSettlements");
 
 /// <summary>
+/// Get the latest settlement for a metering point — used to watch the settlement engine work.
+/// Returns the full calculation breakdown (lines, prices, quantities, amounts).
+/// </summary>
+app.MapGet("/api/settlements/by-metering-point/{meteringPointId:guid}", async (Guid meteringPointId, WattsOnDbContext db) =>
+{
+    var settlement = await db.Settlements
+        .Include(a => a.Lines)
+        .Include(a => a.MeteringPoint)
+        .AsNoTracking()
+        .Where(a => a.MeteringPointId == meteringPointId)
+        .OrderByDescending(a => a.CalculatedAt)
+        .FirstOrDefaultAsync();
+
+    if (settlement is null) return Results.Ok(new { found = false });
+
+    return Results.Ok(new
+    {
+        found = true,
+        id = settlement.Id,
+        meteringPointId = settlement.MeteringPointId,
+        gsrn = settlement.MeteringPoint.Gsrn.Value,
+        periodStart = settlement.SettlementPeriod.Start,
+        periodEnd = settlement.SettlementPeriod.End,
+        totalEnergyKwh = settlement.TotalEnergy.Value,
+        totalAmount = settlement.TotalAmount.Amount,
+        currency = settlement.TotalAmount.Currency,
+        status = settlement.Status.ToString(),
+        isCorrection = settlement.IsCorrection,
+        timeSeriesVersion = settlement.TimeSeriesVersion,
+        calculatedAt = settlement.CalculatedAt,
+        lines = settlement.Lines.Select(l => new
+        {
+            l.Id,
+            l.PriceId,
+            l.Description,
+            quantityKwh = l.Quantity.Value,
+            unitPrice = l.UnitPrice,
+            amount = l.Amount.Amount,
+            currency = l.Amount.Currency,
+        }).ToList()
+    });
+}).WithName("GetSettlementByMeteringPoint");
+
+/// <summary>
 /// External invoicing system confirms a settlement has been invoiced.
 /// </summary>
 app.MapPost("/api/settlements/{id:guid}/mark-invoiced", async (Guid id, MarkInvoicedRequest req, WattsOnDbContext db) =>
@@ -1317,6 +1361,7 @@ app.MapPost("/api/simulation/supplier-change", async (SimulateSupplierChangeRequ
         gsrn = req.Gsrn,
         customerName = customer.Name,
         customerId = customer.Id,
+        meteringPointId = mp.Id,
         newSupplyId = result.NewSupply?.Id,
         endedSupplyId = result.EndedSupply?.Id,
         effectiveDate = req.EffectiveDate,

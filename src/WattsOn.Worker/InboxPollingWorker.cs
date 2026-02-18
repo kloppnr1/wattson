@@ -96,6 +96,10 @@ public class InboxPollingWorker : BackgroundService
                 await HandleBrs009Message(db, message, payload, ct);
                 break;
 
+            case "BRS-031":
+                await HandleBrs031Message(db, message, payload, ct);
+                break;
+
             default:
                 // Unknown business process — log and mark as processed
                 _logger.LogInformation(
@@ -252,6 +256,132 @@ public class InboxPollingWorker : BackgroundService
                 }
                 break;
             }
+        }
+    }
+
+    private async Task HandleBrs031Message(WattsOnDbContext db, InboxMessage message, JsonElement payload, CancellationToken ct)
+    {
+        var businessReason = GetPayloadString(payload, "businessReason") ?? message.DocumentType;
+
+        switch (businessReason)
+        {
+            case "D18": // Price information / charge masterdata (create/update)
+            {
+                var chargeId = GetPayloadString(payload, "chargeId")!;
+                var ownerGln = GlnNumber.Create(GetPayloadString(payload, "ownerGln")!);
+                var priceTypeStr = GetPayloadString(payload, "priceType")!;
+                var description = GetPayloadString(payload, "description") ?? "";
+                var effectiveDate = DateTimeOffset.Parse(GetPayloadString(payload, "effectiveDate")!);
+                var stopDateStr = GetPayloadString(payload, "stopDate");
+                var stopDate = stopDateStr != null ? DateTimeOffset.Parse(stopDateStr) : (DateTimeOffset?)null;
+                var resolutionStr = GetPayloadString(payload, "resolution") ?? "PT1H";
+                var vatExempt = payload.TryGetProperty("vatExempt", out var ve) && ve.GetBoolean();
+                var isTax = payload.TryGetProperty("isTax", out var it) && it.GetBoolean();
+                var isPassThrough = !payload.TryGetProperty("isPassThrough", out var ipt) || ipt.GetBoolean();
+
+                var priceType = Enum.Parse<PriceType>(priceTypeStr, ignoreCase: true);
+                var resolution = Enum.Parse<Resolution>(resolutionStr, ignoreCase: true);
+
+                // Find existing price by ChargeId + OwnerGln
+                var existingPrice = await db.Prices
+                    .Include(p => p.PricePoints)
+                    .Where(p => p.ChargeId == chargeId)
+                    .FirstOrDefaultAsync(p => p.OwnerGln == ownerGln, ct);
+
+                var result = Brs031Handler.ProcessPriceInformation(
+                    chargeId, ownerGln, priceType, description, effectiveDate, stopDate,
+                    resolution, vatExempt, isTax, isPassThrough, existingPrice);
+
+                if (result.IsNew)
+                    db.Prices.Add(result.Price);
+
+                _logger.LogInformation("BRS-031 D18: {Action} price info {ChargeId} for {OwnerGln}",
+                    result.IsNew ? "Created" : "Updated", chargeId, ownerGln);
+                break;
+            }
+
+            case "D08": // Price series / charge prices (add/replace points)
+            {
+                var chargeId = GetPayloadString(payload, "chargeId")!;
+                var ownerGln = GlnNumber.Create(GetPayloadString(payload, "ownerGln")!);
+                var startDate = DateTimeOffset.Parse(GetPayloadString(payload, "startDate")!);
+                var endDate = DateTimeOffset.Parse(GetPayloadString(payload, "endDate")!);
+
+                var price = await db.Prices
+                    .Include(p => p.PricePoints)
+                    .Where(p => p.ChargeId == chargeId)
+                    .FirstOrDefaultAsync(p => p.OwnerGln == ownerGln, ct);
+
+                if (price is null)
+                {
+                    _logger.LogWarning("BRS-031 D08: Price not found for {ChargeId}/{OwnerGln}", chargeId, ownerGln);
+                    break;
+                }
+
+                var points = new List<(DateTimeOffset timestamp, decimal price)>();
+                if (payload.TryGetProperty("points", out var pointsArray))
+                {
+                    foreach (var pt in pointsArray.EnumerateArray())
+                    {
+                        var timestamp = DateTimeOffset.Parse(pt.GetProperty("timestamp").GetString()!);
+                        var amount = pt.GetProperty("price").GetDecimal();
+                        points.Add((timestamp, amount));
+                    }
+                }
+
+                var result = Brs031Handler.ProcessPriceSeries(price, startDate, endDate, points);
+
+                _logger.LogInformation("BRS-031 D08: Added {Count} price points to {ChargeId}", result.PointsAdded, chargeId);
+                break;
+            }
+
+            case "D17": // Price link update
+            {
+                var gsrnStr = GetPayloadString(payload, "gsrn")!;
+                var chargeId = GetPayloadString(payload, "chargeId")!;
+                var ownerGln = GlnNumber.Create(GetPayloadString(payload, "ownerGln")!);
+                var linkStart = DateTimeOffset.Parse(GetPayloadString(payload, "linkStart")!);
+                var linkEndStr = GetPayloadString(payload, "linkEnd");
+                var linkEnd = linkEndStr != null ? DateTimeOffset.Parse(linkEndStr) : (DateTimeOffset?)null;
+
+                // Find metering point by GSRN
+                var gsrn = Gsrn.Create(gsrnStr);
+                var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn, ct);
+                if (mp is null)
+                {
+                    _logger.LogWarning("BRS-031 D17: Metering point not found for GSRN {Gsrn}", gsrnStr);
+                    break;
+                }
+
+                // Find price by ChargeId + OwnerGln
+                var price = await db.Prices
+                    .Where(p => p.ChargeId == chargeId)
+                    .FirstOrDefaultAsync(p => p.OwnerGln == ownerGln, ct);
+
+                if (price is null)
+                {
+                    _logger.LogWarning("BRS-031 D17: Price not found for {ChargeId}/{OwnerGln}", chargeId, ownerGln);
+                    break;
+                }
+
+                // Find existing link
+                var existingLink = await db.PriceLinks
+                    .FirstOrDefaultAsync(pl => pl.PriceId == price.Id && pl.MeteringPointId == mp.Id, ct);
+
+                var result = Brs031Handler.ProcessPriceLinkUpdate(
+                    mp.Id, price.Id, linkStart, linkEnd, existingLink);
+
+                if (result.IsNew)
+                    db.PriceLinks.Add(result.Link);
+
+                _logger.LogInformation("BRS-031 D17: {Action} price link for GSRN {Gsrn} → {ChargeId}",
+                    result.IsNew ? "Created" : "Updated", gsrnStr, chargeId);
+                break;
+            }
+
+            default:
+                _logger.LogInformation("BRS-031: Unknown business reason '{Reason}' — skipping", businessReason);
+                break;
         }
     }
 

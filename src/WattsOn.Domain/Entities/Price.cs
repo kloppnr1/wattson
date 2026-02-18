@@ -29,6 +29,12 @@ public class Price : Entity
     /// <summary>Whether this price is VAT-exempt</summary>
     public bool VatExempt { get; private set; }
 
+    /// <summary>Whether this charge is a tax (e.g. elafgift). Only tariffs can be tax.</summary>
+    public bool IsTax { get; private set; }
+
+    /// <summary>Whether the charge is passed through to the end customer. Fees are always non-pass-through.</summary>
+    public bool IsPassThrough { get; private set; }
+
     /// <summary>Resolution for time-varying prices (null for fixed)</summary>
     public Resolution? PriceResolution { get; private set; }
 
@@ -45,8 +51,16 @@ public class Price : Entity
         string description,
         Period validityPeriod,
         bool vatExempt = false,
-        Resolution? priceResolution = null)
+        Resolution? priceResolution = null,
+        bool isTax = false,
+        bool isPassThrough = true)
     {
+        if (isTax && type != PriceType.Tarif)
+            throw new InvalidOperationException("Only tariffs can be marked as tax.");
+
+        if (type == PriceType.Gebyr)
+            isPassThrough = false; // Fees are always non-pass-through
+
         return new Price
         {
             ChargeId = chargeId,
@@ -55,13 +69,70 @@ public class Price : Entity
             Description = description,
             ValidityPeriod = validityPeriod,
             VatExempt = vatExempt,
-            PriceResolution = priceResolution
+            PriceResolution = priceResolution,
+            IsTax = isTax,
+            IsPassThrough = isPassThrough
         };
+    }
+
+    public void UpdatePriceInfo(string description, bool? isTax, bool? isPassThrough)
+    {
+        if (!string.IsNullOrWhiteSpace(description))
+            Description = description;
+
+        if (isTax.HasValue)
+        {
+            if (isTax.Value && Type != PriceType.Tarif)
+                throw new InvalidOperationException("Only tariffs can be marked as tax.");
+            IsTax = isTax.Value;
+        }
+
+        if (isPassThrough.HasValue)
+        {
+            if (Type == PriceType.Gebyr && isPassThrough.Value)
+                throw new InvalidOperationException("Fees cannot be pass-through.");
+            IsPassThrough = isPassThrough.Value;
+        }
+
+        MarkUpdated();
+    }
+
+    public void UpdateValidity(Period newPeriod)
+    {
+        ValidityPeriod = newPeriod;
+        MarkUpdated();
+    }
+
+    public void UpdateVatExempt(bool vatExempt)
+    {
+        VatExempt = vatExempt;
+        MarkUpdated();
     }
 
     public void AddPricePoint(DateTimeOffset timestamp, decimal price)
     {
         _pricePoints.Add(PricePoint.Create(Id, timestamp, price));
+    }
+
+    /// <summary>
+    /// Replace price points within a date range. Removes existing points in the range
+    /// and adds the new ones.
+    /// </summary>
+    public int ReplacePricePoints(DateTimeOffset start, DateTimeOffset end, IEnumerable<(DateTimeOffset timestamp, decimal price)> newPoints)
+    {
+        // Remove existing points in the date range
+        _pricePoints.RemoveAll(pp => pp.Timestamp >= start && pp.Timestamp < end);
+
+        // Add new points
+        var count = 0;
+        foreach (var (timestamp, price) in newPoints)
+        {
+            _pricePoints.Add(PricePoint.Create(Id, timestamp, price));
+            count++;
+        }
+
+        MarkUpdated();
+        return count;
     }
 
     /// <summary>Get the price at a specific point in time</summary>

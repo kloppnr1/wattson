@@ -41,6 +41,7 @@ interface SimulationResult {
   gsrn: string;
   customerName: string;
   customerId: string;
+  meteringPointId?: string;
   newSupplyId?: string | null;
   endedSupplyId?: string | null;
   effectiveDate: string;
@@ -50,11 +51,28 @@ interface SimulationResult {
   message: string;
 }
 
+interface SettlementLine {
+  description: string;
+  quantityKwh: number;
+  unitPrice: number;
+  amount: number;
+  currency: string;
+}
+
 interface SettlementPollResult {
-  documentId: string;
-  totalExclVat: number;
-  totalInclVat: number;
+  found: boolean;
+  id: string;
+  gsrn: string;
+  periodStart: string;
+  periodEnd: string;
+  totalEnergyKwh: number;
+  totalAmount: number;
+  currency: string;
   status: string;
+  isCorrection: boolean;
+  timeSeriesVersion: number;
+  calculatedAt: string;
+  lines: SettlementLine[];
 }
 
 // --- Danish name generators ---
@@ -256,28 +274,21 @@ export default function SimulationPage() {
     return base;
   };
 
-  // --- Poll for settlement ---
-  const pollForSettlement = async (customerName: string) => {
-    for (let attempt = 0; attempt < 12; attempt++) {
+  // --- Poll for settlement by metering point ---
+  const pollForSettlement = async (meteringPointId: string) => {
+    for (let attempt = 0; attempt < 15; attempt++) {
       if (abortRef.current) break;
-      await sleep(8000);
+      await sleep(5000);
       try {
-        const docs = await api.get<any[]>('/settlement-documents', { params: { status: 'all' } });
-        const newDoc = docs.data.find(
-          (d: any) => d.buyer?.name === customerName && d.documentType === 'settlement'
-        );
-        if (newDoc) {
-          setSettlement({
-            documentId: newDoc.documentId,
-            totalExclVat: newDoc.totalExclVat,
-            totalInclVat: newDoc.totalInclVat,
-            status: newDoc.status,
-          });
-          return newDoc;
+        const res = await api.get<SettlementPollResult>(`/settlements/by-metering-point/${meteringPointId}`);
+        if (res.data.found) {
+          setSettlement(res.data);
+          return res.data;
         }
       } catch { /* keep polling */ }
       updateStep('settlement', {
-        detail: `Afpending SettlementWorker... (${(attempt + 1) * 8}s)`,
+        status: 'running',
+        detail: `Waiting for Settlement Engine... (${(attempt + 1) * 5}s)`,
       });
     }
     return null;
@@ -366,15 +377,16 @@ export default function SimulationPage() {
       await sleep(800);
       updateStep('timeseries', { status: 'done', detail: `${data.totalEnergyKwh?.toFixed(1)} kWh timemålinger indlæst` });
 
-      updateStep('settlement', { status: 'running', detail: 'Afpending SettlementWorker...', timestamp: now() });
-      const doc = await pollForSettlement(data.customerName);
+      updateStep('settlement', { status: 'running', detail: 'Waiting for Settlement Engine...', timestamp: now() });
+      const doc = await pollForSettlement(data.meteringPointId!);
       if (doc) {
+        const totalDKK = doc.totalAmount.toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         updateStep('settlement', {
           status: 'done',
-          detail: `${doc.documentId}: ${doc.totalExclVat.toLocaleString('da-DK', { minimumFractionDigits: 2 })} DKK excl. moms`,
+          detail: `${doc.totalEnergyKwh.toFixed(1)} kWh → ${totalDKK} DKK (${doc.lines.length} price lines)`,
         });
       } else {
-        updateStep('settlement', { status: 'done', detail: 'Afpending — Worker beregner snart' });
+        updateStep('settlement', { status: 'done', detail: 'Timeout — Settlement Engine has not processed yet' });
       }
     }
   };
@@ -813,15 +825,79 @@ export default function SimulationPage() {
                         {result.totalEnergyKwh.toFixed(1)} kWh
                       </Descriptions.Item>
                     )}
-                    {settlement && (
-                      <Descriptions.Item label="Settlement">
-                        <Space>
-                          <Tag color="blue">{settlement.documentId}</Tag>
-                          <Text strong>{formatDKK(settlement.totalInclVat)}</Text>
-                        </Space>
-                      </Descriptions.Item>
-                    )}
                   </Descriptions>
+
+                  {/* Settlement Calculation Breakdown */}
+                  {settlement && settlement.found && (
+                    <Card
+                      size="small"
+                      style={{ marginTop: 16, background: '#f0fdf4', border: '1px solid #bbf7d0' }}
+                      title={
+                        <Space>
+                          <CalculatorOutlined style={{ color: '#16a34a' }} />
+                          <Text strong>Settlement Engine Result</Text>
+                          <Tag color="green">Calculated</Tag>
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {new Date(settlement.calculatedAt).toLocaleTimeString('da-DK')}
+                          </Text>
+                        </Space>
+                      }
+                    >
+                      <Descriptions size="small" column={{ xs: 1, sm: 3 }} bordered style={{ marginBottom: 12 }}>
+                        <Descriptions.Item label="Period">
+                          {dayjs(settlement.periodStart).format('D. MMM YYYY')} — {dayjs(settlement.periodEnd).format('D. MMM YYYY')}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="Total Energy">
+                          <Text strong className="tnum">{settlement.totalEnergyKwh.toFixed(1)} kWh</Text>
+                        </Descriptions.Item>
+                        <Descriptions.Item label="Total Amount">
+                          <Text strong className="tnum" style={{ color: '#16a34a', fontSize: 16 }}>
+                            {settlement.totalAmount.toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settlement.currency}
+                          </Text>
+                        </Descriptions.Item>
+                      </Descriptions>
+
+                      {settlement.lines.length > 0 && (
+                        <div>
+                          <Text type="secondary" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 }}>
+                            Calculation Breakdown
+                          </Text>
+                          <table style={{ width: '100%', marginTop: 8, fontSize: 13, borderCollapse: 'collapse' }}>
+                            <thead>
+                              <tr style={{ borderBottom: '1px solid #d1fae5', textAlign: 'left' }}>
+                                <th style={{ padding: '6px 8px', color: '#6b7280', fontWeight: 500, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 }}>Charge</th>
+                                <th style={{ padding: '6px 8px', color: '#6b7280', fontWeight: 500, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, textAlign: 'right' }}>Quantity</th>
+                                <th style={{ padding: '6px 8px', color: '#6b7280', fontWeight: 500, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, textAlign: 'right' }}>Unit Price</th>
+                                <th style={{ padding: '6px 8px', color: '#6b7280', fontWeight: 500, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, textAlign: 'right' }}>Amount</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {settlement.lines.map((line, i) => (
+                                <tr key={i} style={{ borderBottom: '1px solid #ecfdf5' }}>
+                                  <td style={{ padding: '8px', fontWeight: 500 }}>{line.description}</td>
+                                  <td style={{ padding: '8px', textAlign: 'right', fontFeatureSettings: "'tnum'" }}>
+                                    {line.quantityKwh.toFixed(2)} kWh
+                                  </td>
+                                  <td style={{ padding: '8px', textAlign: 'right', fontFeatureSettings: "'tnum'" }}>
+                                    {line.unitPrice.toFixed(4)} {line.currency}/kWh
+                                  </td>
+                                  <td style={{ padding: '8px', textAlign: 'right', fontWeight: 600, fontFeatureSettings: "'tnum'" }}>
+                                    {line.amount.toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {line.currency}
+                                  </td>
+                                </tr>
+                              ))}
+                              <tr style={{ borderTop: '2px solid #86efac' }}>
+                                <td colSpan={3} style={{ padding: '8px', fontWeight: 700 }}>Total</td>
+                                <td style={{ padding: '8px', textAlign: 'right', fontWeight: 700, fontSize: 15, color: '#16a34a', fontFeatureSettings: "'tnum'" }}>
+                                  {settlement.totalAmount.toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settlement.currency}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </Card>
+                  )}
                 </Card>
               )}
 

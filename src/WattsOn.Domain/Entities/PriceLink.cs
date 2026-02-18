@@ -33,6 +33,12 @@ public class PriceLink : Entity
         };
     }
 
+    public void UpdatePeriod(Period newPeriod)
+    {
+        LinkPeriod = newPeriod;
+        MarkUpdated();
+    }
+
     public void EndLink(DateTimeOffset endDate)
     {
         LinkPeriod = LinkPeriod.ClosedAt(endDate);
