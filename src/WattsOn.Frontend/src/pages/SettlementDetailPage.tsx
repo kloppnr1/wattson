@@ -19,16 +19,16 @@ const formatDate = (d: string) => new Date(d).toLocaleDateString('da-DK');
 const formatDateTime = (d: string) => new Date(d).toLocaleString('da-DK');
 
 const docTypeConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-  settlement: { label: 'Afregning', color: '#5d7a91', icon: <FileTextOutlined /> },
+  settlement: { label: 'Settlement', color: '#5d7a91', icon: <FileTextOutlined /> },
   debitNote: { label: 'Debitnota', color: '#d97706', icon: <SwapOutlined /> },
   creditNote: { label: 'Kreditnota', color: '#059669', icon: <SwapOutlined /> },
 };
 
 const statusColors: Record<string, string> = {
-  Beregnet: 'green', Faktureret: 'blue', Justeret: 'orange',
+  Calculated: 'green', Invoiced: 'blue', Adjusted: 'orange',
 };
 
-export default function AfregningDetailPage() {
+export default function SettlementDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [doc, setDoc] = useState<SettlementDocument | null>(null);
   const [loading, setLoading] = useState(true);
@@ -43,7 +43,7 @@ export default function AfregningDetailPage() {
     setLoading(true);
     getSettlementDocument(id)
       .then(res => setDoc(res.data))
-      .catch(err => setError(err.response?.status === 404 ? 'Afregning ikke fundet' : err.message))
+      .catch(err => setError(err.response?.status === 404 ? 'Settlement ikke fundet' : err.message))
       .finally(() => setLoading(false));
   };
 
@@ -70,7 +70,7 @@ export default function AfregningDetailPage() {
   if (!doc) return null;
 
   const config = docTypeConfig[doc.documentType] || docTypeConfig.settlement;
-  const canConfirm = doc.status === 'Beregnet';
+  const canConfirm = doc.status === 'Calculated';
 
   const lineColumns = [
     { title: '#', dataIndex: 'lineNumber', key: 'lineNumber', width: 50 },
@@ -112,9 +112,9 @@ export default function AfregningDetailPage() {
 
   return (
     <Space direction="vertical" size={20} style={{ width: '100%' }}>
-      <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/afregninger')}
+      <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/settlements')}
         style={{ color: '#7593a9', fontWeight: 500, paddingLeft: 0 }}>
-        Afregninger
+        Settlements
       </Button>
 
       {/* Document header */}
@@ -173,7 +173,7 @@ export default function AfregningDetailPage() {
             <Divider style={{ margin: '20px 0 16px' }} />
             <Space>
               <CheckCircleOutlined style={{ color: '#059669' }} />
-              <Text>Faktureret som <Text strong>{doc.externalInvoiceReference}</Text></Text>
+              <Text>Invoiced som <Text strong>{doc.externalInvoiceReference}</Text></Text>
               {doc.invoicedAt && <Text type="secondary">({formatDateTime(doc.invoicedAt)})</Text>}
             </Space>
           </>
@@ -214,11 +214,11 @@ export default function AfregningDetailPage() {
                   {formatDate(doc.period.start)} — {doc.period.end ? formatDate(doc.period.end) : '→'}
                 </Text>
               </Descriptions.Item>
-              <Descriptions.Item label="Målepunkt">
+              <Descriptions.Item label="MeteringPoint">
                 <Text className="mono">{doc.meteringPoint.gsrn}</Text>
               </Descriptions.Item>
               <Descriptions.Item label="Prisområde">{doc.meteringPoint.gridArea}</Descriptions.Item>
-              <Descriptions.Item label="Beregnet">
+              <Descriptions.Item label="Calculated">
                 <Text className="tnum" style={{ fontSize: 12 }}>{formatDateTime(doc.calculatedAt)}</Text>
               </Descriptions.Item>
             </Descriptions>

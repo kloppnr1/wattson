@@ -12,16 +12,16 @@ public class SettlementCalculatorTests
     private static readonly Period January = Period.Create(Jan1, Feb1);
 
     private static readonly Guid MpId = Guid.NewGuid();
-    private static readonly Guid KundeId = Guid.NewGuid();
-    private static readonly Guid AktørId = Guid.NewGuid();
+    private static readonly Guid CustomerId = Guid.NewGuid();
+    private static readonly Guid ActorId = Guid.NewGuid();
 
-    private static Leverance CreateLeverance() =>
-        Leverance.Create(MpId, KundeId, AktørId, Period.From(Jan1));
+    private static Supply CreateSupply() =>
+        Supply.Create(MpId, CustomerId, ActorId, Period.From(Jan1));
 
     /// <summary>Create a simple hourly time series for January with constant consumption</summary>
-    private static Tidsserie CreateJanuaryTimeSeries(decimal kwhPerHour = 1.0m, int version = 1)
+    private static TimeSeries CreateJanuaryTimeSeries(decimal kwhPerHour = 1.0m, int version = 1)
     {
-        var ts = Tidsserie.Create(MpId, January, Resolution.PT1H, version, "TX-001");
+        var ts = TimeSeries.Create(MpId, January, Resolution.PT1H, version, "TX-001");
         var hours = (int)(Feb1 - Jan1).TotalHours; // 744 hours in January 2026
 
         for (int i = 0; i < hours; i++)
@@ -38,7 +38,7 @@ public class SettlementCalculatorTests
     /// <summary>Create a flat tariff price (same price every hour)</summary>
     private static PriceWithPoints CreateFlatTariff(string chargeId, string description, decimal pricePerKwh)
     {
-        var pris = Pris.Create(
+        var pris = Price.Create(
             chargeId,
             GlnNumber.Create("5790001330552"),
             PriceType.Tarif,
@@ -54,7 +54,7 @@ public class SettlementCalculatorTests
     /// <summary>Create a subscription price (flat daily fee)</summary>
     private static PriceWithPoints CreateSubscription(string chargeId, string description, decimal dailyPrice)
     {
-        var pris = Pris.Create(
+        var pris = Price.Create(
             chargeId,
             GlnNumber.Create("5790001330552"),
             PriceType.Abonnement,
@@ -72,22 +72,22 @@ public class SettlementCalculatorTests
     public void Calculate_SingleFlatTariff_CorrectTotal()
     {
         var ts = CreateJanuaryTimeSeries(kwhPerHour: 1.0m);
-        var leverance = CreateLeverance();
+        var supply = CreateSupply();
         var nettarif = CreateFlatTariff("NT-001", "Nettarif", 0.25m);
 
-        var afregning = SettlementCalculator.Calculate(ts, leverance, [nettarif]);
+        var settlement = SettlementCalculator.Calculate(ts, supply, [nettarif]);
 
         // 744 hours × 1.0 kWh × 0.25 DKK = 186.00 DKK
-        Assert.Equal(186.00m, afregning.TotalAmount.Amount);
-        Assert.Single(afregning.Lines);
-        Assert.Equal("Nettarif", afregning.Lines[0].Description);
+        Assert.Equal(186.00m, settlement.TotalAmount.Amount);
+        Assert.Single(settlement.Lines);
+        Assert.Equal("Nettarif", settlement.Lines[0].Description);
     }
 
     [Fact]
     public void Calculate_MultipleTariffs_SumsCorrectly()
     {
         var ts = CreateJanuaryTimeSeries(kwhPerHour: 2.0m);
-        var leverance = CreateLeverance();
+        var supply = CreateSupply();
 
         var prices = new List<PriceWithPoints>
         {
@@ -96,38 +96,38 @@ public class SettlementCalculatorTests
             CreateFlatTariff("EA-001", "Elafgift", 0.763m),
         };
 
-        var afregning = SettlementCalculator.Calculate(ts, leverance, prices);
+        var settlement = SettlementCalculator.Calculate(ts, supply, prices);
 
         // 744h × 2.0 kWh = 1488 kWh total
         // Nettarif:    1488 × 0.25  = 372.00
         // Systemtarif: 1488 × 0.054 =  80.35
         // Elafgift:    1488 × 0.763 = 1135.34
         // Total: 1587.69 (with rounding)
-        Assert.Equal(3, afregning.Lines.Count);
-        Assert.Equal(1488.000m, afregning.TotalEnergy.Value);
+        Assert.Equal(3, settlement.Lines.Count);
+        Assert.Equal(1488.000m, settlement.TotalEnergy.Value);
 
-        var total = afregning.Lines.Sum(l => l.Amount.Amount);
-        Assert.Equal(afregning.TotalAmount.Amount, total);
+        var total = settlement.Lines.Sum(l => l.Amount.Amount);
+        Assert.Equal(settlement.TotalAmount.Amount, total);
     }
 
     [Fact]
     public void Calculate_Subscription_DailyCharge()
     {
         var ts = CreateJanuaryTimeSeries(kwhPerHour: 1.0m);
-        var leverance = CreateLeverance();
+        var supply = CreateSupply();
         var subscription = CreateSubscription("AB-001", "Net Abonnement", 2.50m);
 
-        var afregning = SettlementCalculator.Calculate(ts, leverance, [subscription]);
+        var settlement = SettlementCalculator.Calculate(ts, supply, [subscription]);
 
         // January = 31 days × 2.50 DKK = 77.50 DKK
-        Assert.Equal(77.50m, afregning.TotalAmount.Amount);
+        Assert.Equal(77.50m, settlement.TotalAmount.Amount);
     }
 
     [Fact]
     public void Calculate_MixedTariffAndSubscription()
     {
         var ts = CreateJanuaryTimeSeries(kwhPerHour: 1.0m);
-        var leverance = CreateLeverance();
+        var supply = CreateSupply();
 
         var prices = new List<PriceWithPoints>
         {
@@ -135,13 +135,13 @@ public class SettlementCalculatorTests
             CreateSubscription("AB-001", "Net Abonnement", 2.50m),
         };
 
-        var afregning = SettlementCalculator.Calculate(ts, leverance, prices);
+        var settlement = SettlementCalculator.Calculate(ts, supply, prices);
 
         // Nettarif: 744 × 1.0 × 0.25 = 186.00
         // Abonnement: 31 × 2.50 = 77.50
         // Total: 263.50
-        Assert.Equal(2, afregning.Lines.Count);
-        Assert.Equal(263.50m, afregning.TotalAmount.Amount);
+        Assert.Equal(2, settlement.Lines.Count);
+        Assert.Equal(263.50m, settlement.TotalAmount.Amount);
     }
 
     // --- Metadata ---
@@ -150,32 +150,32 @@ public class SettlementCalculatorTests
     public void Calculate_SetsCorrectMetadata()
     {
         var ts = CreateJanuaryTimeSeries();
-        var leverance = CreateLeverance();
+        var supply = CreateSupply();
         var nettarif = CreateFlatTariff("NT-001", "Nettarif", 0.10m);
 
-        var afregning = SettlementCalculator.Calculate(ts, leverance, [nettarif]);
+        var settlement = SettlementCalculator.Calculate(ts, supply, [nettarif]);
 
-        Assert.Equal(MpId, afregning.MålepunktId);
-        Assert.Equal(leverance.Id, afregning.LeveranceId);
-        Assert.Equal(ts.Id, afregning.TidsserieId);
-        Assert.Equal(1, afregning.TidsserieVersion);
-        Assert.Equal(Jan1, afregning.SettlementPeriod.Start);
-        Assert.Equal(Feb1, afregning.SettlementPeriod.End);
-        Assert.Equal(AfregningStatus.Beregnet, afregning.Status);
-        Assert.False(afregning.IsCorrection);
+        Assert.Equal(MpId, settlement.MeteringPointId);
+        Assert.Equal(supply.Id, settlement.SupplyId);
+        Assert.Equal(ts.Id, settlement.TimeSeriesId);
+        Assert.Equal(1, settlement.TimeSeriesVersion);
+        Assert.Equal(Jan1, settlement.SettlementPeriod.Start);
+        Assert.Equal(Feb1, settlement.SettlementPeriod.End);
+        Assert.Equal(SettlementStatus.Calculated, settlement.Status);
+        Assert.False(settlement.IsCorrection);
     }
 
     [Fact]
     public void Calculate_TotalEnergyMatchesTimeSeries()
     {
         var ts = CreateJanuaryTimeSeries(kwhPerHour: 3.5m);
-        var leverance = CreateLeverance();
+        var supply = CreateSupply();
         var nettarif = CreateFlatTariff("NT-001", "Nettarif", 0.10m);
 
-        var afregning = SettlementCalculator.Calculate(ts, leverance, [nettarif]);
+        var settlement = SettlementCalculator.Calculate(ts, supply, [nettarif]);
 
         // 744 hours × 3.5 kWh = 2604.0
-        Assert.Equal(2604.000m, afregning.TotalEnergy.Value);
+        Assert.Equal(2604.000m, settlement.TotalEnergy.Value);
     }
 
     // --- Time-varying tariffs ---
@@ -188,25 +188,25 @@ public class SettlementCalculatorTests
         var end = new DateTimeOffset(2026, 1, 1, 4, 0, 0, TimeSpan.Zero);
         var period = Period.Create(start, end);
 
-        var ts = Tidsserie.Create(MpId, period, Resolution.PT1H, 1);
+        var ts = TimeSeries.Create(MpId, period, Resolution.PT1H, 1);
         ts.AddObservation(start.AddHours(0), EnergyQuantity.Create(1.0m), QuantityQuality.Målt); // hour 0
         ts.AddObservation(start.AddHours(1), EnergyQuantity.Create(1.0m), QuantityQuality.Målt); // hour 1
         ts.AddObservation(start.AddHours(2), EnergyQuantity.Create(1.0m), QuantityQuality.Målt); // hour 2
         ts.AddObservation(start.AddHours(3), EnergyQuantity.Create(1.0m), QuantityQuality.Målt); // hour 3
 
         // Price varies: 0.10 for hours 0-1, 0.30 for hours 2-3
-        var pris = Pris.Create("TV-001", GlnNumber.Create("5790001330552"),
+        var pris = Price.Create("TV-001", GlnNumber.Create("5790001330552"),
             PriceType.Tarif, "Tidsvarieret tarif",
             Period.From(new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero)));
         pris.AddPricePoint(start.AddHours(0), 0.10m);
         pris.AddPricePoint(start.AddHours(2), 0.30m);
         var priceLink = new PriceWithPoints(pris);
 
-        var leverance = CreateLeverance();
-        var afregning = SettlementCalculator.Calculate(ts, leverance, [priceLink]);
+        var supply = CreateSupply();
+        var settlement = SettlementCalculator.Calculate(ts, supply, [priceLink]);
 
         // 2 × 1.0 × 0.10 + 2 × 1.0 × 0.30 = 0.20 + 0.60 = 0.80
-        Assert.Equal(0.80m, afregning.TotalAmount.Amount);
+        Assert.Equal(0.80m, settlement.TotalAmount.Amount);
     }
 
     // --- Edge cases ---
@@ -214,42 +214,42 @@ public class SettlementCalculatorTests
     [Fact]
     public void Calculate_EmptyTimeSeries_Throws()
     {
-        var ts = Tidsserie.Create(MpId, January, Resolution.PT1H, 1);
-        var leverance = CreateLeverance();
+        var ts = TimeSeries.Create(MpId, January, Resolution.PT1H, 1);
+        var supply = CreateSupply();
         var nettarif = CreateFlatTariff("NT-001", "Nettarif", 0.25m);
 
         Assert.Throws<InvalidOperationException>(() =>
-            SettlementCalculator.Calculate(ts, leverance, [nettarif]));
+            SettlementCalculator.Calculate(ts, supply, [nettarif]));
     }
 
     [Fact]
     public void Calculate_NoPrices_ZeroTotal()
     {
         var ts = CreateJanuaryTimeSeries();
-        var leverance = CreateLeverance();
+        var supply = CreateSupply();
 
-        var afregning = SettlementCalculator.Calculate(ts, leverance, []);
+        var settlement = SettlementCalculator.Calculate(ts, supply, []);
 
-        Assert.Equal(0m, afregning.TotalAmount.Amount);
-        Assert.Empty(afregning.Lines);
+        Assert.Equal(0m, settlement.TotalAmount.Amount);
+        Assert.Empty(settlement.Lines);
     }
 
     [Fact]
     public void Calculate_GebyrPriceType_IsIgnored()
     {
         var ts = CreateJanuaryTimeSeries();
-        var leverance = CreateLeverance();
+        var supply = CreateSupply();
 
-        var pris = Pris.Create("GB-001", GlnNumber.Create("5790001330552"),
+        var pris = Price.Create("GB-001", GlnNumber.Create("5790001330552"),
             PriceType.Gebyr, "Tilslutningsgebyr",
             Period.From(new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero)));
         pris.AddPricePoint(new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero), 500m);
         var fee = new PriceWithPoints(pris);
 
-        var afregning = SettlementCalculator.Calculate(ts, leverance, [fee]);
+        var settlement = SettlementCalculator.Calculate(ts, supply, [fee]);
 
-        Assert.Equal(0m, afregning.TotalAmount.Amount);
-        Assert.Empty(afregning.Lines);
+        Assert.Equal(0m, settlement.TotalAmount.Amount);
+        Assert.Empty(settlement.Lines);
     }
 
     // --- Correction calculations ---
@@ -257,24 +257,24 @@ public class SettlementCalculatorTests
     [Fact]
     public void CalculateCorrection_ProducesDelta()
     {
-        var leverance = CreateLeverance();
+        var supply = CreateSupply();
         var nettarif = CreateFlatTariff("NT-001", "Nettarif", 0.25m);
 
         // Original: 1.0 kWh/h for January
         var originalTs = CreateJanuaryTimeSeries(kwhPerHour: 1.0m, version: 1);
-        var originalSettlement = SettlementCalculator.Calculate(originalTs, leverance, [nettarif]);
+        var originalSettlement = SettlementCalculator.Calculate(originalTs, supply, [nettarif]);
         // Original: 744 × 1.0 × 0.25 = 186.00
 
         // Corrected data: 1.5 kWh/h (50% more consumption)
         var correctedTs = CreateJanuaryTimeSeries(kwhPerHour: 1.5m, version: 2);
 
         var correction = SettlementCalculator.CalculateCorrection(
-            correctedTs, leverance, originalSettlement, [nettarif]);
+            correctedTs, supply, originalSettlement, [nettarif]);
 
         Assert.True(correction.IsCorrection);
-        Assert.Equal(originalSettlement.Id, correction.PreviousAfregningId);
-        Assert.Equal(2, correction.TidsserieVersion);
-        Assert.Equal(AfregningStatus.Beregnet, correction.Status);
+        Assert.Equal(originalSettlement.Id, correction.PreviousSettlementId);
+        Assert.Equal(2, correction.TimeSeriesVersion);
+        Assert.Equal(SettlementStatus.Calculated, correction.Status);
 
         // Delta: (744 × 1.5 × 0.25) - (744 × 1.0 × 0.25) = 279.00 - 186.00 = 93.00
         Assert.Equal(93.00m, correction.TotalAmount.Amount);
@@ -286,18 +286,18 @@ public class SettlementCalculatorTests
     [Fact]
     public void CalculateCorrection_LowerConsumption_NegativeDelta()
     {
-        var leverance = CreateLeverance();
+        var supply = CreateSupply();
         var nettarif = CreateFlatTariff("NT-001", "Nettarif", 0.25m);
 
         // Original: 2.0 kWh/h
         var originalTs = CreateJanuaryTimeSeries(kwhPerHour: 2.0m, version: 1);
-        var originalSettlement = SettlementCalculator.Calculate(originalTs, leverance, [nettarif]);
+        var originalSettlement = SettlementCalculator.Calculate(originalTs, supply, [nettarif]);
 
         // Corrected: 1.5 kWh/h (lower — customer overpaid)
         var correctedTs = CreateJanuaryTimeSeries(kwhPerHour: 1.5m, version: 2);
 
         var correction = SettlementCalculator.CalculateCorrection(
-            correctedTs, leverance, originalSettlement, [nettarif]);
+            correctedTs, supply, originalSettlement, [nettarif]);
 
         // Delta: (744 × 1.5 × 0.25) - (744 × 2.0 × 0.25) = 279.00 - 372.00 = -93.00
         Assert.Equal(-93.00m, correction.TotalAmount.Amount);
@@ -307,17 +307,17 @@ public class SettlementCalculatorTests
     [Fact]
     public void CalculateCorrection_NoChange_EmptyLines()
     {
-        var leverance = CreateLeverance();
+        var supply = CreateSupply();
         var nettarif = CreateFlatTariff("NT-001", "Nettarif", 0.25m);
 
         var originalTs = CreateJanuaryTimeSeries(kwhPerHour: 1.0m, version: 1);
-        var originalSettlement = SettlementCalculator.Calculate(originalTs, leverance, [nettarif]);
+        var originalSettlement = SettlementCalculator.Calculate(originalTs, supply, [nettarif]);
 
         // Same data, new version — nothing changed
         var sameTs = CreateJanuaryTimeSeries(kwhPerHour: 1.0m, version: 2);
 
         var correction = SettlementCalculator.CalculateCorrection(
-            sameTs, leverance, originalSettlement, [nettarif]);
+            sameTs, supply, originalSettlement, [nettarif]);
 
         Assert.True(correction.IsCorrection);
         Assert.Equal(0m, correction.TotalAmount.Amount);
@@ -327,19 +327,19 @@ public class SettlementCalculatorTests
     [Fact]
     public void CalculateCorrection_MultiplePrices_CorrectDeltas()
     {
-        var leverance = CreateLeverance();
+        var supply = CreateSupply();
         var nettarif = CreateFlatTariff("NT-001", "Nettarif", 0.25m);
         var systemtarif = CreateFlatTariff("ST-001", "Systemtarif", 0.054m);
         var prices = new List<PriceWithPoints> { nettarif, systemtarif };
 
         var originalTs = CreateJanuaryTimeSeries(kwhPerHour: 1.0m, version: 1);
-        var originalSettlement = SettlementCalculator.Calculate(originalTs, leverance, prices);
+        var originalSettlement = SettlementCalculator.Calculate(originalTs, supply, prices);
 
         // 10% more consumption
         var correctedTs = CreateJanuaryTimeSeries(kwhPerHour: 1.1m, version: 2);
 
         var correction = SettlementCalculator.CalculateCorrection(
-            correctedTs, leverance, originalSettlement, prices);
+            correctedTs, supply, originalSettlement, prices);
 
         Assert.Equal(2, correction.Lines.Count);
 

@@ -4,11 +4,11 @@ using WattsOn.Domain.Entities;
 
 namespace WattsOn.Infrastructure.Persistence.Configurations;
 
-public class AktørConfiguration : IEntityTypeConfiguration<Aktør>
+public class ActorConfiguration : IEntityTypeConfiguration<Actor>
 {
-    public void Configure(EntityTypeBuilder<Aktør> builder)
+    public void Configure(EntityTypeBuilder<Actor> builder)
     {
-        builder.ToTable("aktører");
+        builder.ToTable("actors");
 
         builder.HasKey(a => a.Id);
         builder.Property(a => a.Id).HasColumnName("id");

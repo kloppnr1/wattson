@@ -4,7 +4,7 @@ namespace WattsOn.Domain.Enums;
 /// Type of wholesale service (engrosydelse).
 /// These are the components that make up the total electricity cost.
 /// </summary>
-public enum EngrosYdelseType
+public enum WholesaleServiceType
 {
     /// <summary>Nettarif — grid tariff from DSO</summary>
     Nettarif = 1,

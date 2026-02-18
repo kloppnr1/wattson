@@ -4,14 +4,14 @@ namespace WattsOn.Domain.Enums;
 /// Status of a settlement in the invoicing lifecycle.
 /// WattsOn calculates settlements; an external system handles invoicing.
 /// </summary>
-public enum AfregningStatus
+public enum SettlementStatus
 {
     /// <summary>Calculated and ready to be picked up by external invoicing system</summary>
-    Beregnet = 1,
+    Calculated = 1,
 
     /// <summary>External system has confirmed this settlement is invoiced</summary>
-    Faktureret = 2,
+    Invoiced = 2,
 
     /// <summary>A DataHub correction invalidated this settlement — adjustment created</summary>
-    Justeret = 3
+    Adjusted = 3
 }

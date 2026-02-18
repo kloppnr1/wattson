@@ -5,13 +5,13 @@ using WattsOn.Domain.ValueObjects;
 namespace WattsOn.Domain.Entities;
 
 /// <summary>
-/// Tidsserie — a versioned time series for a metering point.
+/// TimeSeries — a versioned time series for a metering point.
 /// Time series are NEVER overwritten — corrections create new versions.
 /// Each version is a complete snapshot of the data for the period.
 /// </summary>
-public class Tidsserie : Entity
+public class TimeSeries : Entity
 {
-    public Guid MålepunktId { get; private set; }
+    public Guid MeteringPointId { get; private set; }
 
     /// <summary>The period this time series covers</summary>
     public Period Period { get; private set; } = null!;
@@ -39,20 +39,20 @@ public class Tidsserie : Entity
     public IReadOnlyList<Observation> Observations => _observations.AsReadOnly();
 
     // Navigation
-    public Målepunkt Målepunkt { get; private set; } = null!;
+    public MeteringPoint MeteringPoint { get; private set; } = null!;
 
-    private Tidsserie() { } // EF Core
+    private TimeSeries() { } // EF Core
 
-    public static Tidsserie Create(
-        Guid målepunktId,
+    public static TimeSeries Create(
+        Guid meteringPointId,
         Period period,
         Resolution resolution,
         int version,
         string? transactionId = null)
     {
-        return new Tidsserie
+        return new TimeSeries
         {
-            MålepunktId = målepunktId,
+            MeteringPointId = meteringPointId,
             Period = period,
             Resolution = resolution,
             Version = version,

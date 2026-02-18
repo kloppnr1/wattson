@@ -82,7 +82,7 @@ export default function OutboxPage() {
     <Space direction="vertical" size={24} style={{ width: '100%' }}>
       <div className="page-header">
         <h2>Outbox</h2>
-        <div className="page-subtitle">Beskeder sendt til DataHub</div>
+        <div className="page-subtitle">Messages sent to DataHub</div>
       </div>
 
       <Row gutter={16}>
@@ -120,7 +120,7 @@ export default function OutboxPage() {
 
       <Card style={{ borderRadius: 12, padding: 0 }} styles={{ body: { padding: 0 } }}>
         <div style={{ padding: '16px 20px', borderBottom: '1px solid #e4e9ee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text type="secondary" style={{ fontSize: 13 }}>{data.length} beskeder</Text>
+          <Text type="secondary" style={{ fontSize: 13 }}>{data.length} messages</Text>
           <Space>
             <Text type="secondary" style={{ fontSize: 12 }}>Kun uafsendte</Text>
             <Switch size="small" checked={unsentOnly} onChange={setUnsentOnly} />
@@ -136,7 +136,7 @@ export default function OutboxPage() {
             style={{ borderRadius: 0 }}
           />
         ) : (
-          <Empty description="Ingen beskeder" style={{ padding: 40 }} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          <Empty description="No messages" style={{ padding: 40 }} image={Empty.PRESENTED_IMAGE_SIMPLE} />
         )}
       </Card>
     </Space>

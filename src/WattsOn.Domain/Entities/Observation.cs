@@ -10,7 +10,7 @@ namespace WattsOn.Domain.Entities;
 /// </summary>
 public class Observation : Entity
 {
-    public Guid TidsserieId { get; private set; }
+    public Guid TimeSeriesId { get; private set; }
 
     /// <summary>Timestamp of this observation (start of interval)</summary>
     public DateTimeOffset Timestamp { get; private set; }
@@ -24,14 +24,14 @@ public class Observation : Entity
     private Observation() { } // EF Core
 
     public static Observation Create(
-        Guid tidsserieId,
+        Guid timeSeriesId,
         DateTimeOffset timestamp,
         EnergyQuantity quantity,
         QuantityQuality quality)
     {
         return new Observation
         {
-            TidsserieId = tidsserieId,
+            TimeSeriesId = timeSeriesId,
             Timestamp = timestamp,
             Quantity = quantity,
             Quality = quality

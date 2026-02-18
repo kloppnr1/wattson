@@ -2,21 +2,21 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Descriptions, Table, Tag, Spin, Alert, Space, Typography, Button } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
-import type { MålepunktDetail } from '../api/client';
-import { getMålepunkt } from '../api/client';
+import type { MeteringPointDetail } from '../api/client';
+import { getMeteringPoint } from '../api/client';
 
-export default function MålepunktDetailPage() {
+export default function MeteringPointDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const [mp, setMp] = useState<MålepunktDetail | null>(null);
+  const [mp, setMp] = useState<MeteringPointDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
     if (!id) return;
-    getMålepunkt(id)
+    getMeteringPoint(id)
       .then((res) => setMp(res.data))
-      .catch((err) => setError(err.response?.status === 404 ? 'Målepunkt ikke fundet' : err.message))
+      .catch((err) => setError(err.response?.status === 404 ? 'MeteringPoint ikke fundet' : err.message))
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -28,13 +28,13 @@ export default function MålepunktDetailPage() {
     Tilsluttet: 'green', Afbrudt: 'red', Ny: 'blue', Nedlagt: 'default',
   };
 
-  const leveranceColumns = [
+  const supplyColumns = [
     {
-      title: 'Kunde',
-      dataIndex: 'kundeNavn',
-      key: 'kundeNavn',
+      title: 'Customer',
+      dataIndex: 'customerName',
+      key: 'customerName',
       render: (name: string, record: any) => (
-        <a onClick={() => navigate(`/kunder/${record.kundeId}`)}>{name}</a>
+        <a onClick={() => navigate(`/customers/${record.customerId}`)}>{name}</a>
       ),
     },
     {
@@ -57,7 +57,7 @@ export default function MålepunktDetailPage() {
     },
   ];
 
-  const tidsserieColumns = [
+  const time_seriesColumns = [
     {
       title: 'Periode',
       key: 'period',
@@ -67,13 +67,13 @@ export default function MålepunktDetailPage() {
     { title: 'Opløsning', dataIndex: 'resolution', key: 'resolution' },
     { title: 'Version', dataIndex: 'version', key: 'version' },
     {
-      title: 'Seneste',
+      title: 'Latest',
       dataIndex: 'isLatest',
       key: 'isLatest',
       render: (v: boolean) => <Tag color={v ? 'green' : 'default'}>{v ? 'Ja' : 'Nej'}</Tag>,
     },
     {
-      title: 'Modtaget',
+      title: 'Received',
       dataIndex: 'receivedAt',
       key: 'receivedAt',
       render: (d: string) => new Date(d).toLocaleString('da-DK'),
@@ -82,14 +82,14 @@ export default function MålepunktDetailPage() {
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/målepunkter')}>Tilbage</Button>
+      <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/metering_points')}>Back</Button>
 
       <Card>
         <Typography.Title level={3} style={{ fontFamily: 'monospace' }}>{mp.gsrn}</Typography.Title>
         <Descriptions column={2} bordered size="small">
           <Descriptions.Item label="Type">{mp.type}</Descriptions.Item>
           <Descriptions.Item label="Art">{mp.art}</Descriptions.Item>
-          <Descriptions.Item label="Afregningsmetode">{mp.settlementMethod}</Descriptions.Item>
+          <Descriptions.Item label="Settlementsmetode">{mp.settlementMethod}</Descriptions.Item>
           <Descriptions.Item label="Opløsning">{mp.resolution}</Descriptions.Item>
           <Descriptions.Item label="Tilstand">
             <Tag color={connectionStateColors[mp.connectionState] || 'default'}>{mp.connectionState}</Tag>
@@ -107,18 +107,18 @@ export default function MålepunktDetailPage() {
               , {mp.address.postCode} {mp.address.cityName}
             </Descriptions.Item>
           )}
-          <Descriptions.Item label="Oprettet">
+          <Descriptions.Item label="Created">
             {new Date(mp.createdAt).toLocaleString('da-DK')}
           </Descriptions.Item>
         </Descriptions>
       </Card>
 
-      <Card title={`Leverancer (${mp.leverancer.length})`}>
-        <Table dataSource={mp.leverancer} columns={leveranceColumns} rowKey="id" pagination={false} size="small" />
+      <Card title={`Supplies (${mp.supplies.length})`}>
+        <Table dataSource={mp.supplies} columns={supplyColumns} rowKey="id" pagination={false} size="small" />
       </Card>
 
-      <Card title={`Tidsserier (${mp.tidsserier.length})`}>
-        <Table dataSource={mp.tidsserier} columns={tidsserieColumns} rowKey="id" pagination={false} size="small" />
+      <Card title={`TimeSeriesCollection (${mp.time_series.length})`}>
+        <Table dataSource={mp.time_series} columns={time_seriesColumns} rowKey="id" pagination={false} size="small" />
       </Card>
     </Space>
   );

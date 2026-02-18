@@ -32,8 +32,8 @@ public static class Brs001Handler
 
     public record SupplierChangeResult(
         BrsProcess Process,
-        Leverance? NewLeverance,
-        Leverance? EndedLeverance);
+        Supply? NewSupply,
+        Supply? EndedSupply);
 
     /// <summary>
     /// Step 1 (Initiator): We request a supplier change — gaining this customer.
@@ -93,47 +93,47 @@ public static class Brs001Handler
 
     /// <summary>
     /// Step 4 (Initiator): Master data received — the change is effective.
-    /// Creates the new leverance and ends the old one.
+    /// Creates the new supply and ends the old one.
     /// </summary>
     public static SupplierChangeResult ExecuteSupplierChange(
         BrsProcess process,
-        Målepunkt målepunkt,
-        Kunde kunde,
-        Guid ownAktørId,
-        Leverance? currentLeverance)
+        MeteringPoint metering_point,
+        Customer customer,
+        Guid ownActorId,
+        Supply? currentSupply)
     {
         process.TransitionTo(Brs001StateMachine.Active, "Master data received, executing change");
 
-        // End current leverance if exists
-        if (currentLeverance is not null)
+        // End current supply if exists
+        if (currentSupply is not null)
         {
-            currentLeverance.EndSupply(process.EffectiveDate!.Value, process.Id);
+            currentSupply.EndSupply(process.EffectiveDate!.Value, process.Id);
         }
 
-        // Create new leverance
+        // Create new supply
         var supplyPeriod = Period.From(process.EffectiveDate!.Value);
-        var newLeverance = Leverance.Create(
-            målepunkt.Id,
-            kunde.Id,
-            ownAktørId,
+        var newSupply = Supply.Create(
+            metering_point.Id,
+            customer.Id,
+            ownActorId,
             supplyPeriod);
 
         process.TransitionTo(Brs001StateMachine.Completed, "Supplier change completed");
         process.MarkCompleted();
 
-        return new SupplierChangeResult(process, newLeverance, currentLeverance);
+        return new SupplierChangeResult(process, newSupply, currentSupply);
     }
 
     /// <summary>
     /// Recipient flow: We're losing a customer — DataHub notifies us of stop-of-supply.
-    /// Creates the process and ends our leverance.
+    /// Creates the process and ends our supply.
     /// </summary>
     public static SupplierChangeResult HandleAsRecipient(
         Gsrn gsrn,
         DateTimeOffset effectiveDate,
         string transactionId,
         GlnNumber newSupplierGln,
-        Leverance currentLeverance)
+        Supply currentSupply)
     {
         var sm = new Brs001StateMachine(ProcessRole.Recipient);
         var process = BrsProcess.Create(
@@ -148,13 +148,13 @@ public static class Brs001Handler
         process.TransitionTo(Brs001StateMachine.Acknowledged, "Stop-of-supply notification received");
         process.TransitionTo(Brs001StateMachine.AwaitingEffectiveDate, "Awaiting effective date");
 
-        // End our leverance
-        currentLeverance.EndSupply(effectiveDate, process.Id);
+        // End our supply
+        currentSupply.EndSupply(effectiveDate, process.Id);
 
-        process.TransitionTo(Brs001StateMachine.FinalSettlement, "Leverance ended, awaiting final settlement");
+        process.TransitionTo(Brs001StateMachine.FinalSettlement, "Supply ended, awaiting final settlement");
         process.TransitionTo(Brs001StateMachine.Completed, "Final settlement period closed");
         process.MarkCompleted();
 
-        return new SupplierChangeResult(process, null, currentLeverance);
+        return new SupplierChangeResult(process, null, currentSupply);
     }
 }

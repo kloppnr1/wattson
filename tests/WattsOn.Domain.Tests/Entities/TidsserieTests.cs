@@ -4,7 +4,7 @@ using WattsOn.Domain.ValueObjects;
 
 namespace WattsOn.Domain.Tests.Entities;
 
-public class TidsserieTests
+public class TimeSeriesTests
 {
     [Fact]
     public void Create_SetsVersionAndLatest()
@@ -13,7 +13,7 @@ public class TidsserieTests
             new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
             new DateTimeOffset(2026, 2, 1, 0, 0, 0, TimeSpan.Zero));
 
-        var ts = Tidsserie.Create(Guid.NewGuid(), period, Resolution.PT1H, version: 1);
+        var ts = TimeSeries.Create(Guid.NewGuid(), period, Resolution.PT1H, version: 1);
 
         Assert.Equal(1, ts.Version);
         Assert.True(ts.IsLatest);
@@ -26,7 +26,7 @@ public class TidsserieTests
             new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
             new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero));
 
-        var ts = Tidsserie.Create(Guid.NewGuid(), period, Resolution.PT1H, version: 1);
+        var ts = TimeSeries.Create(Guid.NewGuid(), period, Resolution.PT1H, version: 1);
 
         ts.AddObservation(
             new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
@@ -44,7 +44,7 @@ public class TidsserieTests
             new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
             new DateTimeOffset(2026, 1, 1, 3, 0, 0, TimeSpan.Zero));
 
-        var ts = Tidsserie.Create(Guid.NewGuid(), period, Resolution.PT1H, version: 1);
+        var ts = TimeSeries.Create(Guid.NewGuid(), period, Resolution.PT1H, version: 1);
 
         ts.AddObservations(new[]
         {
@@ -64,7 +64,7 @@ public class TidsserieTests
             new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
             new DateTimeOffset(2026, 2, 1, 0, 0, 0, TimeSpan.Zero));
 
-        var ts = Tidsserie.Create(Guid.NewGuid(), period, Resolution.PT1H, version: 1);
+        var ts = TimeSeries.Create(Guid.NewGuid(), period, Resolution.PT1H, version: 1);
 
         Assert.True(ts.IsLatest);
         ts.Supersede();

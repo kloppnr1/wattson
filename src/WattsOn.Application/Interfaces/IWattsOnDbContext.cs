@@ -11,17 +11,17 @@ namespace WattsOn.Application.Interfaces;
 /// </summary>
 public interface IWattsOnDbContext
 {
-    DbSet<Aktør> Aktører { get; }
-    DbSet<Kunde> Kunder { get; }
-    DbSet<Målepunkt> Målepunkter { get; }
-    DbSet<Leverance> Leverancer { get; }
-    DbSet<Tidsserie> Tidsserier { get; }
+    DbSet<Actor> Actors { get; }
+    DbSet<Customer> Customers { get; }
+    DbSet<MeteringPoint> MeteringPoints { get; }
+    DbSet<Supply> Supplies { get; }
+    DbSet<TimeSeries> TimeSeriesCollection { get; }
     DbSet<Observation> Observations { get; }
-    DbSet<Pris> Priser { get; }
+    DbSet<Price> Prices { get; }
     DbSet<PrisPoint> PrisPoints { get; }
-    DbSet<Pristilknytning> Pristilknytninger { get; }
-    DbSet<Afregning> Afregninger { get; }
-    DbSet<AfregningLinje> AfregningLinjer { get; }
+    DbSet<PriceLink> PriceLinks { get; }
+    DbSet<Settlement> Settlements { get; }
+    DbSet<SettlementLinje> SettlementLinjer { get; }
     DbSet<BrsProcess> Processes { get; }
     DbSet<ProcessStateTransition> ProcessTransitions { get; }
     DbSet<InboxMessage> InboxMessages { get; }

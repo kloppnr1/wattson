@@ -4,11 +4,11 @@ using WattsOn.Domain.ValueObjects;
 namespace WattsOn.Domain.Entities;
 
 /// <summary>
-/// Kunde — an end customer.
+/// Customer — an end customer.
 /// Can be a person (CPR) or a company (CVR).
-/// Linked to metering points via Leverance (supply agreement).
+/// Linked to metering points via Supply (supply agreement).
 /// </summary>
-public class Kunde : Entity
+public class Customer : Entity
 {
     public string Name { get; private set; } = null!;
     public CprNumber? Cpr { get; private set; }
@@ -18,14 +18,14 @@ public class Kunde : Entity
     public Address? Address { get; private set; }
 
     /// <summary>Customer's active supply agreements</summary>
-    private readonly List<Leverance> _leverancer = new();
-    public IReadOnlyList<Leverance> Leverancer => _leverancer.AsReadOnly();
+    private readonly List<Supply> _supplies = new();
+    public IReadOnlyList<Supply> Supplies => _supplies.AsReadOnly();
 
-    private Kunde() { } // EF Core
+    private Customer() { } // EF Core
 
-    public static Kunde CreatePerson(string name, CprNumber cpr, Address? address = null)
+    public static Customer CreatePerson(string name, CprNumber cpr, Address? address = null)
     {
-        return new Kunde
+        return new Customer
         {
             Name = name,
             Cpr = cpr,
@@ -33,9 +33,9 @@ public class Kunde : Entity
         };
     }
 
-    public static Kunde CreateCompany(string name, CvrNumber cvr, Address? address = null)
+    public static Customer CreateCompany(string name, CvrNumber cvr, Address? address = null)
     {
-        return new Kunde
+        return new Customer
         {
             Name = name,
             Cvr = cvr,

@@ -24,7 +24,7 @@ public class Brs001HandlerTests
         Assert.Equal(ProcessType.Leverandørskift, process.ProcessType);
         Assert.Equal(ProcessRole.Initiator, process.Role);
         Assert.Equal(Brs001StateMachine.Created, process.CurrentState);
-        Assert.Equal(ProcessStatus.Oprettet, process.Status);
+        Assert.Equal(ProcessStatus.Created, process.Status);
         Assert.Equal(FutureDate, process.EffectiveDate);
     }
 
@@ -55,7 +55,7 @@ public class Brs001HandlerTests
         Brs001Handler.HandleConfirmation(process, "DH-TX-001");
 
         Assert.Equal(Brs001StateMachine.Confirmed, process.CurrentState);
-        Assert.Equal(ProcessStatus.Bekræftet, process.Status);
+        Assert.Equal(ProcessStatus.Confirmed, process.Status);
         Assert.Equal("DH-TX-001", process.TransactionId);
     }
 
@@ -71,54 +71,54 @@ public class Brs001HandlerTests
         Brs001Handler.HandleRejection(process, "CPR mismatch (D17)");
 
         Assert.Equal(Brs001StateMachine.Rejected, process.CurrentState);
-        Assert.Equal(ProcessStatus.Afvist, process.Status);
+        Assert.Equal(ProcessStatus.Rejected, process.Status);
         Assert.Equal("CPR mismatch (D17)", process.ErrorMessage);
     }
 
     // --- Execute supplier change ---
 
     [Fact]
-    public void ExecuteSupplierChange_CreatesNewLeverance()
+    public void ExecuteSupplierChange_CreatesNewSupply()
     {
         var process = Brs001Handler.InitiateSupplierChange(
             TestGsrn, FutureDate, "0101901234", null, CounterpartGln);
         Brs001Handler.HandleConfirmation(process, "DH-TX-001");
 
-        var mp = Målepunkt.Create(TestGsrn, MålepunktsType.Forbrug, MålepunktsArt.Fysisk,
+        var mp = MeteringPoint.Create(TestGsrn, MeteringPointType.Forbrug, MeteringPointCategory.Fysisk,
             SettlementMethod.Flex, Resolution.PT1H, "DK1", GlnNumber.Create("5790000610976"));
-        var kunde = Kunde.CreatePerson("Test Kunde", CprNumber.Create("0101901234"));
-        var ownAktørId = Guid.NewGuid();
+        var customer = Customer.CreatePerson("Test Customer", CprNumber.Create("0101901234"));
+        var ownActorId = Guid.NewGuid();
 
-        var result = Brs001Handler.ExecuteSupplierChange(process, mp, kunde, ownAktørId, null);
+        var result = Brs001Handler.ExecuteSupplierChange(process, mp, customer, ownActorId, null);
 
-        Assert.NotNull(result.NewLeverance);
-        Assert.Equal(mp.Id, result.NewLeverance!.MålepunktId);
-        Assert.Equal(kunde.Id, result.NewLeverance.KundeId);
-        Assert.Equal(FutureDate, result.NewLeverance.SupplyPeriod.Start);
-        Assert.True(result.NewLeverance.SupplyPeriod.IsOpenEnded);
-        Assert.Null(result.EndedLeverance);
+        Assert.NotNull(result.NewSupply);
+        Assert.Equal(mp.Id, result.NewSupply!.MeteringPointId);
+        Assert.Equal(customer.Id, result.NewSupply.CustomerId);
+        Assert.Equal(FutureDate, result.NewSupply.SupplyPeriod.Start);
+        Assert.True(result.NewSupply.SupplyPeriod.IsOpenEnded);
+        Assert.Null(result.EndedSupply);
     }
 
     [Fact]
-    public void ExecuteSupplierChange_EndsExistingLeverance()
+    public void ExecuteSupplierChange_EndsExistingSupply()
     {
         var process = Brs001Handler.InitiateSupplierChange(
             TestGsrn, FutureDate, "0101901234", null, CounterpartGln);
         Brs001Handler.HandleConfirmation(process, "DH-TX-001");
 
         var mpId = Guid.NewGuid();
-        var mp = Målepunkt.Create(TestGsrn, MålepunktsType.Forbrug, MålepunktsArt.Fysisk,
+        var mp = MeteringPoint.Create(TestGsrn, MeteringPointType.Forbrug, MeteringPointCategory.Fysisk,
             SettlementMethod.Flex, Resolution.PT1H, "DK1", GlnNumber.Create("5790000610976"));
-        var kunde = Kunde.CreatePerson("Test Kunde", CprNumber.Create("0101901234"));
-        var oldLeverance = Leverance.Create(mp.Id, Guid.NewGuid(), Guid.NewGuid(),
+        var customer = Customer.CreatePerson("Test Customer", CprNumber.Create("0101901234"));
+        var oldSupply = Supply.Create(mp.Id, Guid.NewGuid(), Guid.NewGuid(),
             Period.From(DateTimeOffset.UtcNow.AddYears(-1)));
-        var ownAktørId = Guid.NewGuid();
+        var ownActorId = Guid.NewGuid();
 
-        var result = Brs001Handler.ExecuteSupplierChange(process, mp, kunde, ownAktørId, oldLeverance);
+        var result = Brs001Handler.ExecuteSupplierChange(process, mp, customer, ownActorId, oldSupply);
 
-        Assert.NotNull(result.EndedLeverance);
-        Assert.False(result.EndedLeverance!.SupplyPeriod.IsOpenEnded);
-        Assert.Equal(FutureDate, result.EndedLeverance.SupplyPeriod.End);
+        Assert.NotNull(result.EndedSupply);
+        Assert.False(result.EndedSupply!.SupplyPeriod.IsOpenEnded);
+        Assert.Equal(FutureDate, result.EndedSupply.SupplyPeriod.End);
     }
 
     [Fact]
@@ -128,36 +128,36 @@ public class Brs001HandlerTests
             TestGsrn, FutureDate, "0101901234", null, CounterpartGln);
         Brs001Handler.HandleConfirmation(process, "DH-TX-001");
 
-        var mp = Målepunkt.Create(TestGsrn, MålepunktsType.Forbrug, MålepunktsArt.Fysisk,
+        var mp = MeteringPoint.Create(TestGsrn, MeteringPointType.Forbrug, MeteringPointCategory.Fysisk,
             SettlementMethod.Flex, Resolution.PT1H, "DK1", GlnNumber.Create("5790000610976"));
-        var kunde = Kunde.CreatePerson("Test Kunde", CprNumber.Create("0101901234"));
+        var customer = Customer.CreatePerson("Test Customer", CprNumber.Create("0101901234"));
 
-        Brs001Handler.ExecuteSupplierChange(process, mp, kunde, Guid.NewGuid(), null);
+        Brs001Handler.ExecuteSupplierChange(process, mp, customer, Guid.NewGuid(), null);
 
         Assert.Equal(Brs001StateMachine.Completed, process.CurrentState);
-        Assert.Equal(ProcessStatus.Gennemført, process.Status);
+        Assert.Equal(ProcessStatus.Completed, process.Status);
         Assert.NotNull(process.CompletedAt);
     }
 
     // --- Recipient flow ---
 
     [Fact]
-    public void HandleAsRecipient_EndsLeveranceAndCompletes()
+    public void HandleAsRecipient_EndsSupplyAndCompletes()
     {
         var mpId = Guid.NewGuid();
-        var oldLeverance = Leverance.Create(mpId, Guid.NewGuid(), Guid.NewGuid(),
+        var oldSupply = Supply.Create(mpId, Guid.NewGuid(), Guid.NewGuid(),
             Period.From(DateTimeOffset.UtcNow.AddYears(-1)));
 
         var result = Brs001Handler.HandleAsRecipient(
             TestGsrn, FutureDate, "DH-TX-002",
-            GlnNumber.Create("5790000000012"), oldLeverance);
+            GlnNumber.Create("5790000000012"), oldSupply);
 
         Assert.Equal(ProcessRole.Recipient, result.Process.Role);
         Assert.Equal(Brs001StateMachine.Completed, result.Process.CurrentState);
-        Assert.Equal(ProcessStatus.Gennemført, result.Process.Status);
-        Assert.Null(result.NewLeverance);
-        Assert.NotNull(result.EndedLeverance);
-        Assert.Equal(FutureDate, result.EndedLeverance!.SupplyPeriod.End);
+        Assert.Equal(ProcessStatus.Completed, result.Process.Status);
+        Assert.Null(result.NewSupply);
+        Assert.NotNull(result.EndedSupply);
+        Assert.Equal(FutureDate, result.EndedSupply!.SupplyPeriod.End);
     }
 
     // --- Full audit trail ---
@@ -169,10 +169,10 @@ public class Brs001HandlerTests
             TestGsrn, FutureDate, "0101901234", null, CounterpartGln);
         Brs001Handler.HandleConfirmation(process, "DH-TX-001");
 
-        var mp = Målepunkt.Create(TestGsrn, MålepunktsType.Forbrug, MålepunktsArt.Fysisk,
+        var mp = MeteringPoint.Create(TestGsrn, MeteringPointType.Forbrug, MeteringPointCategory.Fysisk,
             SettlementMethod.Flex, Resolution.PT1H, "DK1", GlnNumber.Create("5790000610976"));
-        var kunde = Kunde.CreatePerson("Test Kunde", CprNumber.Create("0101901234"));
-        Brs001Handler.ExecuteSupplierChange(process, mp, kunde, Guid.NewGuid(), null);
+        var customer = Customer.CreatePerson("Test Customer", CprNumber.Create("0101901234"));
+        Brs001Handler.ExecuteSupplierChange(process, mp, customer, Guid.NewGuid(), null);
 
         // Should have: Initial→Created, Created→Submitted, Submitted→Confirmed, Confirmed→Active, Active→Completed
         Assert.True(process.Transitions.Count >= 4);

@@ -9,38 +9,38 @@ namespace WattsOn.Domain.Services;
 /// No side effects, no persistence — just math.
 ///
 /// Input: a time series (with observations) + a list of active price links (with prices + price points)
-/// Output: an Afregning with AfregningLinjer
+/// Output: an Settlement with SettlementLinjer
 /// </summary>
 public static class SettlementCalculator
 {
     /// <summary>
     /// Calculate a settlement for the given time series and linked prices.
-    /// Each price produces one AfregningLinje.
+    /// Each price produces one SettlementLinje.
     /// </summary>
-    public static Afregning Calculate(
-        Tidsserie tidsserie,
-        Leverance leverance,
+    public static Settlement Calculate(
+        TimeSeries time_series,
+        Supply supply,
         IReadOnlyList<PriceWithPoints> activePrices)
     {
-        if (tidsserie.Observations.Count == 0)
+        if (time_series.Observations.Count == 0)
             throw new InvalidOperationException("Cannot settle a time series with no observations.");
 
-        var afregning = Afregning.Create(
-            tidsserie.MålepunktId,
-            leverance.Id,
-            tidsserie.Period,
-            tidsserie.Id,
-            tidsserie.Version,
-            tidsserie.TotalEnergy);
+        var settlement = Settlement.Create(
+            time_series.MeteringPointId,
+            supply.Id,
+            time_series.Period,
+            time_series.Id,
+            time_series.Version,
+            time_series.TotalEnergy);
 
         foreach (var priceLink in activePrices)
         {
-            var line = CalculateLine(afregning.Id, tidsserie, priceLink);
+            var line = CalculateLine(settlement.Id, time_series, priceLink);
             if (line is not null)
-                afregning.AddLine(line);
+                settlement.AddLine(line);
         }
 
-        return afregning;
+        return settlement;
     }
 
     /// <summary>
@@ -48,24 +48,24 @@ public static class SettlementCalculator
     /// Compares the new time series against the original settlement and produces
     /// line items with the difference amounts.
     /// </summary>
-    public static Afregning CalculateCorrection(
-        Tidsserie newTimeSeries,
-        Leverance leverance,
-        Afregning originalSettlement,
+    public static Settlement CalculateCorrection(
+        TimeSeries newTimeSeries,
+        Supply supply,
+        Settlement originalSettlement,
         IReadOnlyList<PriceWithPoints> activePrices)
     {
         if (newTimeSeries.Observations.Count == 0)
             throw new InvalidOperationException("Cannot settle a time series with no observations.");
 
         // Calculate what the full settlement would be with the new data
-        var fullNewSettlement = Calculate(newTimeSeries, leverance, activePrices);
+        var fullNewSettlement = Calculate(newTimeSeries, supply, activePrices);
 
         // The correction is a delta: new total - original total
         var deltaEnergy = newTimeSeries.TotalEnergy - originalSettlement.TotalEnergy;
 
-        var correction = Afregning.CreateCorrection(
-            newTimeSeries.MålepunktId,
-            leverance.Id,
+        var correction = Settlement.CreateCorrection(
+            newTimeSeries.MeteringPointId,
+            supply.Id,
             newTimeSeries.Period,
             newTimeSeries.Id,
             newTimeSeries.Version,
@@ -75,9 +75,9 @@ public static class SettlementCalculator
         // Create delta lines: new line amount - original line amount per price
         foreach (var newLine in fullNewSettlement.Lines)
         {
-            // Find matching original line by PrisId
+            // Find matching original line by PriceId
             var originalLine = originalSettlement.Lines
-                .FirstOrDefault(l => l.PrisId == newLine.PrisId);
+                .FirstOrDefault(l => l.PriceId == newLine.PriceId);
 
             var originalAmount = originalLine?.Amount.Amount ?? 0m;
             var delta = newLine.Amount.Amount - originalAmount;
@@ -92,9 +92,9 @@ public static class SettlementCalculator
                 ? delta / deltaQty
                 : newLine.UnitPrice;
 
-            correction.AddLine(AfregningLinje.Create(
+            correction.AddLine(SettlementLinje.Create(
                 correction.Id,
-                newLine.PrisId,
+                newLine.PriceId,
                 $"{newLine.Description} (justering)",
                 EnergyQuantity.Create(deltaQty),
                 effectiveUnitPrice));
@@ -103,17 +103,17 @@ public static class SettlementCalculator
         return correction;
     }
 
-    private static AfregningLinje? CalculateLine(
-        Guid afregningId,
-        Tidsserie tidsserie,
+    private static SettlementLinje? CalculateLine(
+        Guid settlementId,
+        TimeSeries time_series,
         PriceWithPoints priceLink)
     {
-        var pris = priceLink.Pris;
+        var pris = priceLink.Price;
 
         return pris.Type switch
         {
-            PriceType.Tarif => CalculateTariffLine(afregningId, tidsserie, priceLink),
-            PriceType.Abonnement => CalculateSubscriptionLine(afregningId, tidsserie, priceLink),
+            PriceType.Tarif => CalculateTariffLine(settlementId, time_series, priceLink),
+            PriceType.Abonnement => CalculateSubscriptionLine(settlementId, time_series, priceLink),
             PriceType.Gebyr => null, // Fees are event-based, not settlement-based
             _ => null
         };
@@ -123,15 +123,15 @@ public static class SettlementCalculator
     /// Tariff: for each observation, multiply energy × price at that hour.
     /// Supports both hourly-varying and flat tariffs.
     /// </summary>
-    private static AfregningLinje CalculateTariffLine(
-        Guid afregningId,
-        Tidsserie tidsserie,
+    private static SettlementLinje CalculateTariffLine(
+        Guid settlementId,
+        TimeSeries time_series,
         PriceWithPoints priceLink)
     {
         var totalAmount = 0m;
         var totalEnergy = 0m;
 
-        foreach (var obs in tidsserie.Observations)
+        foreach (var obs in time_series.Observations)
         {
             var price = priceLink.GetPriceAt(obs.Timestamp);
             if (price is null) continue;
@@ -143,10 +143,10 @@ public static class SettlementCalculator
         // Average unit price across the period
         var avgUnitPrice = totalEnergy != 0m ? totalAmount / totalEnergy : 0m;
 
-        return AfregningLinje.Create(
-            afregningId,
-            priceLink.Pris.Id,
-            priceLink.Pris.Description,
+        return SettlementLinje.Create(
+            settlementId,
+            priceLink.Price.Id,
+            priceLink.Price.Description,
             EnergyQuantity.Create(totalEnergy),
             avgUnitPrice);
     }
@@ -155,12 +155,12 @@ public static class SettlementCalculator
     /// Subscription: flat daily fee × number of days in the settlement period.
     /// Not energy-based — uses count of days instead of kWh.
     /// </summary>
-    private static AfregningLinje CalculateSubscriptionLine(
-        Guid afregningId,
-        Tidsserie tidsserie,
+    private static SettlementLinje CalculateSubscriptionLine(
+        Guid settlementId,
+        TimeSeries time_series,
         PriceWithPoints priceLink)
     {
-        var period = tidsserie.Period;
+        var period = time_series.Period;
         var days = period.End.HasValue
             ? (decimal)(period.End.Value - period.Start).TotalDays
             : 30m; // Fallback for open-ended (shouldn't happen in settlement)
@@ -168,27 +168,27 @@ public static class SettlementCalculator
         var dailyPrice = priceLink.GetPriceAt(period.Start) ?? 0m;
 
         // For subscriptions, quantity represents days (not kWh)
-        return AfregningLinje.Create(
-            afregningId,
-            priceLink.Pris.Id,
-            priceLink.Pris.Description,
+        return SettlementLinje.Create(
+            settlementId,
+            priceLink.Price.Id,
+            priceLink.Price.Description,
             EnergyQuantity.Create(days), // Using quantity field for day count
             dailyPrice);
     }
 }
 
 /// <summary>
-/// Wraps a Pris with its price points for settlement calculation.
+/// Wraps a Price with its price points for settlement calculation.
 /// Pre-loaded and sorted for efficient lookup.
 /// </summary>
 public class PriceWithPoints
 {
-    public Pris Pris { get; }
+    public Price Price { get; }
     private readonly List<(DateTimeOffset Timestamp, decimal Price)> _sortedPoints;
 
-    public PriceWithPoints(Pris pris)
+    public PriceWithPoints(Price pris)
     {
-        Pris = pris;
+        Price = pris;
         _sortedPoints = pris.PricePoints
             .OrderBy(pp => pp.Timestamp)
             .Select(pp => (pp.Timestamp, pp.Price))
@@ -204,7 +204,7 @@ public class PriceWithPoints
     {
         if (_sortedPoints.Count == 0) return null;
 
-        if (Pris.Type == PriceType.Abonnement)
+        if (Price.Type == PriceType.Abonnement)
             return _sortedPoints[0].Price;
 
         // Binary search for the latest point <= timestamp

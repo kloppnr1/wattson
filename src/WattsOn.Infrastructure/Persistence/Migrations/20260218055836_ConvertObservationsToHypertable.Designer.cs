@@ -25,7 +25,7 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Afregning", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.Settlement", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -53,17 +53,17 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("is_correction");
 
-                    b.Property<Guid>("LeveranceId")
+                    b.Property<Guid>("SupplyId")
                         .HasColumnType("uuid")
-                        .HasColumnName("leverance_id");
+                        .HasColumnName("supply_id");
 
-                    b.Property<Guid>("MålepunktId")
+                    b.Property<Guid>("MeteringPointId")
                         .HasColumnType("uuid")
-                        .HasColumnName("målepunkt_id");
+                        .HasColumnName("metering_point_id");
 
-                    b.Property<Guid?>("PreviousAfregningId")
+                    b.Property<Guid?>("PreviousSettlementId")
                         .HasColumnType("uuid")
-                        .HasColumnName("previous_afregning_id");
+                        .HasColumnName("previous_settlement_id");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -71,13 +71,13 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(50)")
                         .HasColumnName("status");
 
-                    b.Property<Guid>("TidsserieId")
+                    b.Property<Guid>("TimeSeriesId")
                         .HasColumnType("uuid")
-                        .HasColumnName("tidsserie_id");
+                        .HasColumnName("time_series_id");
 
-                    b.Property<int>("TidsserieVersion")
+                    b.Property<int>("TimeSeriesVersion")
                         .HasColumnType("integer")
-                        .HasColumnName("tidsserie_version");
+                        .HasColumnName("time_series_version");
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -85,27 +85,27 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("LeveranceId");
+                    b.HasIndex("SupplyId");
 
-                    b.HasIndex("MålepunktId");
+                    b.HasIndex("MeteringPointId");
 
                     b.HasIndex("Status");
 
-                    b.HasIndex("TidsserieId");
+                    b.HasIndex("TimeSeriesId");
 
-                    b.ToTable("afregninger", (string)null);
+                    b.ToTable("settlements", (string)null);
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.AfregningLinje", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.SettlementLinje", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
-                    b.Property<Guid>("AfregningId")
+                    b.Property<Guid>("SettlementId")
                         .HasColumnType("uuid")
-                        .HasColumnName("afregning_id");
+                        .HasColumnName("settlement_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -117,7 +117,7 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(500)")
                         .HasColumnName("description");
 
-                    b.Property<Guid>("PrisId")
+                    b.Property<Guid>("PriceId")
                         .HasColumnType("uuid")
                         .HasColumnName("pris_id");
 
@@ -132,12 +132,12 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AfregningId");
+                    b.HasIndex("SettlementId");
 
-                    b.ToTable("afregning_linjer", (string)null);
+                    b.ToTable("settlement_linjer", (string)null);
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Aktør", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.Actor", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -170,10 +170,10 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("aktører", (string)null);
+                    b.ToTable("actors", (string)null);
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Kunde", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.Customer", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -206,19 +206,19 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("kunder", (string)null);
+                    b.ToTable("customers", (string)null);
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Leverance", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.Supply", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
-                    b.Property<Guid>("AktørId")
+                    b.Property<Guid>("ActorId")
                         .HasColumnType("uuid")
-                        .HasColumnName("aktør_id");
+                        .HasColumnName("actor_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -232,13 +232,13 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("ended_by_process_id");
 
-                    b.Property<Guid>("KundeId")
+                    b.Property<Guid>("CustomerId")
                         .HasColumnType("uuid")
-                        .HasColumnName("kunde_id");
+                        .HasColumnName("customer_id");
 
-                    b.Property<Guid>("MålepunktId")
+                    b.Property<Guid>("MeteringPointId")
                         .HasColumnType("uuid")
-                        .HasColumnName("målepunkt_id");
+                        .HasColumnName("metering_point_id");
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -246,16 +246,16 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AktørId");
+                    b.HasIndex("ActorId");
 
-                    b.HasIndex("KundeId");
+                    b.HasIndex("CustomerId");
 
-                    b.HasIndex("MålepunktId");
+                    b.HasIndex("MeteringPointId");
 
-                    b.ToTable("leverancer", (string)null);
+                    b.ToTable("supplies", (string)null);
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Målepunkt", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.MeteringPoint", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -312,7 +312,7 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("målepunkter", (string)null);
+                    b.ToTable("metering_points", (string)null);
                 });
 
             modelBuilder.Entity("WattsOn.Domain.Entities.Observation", b =>
@@ -335,9 +335,9 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(30)")
                         .HasColumnName("quality");
 
-                    b.Property<Guid>("TidsserieId")
+                    b.Property<Guid>("TimeSeriesId")
                         .HasColumnType("uuid")
-                        .HasColumnName("tidsserie_id");
+                        .HasColumnName("time_series_id");
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -345,12 +345,12 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Timestamp", "Id");
 
-                    b.HasIndex("TidsserieId", "Timestamp");
+                    b.HasIndex("TimeSeriesId", "Timestamp");
 
                     b.ToTable("observations", (string)null);
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Pris", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.Price", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -396,7 +396,7 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ChargeId");
 
-                    b.ToTable("priser", (string)null);
+                    b.ToTable("prices", (string)null);
                 });
 
             modelBuilder.Entity("WattsOn.Domain.Entities.PrisPoint", b =>
@@ -415,7 +415,7 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                         .HasColumnType("numeric(18,6)")
                         .HasColumnName("price");
 
-                    b.Property<Guid>("PrisId")
+                    b.Property<Guid>("PriceId")
                         .HasColumnType("uuid")
                         .HasColumnName("pris_id");
 
@@ -429,12 +429,12 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("PrisId", "Timestamp");
+                    b.HasIndex("PriceId", "Timestamp");
 
                     b.ToTable("pris_points", (string)null);
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Pristilknytning", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.PriceLink", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -445,11 +445,11 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
-                    b.Property<Guid>("MålepunktId")
+                    b.Property<Guid>("MeteringPointId")
                         .HasColumnType("uuid")
-                        .HasColumnName("målepunkt_id");
+                        .HasColumnName("metering_point_id");
 
-                    b.Property<Guid>("PrisId")
+                    b.Property<Guid>("PriceId")
                         .HasColumnType("uuid")
                         .HasColumnName("pris_id");
 
@@ -459,14 +459,14 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("MålepunktId");
+                    b.HasIndex("MeteringPointId");
 
-                    b.HasIndex("PrisId");
+                    b.HasIndex("PriceId");
 
-                    b.ToTable("pristilknytninger", (string)null);
+                    b.ToTable("price_links", (string)null);
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Tidsserie", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.TimeSeries", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -481,9 +481,9 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("is_latest");
 
-                    b.Property<Guid>("MålepunktId")
+                    b.Property<Guid>("MeteringPointId")
                         .HasColumnType("uuid")
-                        .HasColumnName("målepunkt_id");
+                        .HasColumnName("metering_point_id");
 
                     b.Property<DateTimeOffset>("ReceivedAt")
                         .HasColumnType("timestamp with time zone")
@@ -510,9 +510,9 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("MålepunktId", "IsLatest");
+                    b.HasIndex("MeteringPointId", "IsLatest");
 
-                    b.ToTable("tidsserier", (string)null);
+                    b.ToTable("time_series", (string)null);
                 });
 
             modelBuilder.Entity("WattsOn.Domain.Messaging.InboxMessage", b =>
@@ -799,29 +799,29 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                     b.ToTable("process_state_transitions", (string)null);
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Afregning", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.Settlement", b =>
                 {
-                    b.HasOne("WattsOn.Domain.Entities.Leverance", "Leverance")
+                    b.HasOne("WattsOn.Domain.Entities.Supply", "Supply")
                         .WithMany()
-                        .HasForeignKey("LeveranceId")
+                        .HasForeignKey("SupplyId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("WattsOn.Domain.Entities.Målepunkt", "Målepunkt")
+                    b.HasOne("WattsOn.Domain.Entities.MeteringPoint", "MeteringPoint")
                         .WithMany()
-                        .HasForeignKey("MålepunktId")
+                        .HasForeignKey("MeteringPointId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("WattsOn.Domain.Entities.Tidsserie", "Tidsserie")
+                    b.HasOne("WattsOn.Domain.Entities.TimeSeries", "TimeSeries")
                         .WithMany()
-                        .HasForeignKey("TidsserieId")
+                        .HasForeignKey("TimeSeriesId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.OwnsOne("WattsOn.Domain.ValueObjects.Period", "SettlementPeriod", b1 =>
                         {
-                            b1.Property<Guid>("AfregningId")
+                            b1.Property<Guid>("SettlementId")
                                 .HasColumnType("uuid");
 
                             b1.Property<DateTimeOffset?>("End")
@@ -832,17 +832,17 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                                 .HasColumnType("timestamp with time zone")
                                 .HasColumnName("settlement_start");
 
-                            b1.HasKey("AfregningId");
+                            b1.HasKey("SettlementId");
 
-                            b1.ToTable("afregninger");
+                            b1.ToTable("settlements");
 
                             b1.WithOwner()
-                                .HasForeignKey("AfregningId");
+                                .HasForeignKey("SettlementId");
                         });
 
                     b.OwnsOne("WattsOn.Domain.ValueObjects.Money", "TotalAmount", b1 =>
                         {
-                            b1.Property<Guid>("AfregningId")
+                            b1.Property<Guid>("SettlementId")
                                 .HasColumnType("uuid");
 
                             b1.Property<decimal>("Amount")
@@ -858,17 +858,17 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                                 .HasDefaultValue("DKK")
                                 .HasColumnName("total_currency");
 
-                            b1.HasKey("AfregningId");
+                            b1.HasKey("SettlementId");
 
-                            b1.ToTable("afregninger");
+                            b1.ToTable("settlements");
 
                             b1.WithOwner()
-                                .HasForeignKey("AfregningId");
+                                .HasForeignKey("SettlementId");
                         });
 
                     b.OwnsOne("WattsOn.Domain.ValueObjects.EnergyQuantity", "TotalEnergy", b1 =>
                         {
-                            b1.Property<Guid>("AfregningId")
+                            b1.Property<Guid>("SettlementId")
                                 .HasColumnType("uuid");
 
                             b1.Property<string>("Unit")
@@ -884,22 +884,22 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                                 .HasColumnType("numeric(18,3)")
                                 .HasColumnName("total_energy_kwh");
 
-                            b1.HasKey("AfregningId");
+                            b1.HasKey("SettlementId");
 
-                            b1.ToTable("afregninger");
+                            b1.ToTable("settlements");
 
                             b1.WithOwner()
-                                .HasForeignKey("AfregningId");
+                                .HasForeignKey("SettlementId");
                         });
 
-                    b.Navigation("Leverance");
+                    b.Navigation("Supply");
 
-                    b.Navigation("Målepunkt");
+                    b.Navigation("MeteringPoint");
 
                     b.Navigation("SettlementPeriod")
                         .IsRequired();
 
-                    b.Navigation("Tidsserie");
+                    b.Navigation("TimeSeries");
 
                     b.Navigation("TotalAmount")
                         .IsRequired();
@@ -908,17 +908,17 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.AfregningLinje", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.SettlementLinje", b =>
                 {
-                    b.HasOne("WattsOn.Domain.Entities.Afregning", null)
+                    b.HasOne("WattsOn.Domain.Entities.Settlement", null)
                         .WithMany("Lines")
-                        .HasForeignKey("AfregningId")
+                        .HasForeignKey("SettlementId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.OwnsOne("WattsOn.Domain.ValueObjects.Money", "Amount", b1 =>
                         {
-                            b1.Property<Guid>("AfregningLinjeId")
+                            b1.Property<Guid>("SettlementLinjeId")
                                 .HasColumnType("uuid");
 
                             b1.Property<decimal>("Amount")
@@ -934,17 +934,17 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                                 .HasDefaultValue("DKK")
                                 .HasColumnName("amount_currency");
 
-                            b1.HasKey("AfregningLinjeId");
+                            b1.HasKey("SettlementLinjeId");
 
-                            b1.ToTable("afregning_linjer");
+                            b1.ToTable("settlement_linjer");
 
                             b1.WithOwner()
-                                .HasForeignKey("AfregningLinjeId");
+                                .HasForeignKey("SettlementLinjeId");
                         });
 
                     b.OwnsOne("WattsOn.Domain.ValueObjects.EnergyQuantity", "Quantity", b1 =>
                         {
-                            b1.Property<Guid>("AfregningLinjeId")
+                            b1.Property<Guid>("SettlementLinjeId")
                                 .HasColumnType("uuid");
 
                             b1.Property<string>("Unit")
@@ -960,12 +960,12 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                                 .HasColumnType("numeric(18,3)")
                                 .HasColumnName("quantity_kwh");
 
-                            b1.HasKey("AfregningLinjeId");
+                            b1.HasKey("SettlementLinjeId");
 
-                            b1.ToTable("afregning_linjer");
+                            b1.ToTable("settlement_linjer");
 
                             b1.WithOwner()
-                                .HasForeignKey("AfregningLinjeId");
+                                .HasForeignKey("SettlementLinjeId");
                         });
 
                     b.Navigation("Amount")
@@ -975,11 +975,11 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Aktør", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.Actor", b =>
                 {
                     b.OwnsOne("WattsOn.Domain.ValueObjects.CvrNumber", "Cvr", b1 =>
                         {
-                            b1.Property<Guid>("AktørId")
+                            b1.Property<Guid>("ActorId")
                                 .HasColumnType("uuid");
 
                             b1.Property<string>("Value")
@@ -988,17 +988,17 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                                 .HasColumnType("character varying(8)")
                                 .HasColumnName("cvr");
 
-                            b1.HasKey("AktørId");
+                            b1.HasKey("ActorId");
 
-                            b1.ToTable("aktører");
+                            b1.ToTable("actors");
 
                             b1.WithOwner()
-                                .HasForeignKey("AktørId");
+                                .HasForeignKey("ActorId");
                         });
 
                     b.OwnsOne("WattsOn.Domain.ValueObjects.GlnNumber", "Gln", b1 =>
                         {
-                            b1.Property<Guid>("AktørId")
+                            b1.Property<Guid>("ActorId")
                                 .HasColumnType("uuid");
 
                             b1.Property<string>("Value")
@@ -1007,15 +1007,15 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                                 .HasColumnType("character varying(13)")
                                 .HasColumnName("gln");
 
-                            b1.HasKey("AktørId");
+                            b1.HasKey("ActorId");
 
                             b1.HasIndex("Value")
                                 .IsUnique();
 
-                            b1.ToTable("aktører");
+                            b1.ToTable("actors");
 
                             b1.WithOwner()
-                                .HasForeignKey("AktørId");
+                                .HasForeignKey("ActorId");
                         });
 
                     b.Navigation("Cvr");
@@ -1024,11 +1024,11 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Kunde", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.Customer", b =>
                 {
                     b.OwnsOne("WattsOn.Domain.ValueObjects.Address", "Address", b1 =>
                         {
-                            b1.Property<Guid>("KundeId")
+                            b1.Property<Guid>("CustomerId")
                                 .HasColumnType("uuid");
 
                             b1.Property<string>("BuildingNumber")
@@ -1076,17 +1076,17 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                                 .HasColumnType("character varying(10)")
                                 .HasColumnName("suite");
 
-                            b1.HasKey("KundeId");
+                            b1.HasKey("CustomerId");
 
-                            b1.ToTable("kunder");
+                            b1.ToTable("customers");
 
                             b1.WithOwner()
-                                .HasForeignKey("KundeId");
+                                .HasForeignKey("CustomerId");
                         });
 
                     b.OwnsOne("WattsOn.Domain.ValueObjects.CvrNumber", "Cvr", b1 =>
                         {
-                            b1.Property<Guid>("KundeId")
+                            b1.Property<Guid>("CustomerId")
                                 .HasColumnType("uuid");
 
                             b1.Property<string>("Value")
@@ -1095,17 +1095,17 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                                 .HasColumnType("character varying(8)")
                                 .HasColumnName("cvr");
 
-                            b1.HasKey("KundeId");
+                            b1.HasKey("CustomerId");
 
-                            b1.ToTable("kunder");
+                            b1.ToTable("customers");
 
                             b1.WithOwner()
-                                .HasForeignKey("KundeId");
+                                .HasForeignKey("CustomerId");
                         });
 
                     b.OwnsOne("WattsOn.Domain.ValueObjects.CprNumber", "Cpr", b1 =>
                         {
-                            b1.Property<Guid>("KundeId")
+                            b1.Property<Guid>("CustomerId")
                                 .HasColumnType("uuid");
 
                             b1.Property<string>("Value")
@@ -1114,12 +1114,12 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                                 .HasColumnType("character varying(10)")
                                 .HasColumnName("cpr");
 
-                            b1.HasKey("KundeId");
+                            b1.HasKey("CustomerId");
 
-                            b1.ToTable("kunder");
+                            b1.ToTable("customers");
 
                             b1.WithOwner()
-                                .HasForeignKey("KundeId");
+                                .HasForeignKey("CustomerId");
                         });
 
                     b.Navigation("Address");
@@ -1129,29 +1129,29 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                     b.Navigation("Cvr");
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Leverance", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.Supply", b =>
                 {
-                    b.HasOne("WattsOn.Domain.Entities.Aktør", "Aktør")
+                    b.HasOne("WattsOn.Domain.Entities.Actor", "Actor")
                         .WithMany()
-                        .HasForeignKey("AktørId")
+                        .HasForeignKey("ActorId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("WattsOn.Domain.Entities.Kunde", "Kunde")
-                        .WithMany("Leverancer")
-                        .HasForeignKey("KundeId")
+                    b.HasOne("WattsOn.Domain.Entities.Customer", "Customer")
+                        .WithMany("Supplies")
+                        .HasForeignKey("CustomerId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("WattsOn.Domain.Entities.Målepunkt", "Målepunkt")
-                        .WithMany("Leverancer")
-                        .HasForeignKey("MålepunktId")
+                    b.HasOne("WattsOn.Domain.Entities.MeteringPoint", "MeteringPoint")
+                        .WithMany("Supplies")
+                        .HasForeignKey("MeteringPointId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.OwnsOne("WattsOn.Domain.ValueObjects.Period", "SupplyPeriod", b1 =>
                         {
-                            b1.Property<Guid>("LeveranceId")
+                            b1.Property<Guid>("SupplyId")
                                 .HasColumnType("uuid");
 
                             b1.Property<DateTimeOffset?>("End")
@@ -1162,29 +1162,29 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                                 .HasColumnType("timestamp with time zone")
                                 .HasColumnName("supply_start");
 
-                            b1.HasKey("LeveranceId");
+                            b1.HasKey("SupplyId");
 
-                            b1.ToTable("leverancer");
+                            b1.ToTable("supplies");
 
                             b1.WithOwner()
-                                .HasForeignKey("LeveranceId");
+                                .HasForeignKey("SupplyId");
                         });
 
-                    b.Navigation("Aktør");
+                    b.Navigation("Actor");
 
-                    b.Navigation("Kunde");
+                    b.Navigation("Customer");
 
-                    b.Navigation("Målepunkt");
+                    b.Navigation("MeteringPoint");
 
                     b.Navigation("SupplyPeriod")
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Målepunkt", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.MeteringPoint", b =>
                 {
                     b.OwnsOne("WattsOn.Domain.ValueObjects.Address", "Address", b1 =>
                         {
-                            b1.Property<Guid>("MålepunktId")
+                            b1.Property<Guid>("MeteringPointId")
                                 .HasColumnType("uuid");
 
                             b1.Property<string>("BuildingNumber")
@@ -1232,17 +1232,17 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                                 .HasColumnType("character varying(10)")
                                 .HasColumnName("suite");
 
-                            b1.HasKey("MålepunktId");
+                            b1.HasKey("MeteringPointId");
 
-                            b1.ToTable("målepunkter");
+                            b1.ToTable("metering_points");
 
                             b1.WithOwner()
-                                .HasForeignKey("MålepunktId");
+                                .HasForeignKey("MeteringPointId");
                         });
 
                     b.OwnsOne("WattsOn.Domain.ValueObjects.GlnNumber", "GridCompanyGln", b1 =>
                         {
-                            b1.Property<Guid>("MålepunktId")
+                            b1.Property<Guid>("MeteringPointId")
                                 .HasColumnType("uuid");
 
                             b1.Property<string>("Value")
@@ -1251,17 +1251,17 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                                 .HasColumnType("character varying(13)")
                                 .HasColumnName("grid_company_gln");
 
-                            b1.HasKey("MålepunktId");
+                            b1.HasKey("MeteringPointId");
 
-                            b1.ToTable("målepunkter");
+                            b1.ToTable("metering_points");
 
                             b1.WithOwner()
-                                .HasForeignKey("MålepunktId");
+                                .HasForeignKey("MeteringPointId");
                         });
 
                     b.OwnsOne("WattsOn.Domain.ValueObjects.Gsrn", "Gsrn", b1 =>
                         {
-                            b1.Property<Guid>("MålepunktId")
+                            b1.Property<Guid>("MeteringPointId")
                                 .HasColumnType("uuid");
 
                             b1.Property<string>("Value")
@@ -1270,15 +1270,15 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                                 .HasColumnType("character varying(18)")
                                 .HasColumnName("gsrn");
 
-                            b1.HasKey("MålepunktId");
+                            b1.HasKey("MeteringPointId");
 
                             b1.HasIndex("Value")
                                 .IsUnique();
 
-                            b1.ToTable("målepunkter");
+                            b1.ToTable("metering_points");
 
                             b1.WithOwner()
-                                .HasForeignKey("MålepunktId");
+                                .HasForeignKey("MeteringPointId");
                         });
 
                     b.Navigation("Address");
@@ -1292,9 +1292,9 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("WattsOn.Domain.Entities.Observation", b =>
                 {
-                    b.HasOne("WattsOn.Domain.Entities.Tidsserie", null)
+                    b.HasOne("WattsOn.Domain.Entities.TimeSeries", null)
                         .WithMany("Observations")
-                        .HasForeignKey("TidsserieId")
+                        .HasForeignKey("TimeSeriesId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
@@ -1331,11 +1331,11 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Pris", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.Price", b =>
                 {
                     b.OwnsOne("WattsOn.Domain.ValueObjects.GlnNumber", "OwnerGln", b1 =>
                         {
-                            b1.Property<Guid>("PrisId")
+                            b1.Property<Guid>("PriceId")
                                 .HasColumnType("uuid");
 
                             b1.Property<string>("Value")
@@ -1344,17 +1344,17 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                                 .HasColumnType("character varying(13)")
                                 .HasColumnName("owner_gln");
 
-                            b1.HasKey("PrisId");
+                            b1.HasKey("PriceId");
 
-                            b1.ToTable("priser");
+                            b1.ToTable("prices");
 
                             b1.WithOwner()
-                                .HasForeignKey("PrisId");
+                                .HasForeignKey("PriceId");
                         });
 
                     b.OwnsOne("WattsOn.Domain.ValueObjects.Period", "ValidityPeriod", b1 =>
                         {
-                            b1.Property<Guid>("PrisId")
+                            b1.Property<Guid>("PriceId")
                                 .HasColumnType("uuid");
 
                             b1.Property<DateTimeOffset?>("End")
@@ -1365,12 +1365,12 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                                 .HasColumnType("timestamp with time zone")
                                 .HasColumnName("valid_from");
 
-                            b1.HasKey("PrisId");
+                            b1.HasKey("PriceId");
 
-                            b1.ToTable("priser");
+                            b1.ToTable("prices");
 
                             b1.WithOwner()
-                                .HasForeignKey("PrisId");
+                                .HasForeignKey("PriceId");
                         });
 
                     b.Navigation("OwnerGln")
@@ -1382,30 +1382,30 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("WattsOn.Domain.Entities.PrisPoint", b =>
                 {
-                    b.HasOne("WattsOn.Domain.Entities.Pris", null)
+                    b.HasOne("WattsOn.Domain.Entities.Price", null)
                         .WithMany("PricePoints")
-                        .HasForeignKey("PrisId")
+                        .HasForeignKey("PriceId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Pristilknytning", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.PriceLink", b =>
                 {
-                    b.HasOne("WattsOn.Domain.Entities.Målepunkt", "Målepunkt")
+                    b.HasOne("WattsOn.Domain.Entities.MeteringPoint", "MeteringPoint")
                         .WithMany()
-                        .HasForeignKey("MålepunktId")
+                        .HasForeignKey("MeteringPointId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("WattsOn.Domain.Entities.Pris", "Pris")
+                    b.HasOne("WattsOn.Domain.Entities.Price", "Price")
                         .WithMany()
-                        .HasForeignKey("PrisId")
+                        .HasForeignKey("PriceId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.OwnsOne("WattsOn.Domain.ValueObjects.Period", "LinkPeriod", b1 =>
                         {
-                            b1.Property<Guid>("PristilknytningId")
+                            b1.Property<Guid>("PriceLinkId")
                                 .HasColumnType("uuid");
 
                             b1.Property<DateTimeOffset?>("End")
@@ -1416,33 +1416,33 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                                 .HasColumnType("timestamp with time zone")
                                 .HasColumnName("link_start");
 
-                            b1.HasKey("PristilknytningId");
+                            b1.HasKey("PriceLinkId");
 
-                            b1.ToTable("pristilknytninger");
+                            b1.ToTable("price_links");
 
                             b1.WithOwner()
-                                .HasForeignKey("PristilknytningId");
+                                .HasForeignKey("PriceLinkId");
                         });
 
                     b.Navigation("LinkPeriod")
                         .IsRequired();
 
-                    b.Navigation("Målepunkt");
+                    b.Navigation("MeteringPoint");
 
-                    b.Navigation("Pris");
+                    b.Navigation("Price");
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Tidsserie", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.TimeSeries", b =>
                 {
-                    b.HasOne("WattsOn.Domain.Entities.Målepunkt", "Målepunkt")
-                        .WithMany("Tidsserier")
-                        .HasForeignKey("MålepunktId")
+                    b.HasOne("WattsOn.Domain.Entities.MeteringPoint", "MeteringPoint")
+                        .WithMany("TimeSeriesCollection")
+                        .HasForeignKey("MeteringPointId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.OwnsOne("WattsOn.Domain.ValueObjects.Period", "Period", b1 =>
                         {
-                            b1.Property<Guid>("TidsserieId")
+                            b1.Property<Guid>("TimeSeriesId")
                                 .HasColumnType("uuid");
 
                             b1.Property<DateTimeOffset?>("End")
@@ -1453,15 +1453,15 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                                 .HasColumnType("timestamp with time zone")
                                 .HasColumnName("period_start");
 
-                            b1.HasKey("TidsserieId");
+                            b1.HasKey("TimeSeriesId");
 
-                            b1.ToTable("tidsserier");
+                            b1.ToTable("time_series");
 
                             b1.WithOwner()
-                                .HasForeignKey("TidsserieId");
+                                .HasForeignKey("TimeSeriesId");
                         });
 
-                    b.Navigation("Målepunkt");
+                    b.Navigation("MeteringPoint");
 
                     b.Navigation("Period")
                         .IsRequired();
@@ -1488,7 +1488,7 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                                 .HasForeignKey("BrsProcessId");
                         });
 
-                    b.OwnsOne("WattsOn.Domain.ValueObjects.Gsrn", "MålepunktGsrn", b1 =>
+                    b.OwnsOne("WattsOn.Domain.ValueObjects.Gsrn", "MeteringPointGsrn", b1 =>
                         {
                             b1.Property<Guid>("BrsProcessId")
                                 .HasColumnType("uuid");
@@ -1497,7 +1497,7 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                                 .IsRequired()
                                 .HasMaxLength(18)
                                 .HasColumnType("character varying(18)")
-                                .HasColumnName("målepunkt_gsrn");
+                                .HasColumnName("metering_point_gsrn");
 
                             b1.HasKey("BrsProcessId");
 
@@ -1509,7 +1509,7 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
 
                     b.Navigation("CounterpartGln");
 
-                    b.Navigation("MålepunktGsrn");
+                    b.Navigation("MeteringPointGsrn");
                 });
 
             modelBuilder.Entity("WattsOn.Domain.Processes.ProcessStateTransition", b =>
@@ -1521,29 +1521,29 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Afregning", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.Settlement", b =>
                 {
                     b.Navigation("Lines");
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Kunde", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.Customer", b =>
                 {
-                    b.Navigation("Leverancer");
+                    b.Navigation("Supplies");
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Målepunkt", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.MeteringPoint", b =>
                 {
-                    b.Navigation("Leverancer");
+                    b.Navigation("Supplies");
 
-                    b.Navigation("Tidsserier");
+                    b.Navigation("TimeSeriesCollection");
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Pris", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.Price", b =>
                 {
                     b.Navigation("PricePoints");
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.Tidsserie", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.TimeSeries", b =>
                 {
                     b.Navigation("Observations");
                 });

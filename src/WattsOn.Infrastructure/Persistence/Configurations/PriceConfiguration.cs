@@ -4,11 +4,11 @@ using WattsOn.Domain.Entities;
 
 namespace WattsOn.Infrastructure.Persistence.Configurations;
 
-public class PrisConfiguration : IEntityTypeConfiguration<Pris>
+public class PrisConfiguration : IEntityTypeConfiguration<Price>
 {
-    public void Configure(EntityTypeBuilder<Pris> builder)
+    public void Configure(EntityTypeBuilder<Price> builder)
     {
-        builder.ToTable("priser");
+        builder.ToTable("prices");
 
         builder.HasKey(p => p.Id);
         builder.Property(p => p.Id).HasColumnName("id");
@@ -34,7 +34,7 @@ public class PrisConfiguration : IEntityTypeConfiguration<Pris>
 
         builder.HasMany(p => p.PricePoints)
             .WithOne()
-            .HasForeignKey(pp => pp.PrisId)
+            .HasForeignKey(pp => pp.PriceId)
             .OnDelete(DeleteBehavior.Cascade);
 
         builder.HasIndex(p => p.ChargeId);
@@ -47,18 +47,18 @@ public class PrisPointConfiguration : IEntityTypeConfiguration<PrisPoint>
 {
     public void Configure(EntityTypeBuilder<PrisPoint> builder)
     {
-        builder.ToTable("pris_points");
+        builder.ToTable("price_points");
 
         builder.HasKey(pp => pp.Id);
         builder.Property(pp => pp.Id).HasColumnName("id");
         builder.Property(pp => pp.CreatedAt).HasColumnName("created_at");
         builder.Property(pp => pp.UpdatedAt).HasColumnName("updated_at");
 
-        builder.Property(pp => pp.PrisId).HasColumnName("pris_id").IsRequired();
+        builder.Property(pp => pp.PriceId).HasColumnName("pris_id").IsRequired();
         builder.Property(pp => pp.Timestamp).HasColumnName("timestamp").IsRequired();
         builder.Property(pp => pp.Price).HasColumnName("price").HasPrecision(18, 6);
 
-        builder.HasIndex(pp => new { pp.PrisId, pp.Timestamp });
+        builder.HasIndex(pp => new { pp.PriceId, pp.Timestamp });
 
         builder.Ignore(pp => pp.DomainEvents);
     }

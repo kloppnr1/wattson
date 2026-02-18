@@ -4,20 +4,20 @@ using WattsOn.Domain.Entities;
 
 namespace WattsOn.Infrastructure.Persistence.Configurations;
 
-public class LeveranceConfiguration : IEntityTypeConfiguration<Leverance>
+public class SupplyConfiguration : IEntityTypeConfiguration<Supply>
 {
-    public void Configure(EntityTypeBuilder<Leverance> builder)
+    public void Configure(EntityTypeBuilder<Supply> builder)
     {
-        builder.ToTable("leverancer");
+        builder.ToTable("supplies");
 
         builder.HasKey(l => l.Id);
         builder.Property(l => l.Id).HasColumnName("id");
         builder.Property(l => l.CreatedAt).HasColumnName("created_at");
         builder.Property(l => l.UpdatedAt).HasColumnName("updated_at");
 
-        builder.Property(l => l.MålepunktId).HasColumnName("målepunkt_id").IsRequired();
-        builder.Property(l => l.KundeId).HasColumnName("kunde_id").IsRequired();
-        builder.Property(l => l.AktørId).HasColumnName("aktør_id").IsRequired();
+        builder.Property(l => l.MeteringPointId).HasColumnName("metering_point_id").IsRequired();
+        builder.Property(l => l.CustomerId).HasColumnName("customer_id").IsRequired();
+        builder.Property(l => l.ActorId).HasColumnName("actor_id").IsRequired();
         builder.Property(l => l.CreatedByProcessId).HasColumnName("created_by_process_id");
         builder.Property(l => l.EndedByProcessId).HasColumnName("ended_by_process_id");
 
@@ -27,9 +27,9 @@ public class LeveranceConfiguration : IEntityTypeConfiguration<Leverance>
             period.Property(p => p.End).HasColumnName("supply_end");
         });
 
-        builder.HasOne(l => l.Aktør)
+        builder.HasOne(l => l.Actor)
             .WithMany()
-            .HasForeignKey(l => l.AktørId)
+            .HasForeignKey(l => l.ActorId)
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.Ignore(l => l.IsActive);

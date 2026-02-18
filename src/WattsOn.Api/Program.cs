@@ -40,9 +40,9 @@ app.MapGet("/api/health", () => Results.Ok(new { status = "healthy", timestamp =
 
 // ==================== AKTØRER ====================
 
-app.MapGet("/api/aktører", async (WattsOnDbContext db) =>
+app.MapGet("/api/actors", async (WattsOnDbContext db) =>
 {
-    var aktører = await db.Aktører
+    var actors = await db.Actors
         .AsNoTracking()
         .OrderBy(a => a.Name)
         .Select(a => new
@@ -56,30 +56,30 @@ app.MapGet("/api/aktører", async (WattsOnDbContext db) =>
             a.CreatedAt
         })
         .ToListAsync();
-    return Results.Ok(aktører);
-}).WithName("GetAktører");
+    return Results.Ok(actors);
+}).WithName("GetActors");
 
-app.MapPost("/api/aktører", async (CreateAktørRequest req, WattsOnDbContext db) =>
+app.MapPost("/api/actors", async (CreateActorRequest req, WattsOnDbContext db) =>
 {
     var gln = GlnNumber.Create(req.Gln);
     var cvr = req.Cvr != null ? CvrNumber.Create(req.Cvr) : null;
     var role = Enum.Parse<ActorRole>(req.Role);
 
-    var aktør = req.IsOwn
-        ? Aktør.CreateOwn(gln, req.Name, cvr ?? throw new ArgumentException("CVR required for own actor"))
-        : Aktør.Create(gln, req.Name, role, cvr);
+    var actor = req.IsOwn
+        ? Actor.CreateOwn(gln, req.Name, cvr ?? throw new ArgumentException("CVR required for own actor"))
+        : Actor.Create(gln, req.Name, role, cvr);
 
-    db.Aktører.Add(aktør);
+    db.Actors.Add(actor);
     await db.SaveChangesAsync();
 
-    return Results.Created($"/api/aktører/{aktør.Id}", new { aktør.Id, Gln = aktør.Gln.Value, aktør.Name });
-}).WithName("CreateAktør");
+    return Results.Created($"/api/actors/{actor.Id}", new { actor.Id, Gln = actor.Gln.Value, actor.Name });
+}).WithName("CreateActor");
 
 // ==================== KUNDER ====================
 
-app.MapGet("/api/kunder", async (WattsOnDbContext db) =>
+app.MapGet("/api/customers", async (WattsOnDbContext db) =>
 {
-    var kunder = await db.Kunder
+    var customers = await db.Customers
         .AsNoTracking()
         .OrderBy(k => k.Name)
         .Select(k => new
@@ -95,66 +95,66 @@ app.MapGet("/api/kunder", async (WattsOnDbContext db) =>
             k.CreatedAt
         })
         .ToListAsync();
-    return Results.Ok(kunder);
-}).WithName("GetKunder");
+    return Results.Ok(customers);
+}).WithName("GetCustomers");
 
-app.MapGet("/api/kunder/{id:guid}", async (Guid id, WattsOnDbContext db) =>
+app.MapGet("/api/customers/{id:guid}", async (Guid id, WattsOnDbContext db) =>
 {
-    var kunde = await db.Kunder
-        .Include(k => k.Leverancer)
-            .ThenInclude(l => l.Målepunkt)
+    var customer = await db.Customers
+        .Include(k => k.Supplies)
+            .ThenInclude(l => l.MeteringPoint)
         .AsNoTracking()
         .FirstOrDefaultAsync(k => k.Id == id);
 
-    if (kunde is null) return Results.NotFound();
+    if (customer is null) return Results.NotFound();
 
     return Results.Ok(new
     {
-        kunde.Id,
-        kunde.Name,
-        Cpr = kunde.Cpr?.Value,
-        Cvr = kunde.Cvr?.Value,
-        kunde.Email,
-        kunde.Phone,
-        Address = kunde.Address != null ? new
+        customer.Id,
+        customer.Name,
+        Cpr = customer.Cpr?.Value,
+        Cvr = customer.Cvr?.Value,
+        customer.Email,
+        customer.Phone,
+        Address = customer.Address != null ? new
         {
-            kunde.Address.StreetName,
-            kunde.Address.BuildingNumber,
-            kunde.Address.Floor,
-            kunde.Address.Suite,
-            kunde.Address.PostCode,
-            kunde.Address.CityName
+            customer.Address.StreetName,
+            customer.Address.BuildingNumber,
+            customer.Address.Floor,
+            customer.Address.Suite,
+            customer.Address.PostCode,
+            customer.Address.CityName
         } : null,
-        IsPrivate = kunde.Cpr != null,
-        IsCompany = kunde.Cvr != null,
-        kunde.CreatedAt,
-        Leverancer = kunde.Leverancer.Select(l => new
+        IsPrivate = customer.Cpr != null,
+        IsCompany = customer.Cvr != null,
+        customer.CreatedAt,
+        Supplies = customer.Supplies.Select(l => new
         {
             l.Id,
-            l.MålepunktId,
-            Gsrn = l.Målepunkt.Gsrn.Value,
+            l.MeteringPointId,
+            Gsrn = l.MeteringPoint.Gsrn.Value,
             SupplyStart = l.SupplyPeriod.Start,
             SupplyEnd = l.SupplyPeriod.End,
             l.IsActive
         })
     });
-}).WithName("GetKunde");
+}).WithName("GetCustomer");
 
-app.MapPost("/api/kunder", async (CreateKundeRequest req, WattsOnDbContext db) =>
+app.MapPost("/api/customers", async (CreateCustomerRequest req, WattsOnDbContext db) =>
 {
     Address? address = req.Address != null
         ? Address.Create(req.Address.StreetName, req.Address.BuildingNumber, req.Address.PostCode, req.Address.CityName,
             req.Address.Floor, req.Address.Suite)
         : null;
 
-    Kunde kunde;
+    Customer customer;
     if (req.Cpr != null)
     {
-        kunde = Kunde.CreatePerson(req.Name, CprNumber.Create(req.Cpr), address);
+        customer = Customer.CreatePerson(req.Name, CprNumber.Create(req.Cpr), address);
     }
     else if (req.Cvr != null)
     {
-        kunde = Kunde.CreateCompany(req.Name, CvrNumber.Create(req.Cvr), address);
+        customer = Customer.CreateCompany(req.Name, CvrNumber.Create(req.Cvr), address);
     }
     else
     {
@@ -162,19 +162,19 @@ app.MapPost("/api/kunder", async (CreateKundeRequest req, WattsOnDbContext db) =
     }
 
     if (req.Email != null || req.Phone != null)
-        kunde.UpdateContactInfo(req.Email, req.Phone);
+        customer.UpdateContactInfo(req.Email, req.Phone);
 
-    db.Kunder.Add(kunde);
+    db.Customers.Add(customer);
     await db.SaveChangesAsync();
 
-    return Results.Created($"/api/kunder/{kunde.Id}", new { kunde.Id, kunde.Name });
-}).WithName("CreateKunde");
+    return Results.Created($"/api/customers/{customer.Id}", new { customer.Id, customer.Name });
+}).WithName("CreateCustomer");
 
 // ==================== MÅLEPUNKTER ====================
 
-app.MapGet("/api/målepunkter", async (WattsOnDbContext db) =>
+app.MapGet("/api/metering-points", async (WattsOnDbContext db) =>
 {
-    var mp = await db.Målepunkter
+    var mp = await db.MeteringPoints
         .AsNoTracking()
         .OrderBy(m => m.Gsrn.Value)
         .Select(m => new
@@ -193,14 +193,14 @@ app.MapGet("/api/målepunkter", async (WattsOnDbContext db) =>
         })
         .ToListAsync();
     return Results.Ok(mp);
-}).WithName("GetMålepunkter");
+}).WithName("GetMeteringPoints");
 
-app.MapGet("/api/målepunkter/{id:guid}", async (Guid id, WattsOnDbContext db) =>
+app.MapGet("/api/metering-points/{id:guid}", async (Guid id, WattsOnDbContext db) =>
 {
-    var mp = await db.Målepunkter
-        .Include(m => m.Leverancer)
-            .ThenInclude(l => l.Kunde)
-        .Include(m => m.Tidsserier)
+    var mp = await db.MeteringPoints
+        .Include(m => m.Supplies)
+            .ThenInclude(l => l.Customer)
+        .Include(m => m.TimeSeriesCollection)
         .AsNoTracking()
         .FirstOrDefaultAsync(m => m.Id == id);
 
@@ -228,16 +228,16 @@ app.MapGet("/api/målepunkter/{id:guid}", async (Guid id, WattsOnDbContext db) =
             mp.Address.CityName
         } : null,
         mp.CreatedAt,
-        Leverancer = mp.Leverancer.Select(l => new
+        Supplies = mp.Supplies.Select(l => new
         {
             l.Id,
-            l.KundeId,
-            KundeNavn = l.Kunde.Name,
+            l.CustomerId,
+            CustomerNavn = l.Customer.Name,
             SupplyStart = l.SupplyPeriod.Start,
             SupplyEnd = l.SupplyPeriod.End,
             l.IsActive
         }),
-        Tidsserier = mp.Tidsserier.OrderByDescending(t => t.ReceivedAt).Select(t => new
+        TimeSeriesCollection = mp.TimeSeriesCollection.OrderByDescending(t => t.ReceivedAt).Select(t => new
         {
             t.Id,
             PeriodStart = t.Period.Start,
@@ -248,14 +248,14 @@ app.MapGet("/api/målepunkter/{id:guid}", async (Guid id, WattsOnDbContext db) =
             t.ReceivedAt
         })
     });
-}).WithName("GetMålepunkt");
+}).WithName("GetMeteringPoint");
 
-app.MapPost("/api/målepunkter", async (CreateMålepunktRequest req, WattsOnDbContext db) =>
+app.MapPost("/api/metering-points", async (CreateMeteringPointRequest req, WattsOnDbContext db) =>
 {
     var gsrn = Gsrn.Create(req.Gsrn);
     var gridCompanyGln = GlnNumber.Create(req.GridCompanyGln);
-    var type = Enum.Parse<MålepunktsType>(req.Type);
-    var art = Enum.Parse<MålepunktsArt>(req.Art);
+    var type = Enum.Parse<MeteringPointType>(req.Type);
+    var art = Enum.Parse<MeteringPointCategory>(req.Art);
     var settlement = Enum.Parse<SettlementMethod>(req.SettlementMethod);
     var resolution = Enum.Parse<Resolution>(req.Resolution);
 
@@ -264,68 +264,68 @@ app.MapPost("/api/målepunkter", async (CreateMålepunktRequest req, WattsOnDbCo
             req.Address.Floor, req.Address.Suite)
         : null;
 
-    var mp = Målepunkt.Create(gsrn, type, art, settlement, resolution, req.GridArea, gridCompanyGln, address);
+    var mp = MeteringPoint.Create(gsrn, type, art, settlement, resolution, req.GridArea, gridCompanyGln, address);
 
-    db.Målepunkter.Add(mp);
+    db.MeteringPoints.Add(mp);
     await db.SaveChangesAsync();
 
-    return Results.Created($"/api/målepunkter/{mp.Id}", new { mp.Id, Gsrn = mp.Gsrn.Value });
-}).WithName("CreateMålepunkt");
+    return Results.Created($"/api/metering-points/{mp.Id}", new { mp.Id, Gsrn = mp.Gsrn.Value });
+}).WithName("CreateMeteringPoint");
 
 // ==================== LEVERANCER ====================
 
-app.MapGet("/api/leverancer", async (WattsOnDbContext db) =>
+app.MapGet("/api/supplies", async (WattsOnDbContext db) =>
 {
-    var leverancer = await db.Leverancer
-        .Include(l => l.Kunde)
-        .Include(l => l.Målepunkt)
+    var supplies = await db.Supplies
+        .Include(l => l.Customer)
+        .Include(l => l.MeteringPoint)
         .AsNoTracking()
         .OrderByDescending(l => l.CreatedAt)
         .Select(l => new
         {
             l.Id,
-            l.MålepunktId,
-            Gsrn = l.Målepunkt.Gsrn.Value,
-            l.KundeId,
-            KundeNavn = l.Kunde.Name,
+            l.MeteringPointId,
+            Gsrn = l.MeteringPoint.Gsrn.Value,
+            l.CustomerId,
+            CustomerNavn = l.Customer.Name,
             SupplyStart = l.SupplyPeriod.Start,
             SupplyEnd = l.SupplyPeriod.End,
             l.IsActive,
             l.CreatedAt
         })
         .ToListAsync();
-    return Results.Ok(leverancer);
-}).WithName("GetLeverancer");
+    return Results.Ok(supplies);
+}).WithName("GetSupplies");
 
-app.MapPost("/api/leverancer", async (CreateLeveranceRequest req, WattsOnDbContext db) =>
+app.MapPost("/api/supplies", async (CreateSupplyRequest req, WattsOnDbContext db) =>
 {
     // Verify references exist
-    var mp = await db.Målepunkter.FindAsync(req.MålepunktId);
-    if (mp is null) return Results.BadRequest(new { error = "Målepunkt not found" });
+    var mp = await db.MeteringPoints.FindAsync(req.MeteringPointId);
+    if (mp is null) return Results.BadRequest(new { error = "MeteringPoint not found" });
 
-    var kunde = await db.Kunder.FindAsync(req.KundeId);
-    if (kunde is null) return Results.BadRequest(new { error = "Kunde not found" });
+    var customer = await db.Customers.FindAsync(req.CustomerId);
+    if (customer is null) return Results.BadRequest(new { error = "Customer not found" });
 
-    var aktør = await db.Aktører.FindAsync(req.AktørId);
-    if (aktør is null) return Results.BadRequest(new { error = "Aktør not found" });
+    var actor = await db.Actors.FindAsync(req.ActorId);
+    if (actor is null) return Results.BadRequest(new { error = "Actor not found" });
 
     var supplyPeriod = req.SupplyEnd.HasValue
         ? Period.Create(req.SupplyStart, req.SupplyEnd.Value)
         : Period.From(req.SupplyStart);
 
-    var leverance = Leverance.Create(req.MålepunktId, req.KundeId, req.AktørId, supplyPeriod);
+    var supply = Supply.Create(req.MeteringPointId, req.CustomerId, req.ActorId, supplyPeriod);
 
     mp.SetActiveSupply(true);
 
-    db.Leverancer.Add(leverance);
+    db.Supplies.Add(supply);
     await db.SaveChangesAsync();
 
-    return Results.Created($"/api/leverancer/{leverance.Id}", new { leverance.Id });
-}).WithName("CreateLeverance");
+    return Results.Created($"/api/supplies/{supply.Id}", new { supply.Id });
+}).WithName("CreateSupply");
 
 // ==================== PROCESSER ====================
 
-app.MapGet("/api/processer", async (WattsOnDbContext db) =>
+app.MapGet("/api/processes", async (WattsOnDbContext db) =>
 {
     var processer = await db.Processes
         .AsNoTracking()
@@ -339,7 +339,7 @@ app.MapGet("/api/processer", async (WattsOnDbContext db) =>
             Role = p.Role.ToString(),
             Status = p.Status.ToString(),
             p.CurrentState,
-            MålepunktGsrn = p.MålepunktGsrn != null ? p.MålepunktGsrn.Value : null,
+            MeteringPointGsrn = p.MeteringPointGsrn != null ? p.MeteringPointGsrn.Value : null,
             p.EffectiveDate,
             p.StartedAt,
             p.CompletedAt,
@@ -366,7 +366,7 @@ app.MapGet("/api/processer/{id:guid}", async (Guid id, WattsOnDbContext db) =>
         Role = process.Role.ToString(),
         Status = process.Status.ToString(),
         process.CurrentState,
-        MålepunktGsrn = process.MålepunktGsrn?.Value,
+        MeteringPointGsrn = process.MeteringPointGsrn?.Value,
         process.EffectiveDate,
         CounterpartGln = process.CounterpartGln?.Value,
         process.StartedAt,
@@ -440,17 +440,17 @@ app.MapGet("/api/outbox", async (WattsOnDbContext db, bool? unsent) =>
 
 // ==================== AFREGNINGER (Settlement) ====================
 
-app.MapGet("/api/afregninger", async (WattsOnDbContext db) =>
+app.MapGet("/api/settlements", async (WattsOnDbContext db) =>
 {
-    var afregninger = await db.Afregninger
+    var settlements = await db.Settlements
         .AsNoTracking()
         .OrderByDescending(a => a.CalculatedAt)
         .Take(100)
         .Select(a => new
         {
             a.Id,
-            a.MålepunktId,
-            a.LeveranceId,
+            a.MeteringPointId,
+            a.SupplyId,
             PeriodStart = a.SettlementPeriod.Start,
             PeriodEnd = a.SettlementPeriod.End,
             TotalEnergyKwh = a.TotalEnergy.Value,
@@ -458,34 +458,34 @@ app.MapGet("/api/afregninger", async (WattsOnDbContext db) =>
             Currency = a.TotalAmount.Currency,
             Status = a.Status.ToString(),
             a.IsCorrection,
-            a.PreviousAfregningId,
+            a.PreviousSettlementId,
             a.ExternalInvoiceReference,
             a.InvoicedAt,
             a.CalculatedAt
         })
         .ToListAsync();
-    return Results.Ok(afregninger);
-}).WithName("GetAfregninger");
+    return Results.Ok(settlements);
+}).WithName("GetSettlements");
 
 /// <summary>
 /// Uninvoiced settlements — for external invoicing system to pick up.
 /// Returns settlements with status = Beregnet that are NOT corrections.
 /// </summary>
-app.MapGet("/api/afregninger/uninvoiced", async (WattsOnDbContext db) =>
+app.MapGet("/api/settlements/uninvoiced", async (WattsOnDbContext db) =>
 {
-    var uninvoiced = await db.Afregninger
-        .Include(a => a.Målepunkt)
-        .Include(a => a.Leverance)
-            .ThenInclude(l => l.Kunde)
-        .Where(a => a.Status == AfregningStatus.Beregnet && !a.IsCorrection)
+    var uninvoiced = await db.Settlements
+        .Include(a => a.MeteringPoint)
+        .Include(a => a.Supply)
+            .ThenInclude(l => l.Customer)
+        .Where(a => a.Status == SettlementStatus.Calculated && !a.IsCorrection)
         .AsNoTracking()
         .OrderBy(a => a.CalculatedAt)
         .Select(a => new
         {
             a.Id,
-            Gsrn = a.Målepunkt.Gsrn.Value,
-            KundeId = a.Leverance.KundeId,
-            KundeNavn = a.Leverance.Kunde.Name,
+            Gsrn = a.MeteringPoint.Gsrn.Value,
+            CustomerId = a.Supply.CustomerId,
+            CustomerNavn = a.Supply.Customer.Name,
             PeriodStart = a.SettlementPeriod.Start,
             PeriodEnd = a.SettlementPeriod.End,
             TotalEnergyKwh = a.TotalEnergy.Value,
@@ -501,22 +501,22 @@ app.MapGet("/api/afregninger/uninvoiced", async (WattsOnDbContext db) =>
 /// Adjustment settlements — corrections of already-invoiced settlements.
 /// External invoicing system picks these up to issue credit/debit notes.
 /// </summary>
-app.MapGet("/api/afregninger/adjustments", async (WattsOnDbContext db) =>
+app.MapGet("/api/settlements/adjustments", async (WattsOnDbContext db) =>
 {
-    var adjustments = await db.Afregninger
-        .Include(a => a.Målepunkt)
-        .Include(a => a.Leverance)
-            .ThenInclude(l => l.Kunde)
-        .Where(a => a.Status == AfregningStatus.Beregnet && a.IsCorrection)
+    var adjustments = await db.Settlements
+        .Include(a => a.MeteringPoint)
+        .Include(a => a.Supply)
+            .ThenInclude(l => l.Customer)
+        .Where(a => a.Status == SettlementStatus.Calculated && a.IsCorrection)
         .AsNoTracking()
         .OrderBy(a => a.CalculatedAt)
         .Select(a => new
         {
             a.Id,
-            a.PreviousAfregningId,
-            Gsrn = a.Målepunkt.Gsrn.Value,
-            KundeId = a.Leverance.KundeId,
-            KundeNavn = a.Leverance.Kunde.Name,
+            a.PreviousSettlementId,
+            Gsrn = a.MeteringPoint.Gsrn.Value,
+            CustomerId = a.Supply.CustomerId,
+            CustomerNavn = a.Supply.Customer.Name,
             PeriodStart = a.SettlementPeriod.Start,
             PeriodEnd = a.SettlementPeriod.End,
             DeltaEnergyKwh = a.TotalEnergy.Value,
@@ -531,21 +531,21 @@ app.MapGet("/api/afregninger/adjustments", async (WattsOnDbContext db) =>
 /// <summary>
 /// External invoicing system confirms a settlement has been invoiced.
 /// </summary>
-app.MapPost("/api/afregninger/{id:guid}/mark-invoiced", async (Guid id, MarkInvoicedRequest req, WattsOnDbContext db) =>
+app.MapPost("/api/settlements/{id:guid}/mark-invoiced", async (Guid id, MarkInvoicedRequest req, WattsOnDbContext db) =>
 {
-    var afregning = await db.Afregninger.FindAsync(id);
-    if (afregning is null) return Results.NotFound();
+    var settlement = await db.Settlements.FindAsync(id);
+    if (settlement is null) return Results.NotFound();
 
     try
     {
-        afregning.MarkInvoiced(req.ExternalInvoiceReference);
+        settlement.MarkInvoiced(req.ExternalInvoiceReference);
         await db.SaveChangesAsync();
         return Results.Ok(new
         {
-            afregning.Id,
-            Status = afregning.Status.ToString(),
-            afregning.ExternalInvoiceReference,
-            afregning.InvoicedAt
+            settlement.Id,
+            Status = settlement.Status.ToString(),
+            settlement.ExternalInvoiceReference,
+            settlement.InvoicedAt
         });
     }
     catch (InvalidOperationException ex)
@@ -556,9 +556,9 @@ app.MapPost("/api/afregninger/{id:guid}/mark-invoiced", async (Guid id, MarkInvo
 
 // ==================== PRISER (Prices) ====================
 
-app.MapGet("/api/priser", async (WattsOnDbContext db) =>
+app.MapGet("/api/prices", async (WattsOnDbContext db) =>
 {
-    var priser = await db.Priser
+    var prices = await db.Prices
         .AsNoTracking()
         .OrderBy(p => p.ChargeId)
         .Select(p => new
@@ -575,10 +575,10 @@ app.MapGet("/api/priser", async (WattsOnDbContext db) =>
             PricePointCount = p.PricePoints.Count
         })
         .ToListAsync();
-    return Results.Ok(priser);
-}).WithName("GetPriser");
+    return Results.Ok(prices);
+}).WithName("GetPrices");
 
-app.MapPost("/api/priser", async (CreatePrisRequest req, WattsOnDbContext db) =>
+app.MapPost("/api/prices", async (CreatePrisRequest req, WattsOnDbContext db) =>
 {
     var ownerGln = GlnNumber.Create(req.OwnerGln);
     var type = Enum.Parse<PriceType>(req.Type);
@@ -587,7 +587,7 @@ app.MapPost("/api/priser", async (CreatePrisRequest req, WattsOnDbContext db) =>
         : Period.From(req.ValidFrom);
     var resolution = req.PriceResolution != null ? Enum.Parse<Resolution>(req.PriceResolution) : (Resolution?)null;
 
-    var pris = Pris.Create(req.ChargeId, ownerGln, type, req.Description, validityPeriod, req.VatExempt, resolution);
+    var pris = Price.Create(req.ChargeId, ownerGln, type, req.Description, validityPeriod, req.VatExempt, resolution);
 
     if (req.PricePoints != null)
     {
@@ -597,10 +597,10 @@ app.MapPost("/api/priser", async (CreatePrisRequest req, WattsOnDbContext db) =>
         }
     }
 
-    db.Priser.Add(pris);
+    db.Prices.Add(pris);
     await db.SaveChangesAsync();
 
-    return Results.Created($"/api/priser/{pris.Id}", new
+    return Results.Created($"/api/prices/{pris.Id}", new
     {
         pris.Id,
         pris.ChargeId,
@@ -608,54 +608,54 @@ app.MapPost("/api/priser", async (CreatePrisRequest req, WattsOnDbContext db) =>
         pris.Description,
         PricePointCount = pris.PricePoints.Count
     });
-}).WithName("CreatePris");
+}).WithName("CreatePrice");
 
 // ==================== PRISTILKNYTNINGER (Price Links) ====================
 
-app.MapGet("/api/pristilknytninger", async (Guid? målepunktId, WattsOnDbContext db) =>
+app.MapGet("/api/price-links", async (Guid? meteringPointId, WattsOnDbContext db) =>
 {
-    var query = db.Pristilknytninger
-        .Include(pt => pt.Pris)
+    var query = db.PriceLinks
+        .Include(pt => pt.Price)
         .AsNoTracking();
 
-    if (målepunktId.HasValue)
-        query = query.Where(pt => pt.MålepunktId == målepunktId.Value);
+    if (meteringPointId.HasValue)
+        query = query.Where(pt => pt.MeteringPointId == meteringPointId.Value);
 
     var links = await query
         .Select(pt => new
         {
             pt.Id,
-            pt.MålepunktId,
-            pt.PrisId,
-            ChargeId = pt.Pris.ChargeId,
-            PrisDescription = pt.Pris.Description,
-            PrisType = pt.Pris.Type.ToString(),
+            pt.MeteringPointId,
+            pt.PriceId,
+            ChargeId = pt.Price.ChargeId,
+            PrisDescription = pt.Price.Description,
+            PrisType = pt.Price.Type.ToString(),
             LinkFrom = pt.LinkPeriod.Start,
             LinkTo = pt.LinkPeriod.End
         })
         .ToListAsync();
     return Results.Ok(links);
-}).WithName("GetPristilknytninger");
+}).WithName("GetPriceLinks");
 
-app.MapPost("/api/pristilknytninger", async (CreatePristilknytningRequest req, WattsOnDbContext db) =>
+app.MapPost("/api/price-links", async (CreatePriceLinkRequest req, WattsOnDbContext db) =>
 {
-    var mp = await db.Målepunkter.FindAsync(req.MålepunktId);
-    if (mp is null) return Results.BadRequest(new { error = "Målepunkt not found" });
+    var mp = await db.MeteringPoints.FindAsync(req.MeteringPointId);
+    if (mp is null) return Results.BadRequest(new { error = "MeteringPoint not found" });
 
-    var pris = await db.Priser.FindAsync(req.PrisId);
-    if (pris is null) return Results.BadRequest(new { error = "Pris not found" });
+    var pris = await db.Prices.FindAsync(req.PriceId);
+    if (pris is null) return Results.BadRequest(new { error = "Price not found" });
 
     var linkPeriod = req.LinkTo.HasValue
         ? Period.Create(req.LinkFrom, req.LinkTo.Value)
         : Period.From(req.LinkFrom);
 
-    var link = Pristilknytning.Create(req.MålepunktId, req.PrisId, linkPeriod);
+    var link = PriceLink.Create(req.MeteringPointId, req.PriceId, linkPeriod);
 
-    db.Pristilknytninger.Add(link);
+    db.PriceLinks.Add(link);
     await db.SaveChangesAsync();
 
-    return Results.Created($"/api/pristilknytninger/{link.Id}", new { link.Id });
-}).WithName("CreatePristilknytning");
+    return Results.Created($"/api/price_links/{link.Id}", new { link.Id });
+}).WithName("CreatePriceLink");
 
 // ==================== TIDSSERIER (Time Series) ====================
 
@@ -664,18 +664,18 @@ app.MapPost("/api/pristilknytninger", async (CreatePristilknytningRequest req, W
 /// If an existing time series covers the same period, it becomes a new version
 /// (the old one is marked as superseded), which triggers correction detection.
 /// </summary>
-app.MapPost("/api/tidsserier", async (CreateTidsserieRequest req, WattsOnDbContext db) =>
+app.MapPost("/api/time-series", async (CreateTimeSeriesRequest req, WattsOnDbContext db) =>
 {
     // Validate metering point exists
-    var mp = await db.Målepunkter.FindAsync(req.MålepunktId);
-    if (mp is null) return Results.BadRequest(new { error = "Målepunkt not found" });
+    var mp = await db.MeteringPoints.FindAsync(req.MeteringPointId);
+    if (mp is null) return Results.BadRequest(new { error = "MeteringPoint not found" });
 
     var period = Period.Create(req.PeriodStart, req.PeriodEnd);
     var resolution = Enum.Parse<Resolution>(req.Resolution);
 
     // Check for existing time series for the same period → new version
-    var existing = await db.Tidsserier
-        .Where(t => t.MålepunktId == req.MålepunktId)
+    var existing = await db.TimeSeriesCollection
+        .Where(t => t.MeteringPointId == req.MeteringPointId)
         .Where(t => t.Period.Start == req.PeriodStart && t.Period.End == req.PeriodEnd)
         .Where(t => t.IsLatest)
         .FirstOrDefaultAsync();
@@ -687,34 +687,34 @@ app.MapPost("/api/tidsserier", async (CreateTidsserieRequest req, WattsOnDbConte
         version = existing.Version + 1;
     }
 
-    var tidsserie = Tidsserie.Create(req.MålepunktId, period, resolution, version, req.TransactionId);
+    var time_series = TimeSeries.Create(req.MeteringPointId, period, resolution, version, req.TransactionId);
 
     foreach (var obs in req.Observations)
     {
         var quality = Enum.Parse<QuantityQuality>(obs.Quality ?? "Målt");
-        tidsserie.AddObservation(obs.Timestamp, EnergyQuantity.Create(obs.KWh), quality);
+        time_series.AddObservation(obs.Timestamp, EnergyQuantity.Create(obs.KWh), quality);
     }
 
-    db.Tidsserier.Add(tidsserie);
+    db.TimeSeriesCollection.Add(time_series);
     await db.SaveChangesAsync();
 
-    return Results.Created($"/api/tidsserier/{tidsserie.Id}", new
+    return Results.Created($"/api/time_series/{time_series.Id}", new
     {
-        tidsserie.Id,
-        tidsserie.MålepunktId,
-        PeriodStart = tidsserie.Period.Start,
-        PeriodEnd = tidsserie.Period.End,
-        Resolution = tidsserie.Resolution.ToString(),
-        tidsserie.Version,
-        tidsserie.IsLatest,
-        ObservationCount = tidsserie.Observations.Count,
-        TotalEnergyKwh = tidsserie.TotalEnergy.Value
+        time_series.Id,
+        time_series.MeteringPointId,
+        PeriodStart = time_series.Period.Start,
+        PeriodEnd = time_series.Period.End,
+        Resolution = time_series.Resolution.ToString(),
+        time_series.Version,
+        time_series.IsLatest,
+        ObservationCount = time_series.Observations.Count,
+        TotalEnergyKwh = time_series.TotalEnergy.Value
     });
-}).WithName("CreateTidsserie");
+}).WithName("CreateTimeSeries");
 
-app.MapGet("/api/tidsserier/{id:guid}", async (Guid id, WattsOnDbContext db) =>
+app.MapGet("/api/time_series/{id:guid}", async (Guid id, WattsOnDbContext db) =>
 {
-    var ts = await db.Tidsserier
+    var ts = await db.TimeSeriesCollection
         .Include(t => t.Observations.OrderBy(o => o.Timestamp))
         .AsNoTracking()
         .FirstOrDefaultAsync(t => t.Id == id);
@@ -724,7 +724,7 @@ app.MapGet("/api/tidsserier/{id:guid}", async (Guid id, WattsOnDbContext db) =>
     return Results.Ok(new
     {
         ts.Id,
-        ts.MålepunktId,
+        ts.MeteringPointId,
         PeriodStart = ts.Period.Start,
         PeriodEnd = ts.Period.End,
         Resolution = ts.Resolution.ToString(),
@@ -740,7 +740,7 @@ app.MapGet("/api/tidsserier/{id:guid}", async (Guid id, WattsOnDbContext db) =>
             Quality = o.Quality.ToString()
         })
     });
-}).WithName("GetTidsserie");
+}).WithName("GetTimeSeries");
 
 // ==================== SETTLEMENT DOCUMENTS (Peppol-aligned pre-invoice) ====================
 
@@ -752,14 +752,14 @@ app.MapGet("/api/tidsserier/{id:guid}", async (Guid id, WattsOnDbContext db) =>
 app.MapGet("/api/settlement-documents", async (string? status, WattsOnDbContext db) =>
 {
     // Get our own company info (seller)
-    var seller = await db.Aktører.AsNoTracking().FirstOrDefaultAsync(a => a.IsOwn);
-    if (seller is null) return Results.Problem("No own aktør configured");
+    var seller = await db.Actors.AsNoTracking().FirstOrDefaultAsync(a => a.IsOwn);
+    if (seller is null) return Results.Problem("No own actor configured");
 
-    var query = db.Afregninger
+    var query = db.Settlements
         .Include(a => a.Lines)
-        .Include(a => a.Målepunkt)
-        .Include(a => a.Leverance)
-            .ThenInclude(l => l.Kunde)
+        .Include(a => a.MeteringPoint)
+        .Include(a => a.Supply)
+            .ThenInclude(l => l.Customer)
         .AsNoTracking();
 
     // Filter: "ready" = Beregnet (default), "all" = everything
@@ -769,19 +769,19 @@ app.MapGet("/api/settlement-documents", async (string? status, WattsOnDbContext 
     }
     else if (status == "corrections")
     {
-        query = query.Where(a => a.IsCorrection && a.Status == AfregningStatus.Beregnet);
+        query = query.Where(a => a.IsCorrection && a.Status == SettlementStatus.Calculated);
     }
     else // "ready" (default)
     {
-        query = query.Where(a => a.Status == AfregningStatus.Beregnet);
+        query = query.Where(a => a.Status == SettlementStatus.Calculated);
     }
 
     var settlements = await query.OrderBy(a => a.DocumentNumber).ToListAsync();
 
     // Load price VAT info for all referenced prices
-    var prisIds = settlements.SelectMany(a => a.Lines).Select(l => l.PrisId).Distinct().ToList();
-    var prisVatMap = await db.Priser
-        .Where(p => prisIds.Contains(p.Id))
+    var priceIds = settlements.SelectMany(a => a.Lines).Select(l => l.PriceId).Distinct().ToList();
+    var prisVatMap = await db.Prices
+        .Where(p => priceIds.Contains(p.Id))
         .AsNoTracking()
         .ToDictionaryAsync(p => p.Id, p => new { p.VatExempt, p.Description, p.ChargeId, OwnerGln = p.OwnerGln.Value });
 
@@ -789,7 +789,7 @@ app.MapGet("/api/settlement-documents", async (string? status, WattsOnDbContext 
 
     var documents = settlements.Select(a =>
     {
-        var kunde = a.Leverance.Kunde;
+        var customer = a.Supply.Customer;
         var isCredit = a.IsCorrection && a.TotalAmount.Amount < 0;
         var isDebit = a.IsCorrection && a.TotalAmount.Amount >= 0;
 
@@ -800,16 +800,16 @@ app.MapGet("/api/settlement-documents", async (string? status, WattsOnDbContext 
         var year = a.CalculatedAt.Year;
         var documentId = $"WO-{year}-{a.DocumentNumber:D5}";
         string? originalDocumentId = null;
-        if (a.PreviousAfregningId.HasValue)
+        if (a.PreviousSettlementId.HasValue)
         {
-            var original = settlements.FirstOrDefault(s => s.Id == a.PreviousAfregningId);
+            var original = settlements.FirstOrDefault(s => s.Id == a.PreviousSettlementId);
             if (original is not null)
                 originalDocumentId = $"WO-{original.CalculatedAt.Year}-{original.DocumentNumber:D5}";
         }
 
         var lines = a.Lines.Select((line, idx) =>
         {
-            var prisInfo = prisVatMap.GetValueOrDefault(line.PrisId);
+            var prisInfo = prisVatMap.GetValueOrDefault(line.PriceId);
             var vatExempt = prisInfo?.VatExempt ?? false;
             var taxPercent = vatExempt ? 0m : DanishVatRate;
             var taxAmount = vatExempt ? 0m : Math.Round(line.Amount.Amount * taxPercent / 100m, 2);
@@ -865,24 +865,24 @@ app.MapGet("/api/settlement-documents", async (string? status, WattsOnDbContext 
             },
             buyer = new
             {
-                name = kunde.Name,
-                identifier = kunde.IsPrivate ? kunde.Cpr?.Value : kunde.Cvr?.Value,
-                identifierScheme = kunde.IsPrivate ? "DK:CPR" : "DK:CVR",
-                address = kunde.Address != null ? new
+                name = customer.Name,
+                identifier = customer.IsPrivate ? customer.Cpr?.Value : customer.Cvr?.Value,
+                identifierScheme = customer.IsPrivate ? "DK:CPR" : "DK:CVR",
+                address = customer.Address != null ? new
                 {
-                    streetName = kunde.Address.StreetName,
-                    buildingNumber = kunde.Address.BuildingNumber,
-                    floor = kunde.Address.Floor,
-                    suite = kunde.Address.Suite,
-                    postCode = kunde.Address.PostCode,
-                    cityName = kunde.Address.CityName
+                    streetName = customer.Address.StreetName,
+                    buildingNumber = customer.Address.BuildingNumber,
+                    floor = customer.Address.Floor,
+                    suite = customer.Address.Suite,
+                    postCode = customer.Address.PostCode,
+                    cityName = customer.Address.CityName
                 } : (object?)null
             },
 
             meteringPoint = new
             {
-                gsrn = a.Målepunkt.Gsrn.Value,
-                gridArea = a.Målepunkt.GridArea
+                gsrn = a.MeteringPoint.Gsrn.Value,
+                gridArea = a.MeteringPoint.GridArea
             },
 
             lines,
@@ -907,28 +907,28 @@ app.MapGet("/api/settlement-documents", async (string? status, WattsOnDbContext 
 /// </summary>
 app.MapGet("/api/settlement-documents/{id:guid}", async (Guid id, WattsOnDbContext db) =>
 {
-    var seller = await db.Aktører.AsNoTracking().FirstOrDefaultAsync(a => a.IsOwn);
-    if (seller is null) return Results.Problem("No own aktør configured");
+    var seller = await db.Actors.AsNoTracking().FirstOrDefaultAsync(a => a.IsOwn);
+    if (seller is null) return Results.Problem("No own actor configured");
 
-    var a = await db.Afregninger
+    var a = await db.Settlements
         .Include(a => a.Lines)
-        .Include(a => a.Målepunkt)
-        .Include(a => a.Leverance)
-            .ThenInclude(l => l.Kunde)
+        .Include(a => a.MeteringPoint)
+        .Include(a => a.Supply)
+            .ThenInclude(l => l.Customer)
         .AsNoTracking()
         .FirstOrDefaultAsync(a => a.Id == id);
 
     if (a is null) return Results.NotFound();
 
-    var prisIds = a.Lines.Select(l => l.PrisId).Distinct().ToList();
-    var prisVatMap = await db.Priser
-        .Where(p => prisIds.Contains(p.Id))
+    var priceIds = a.Lines.Select(l => l.PriceId).Distinct().ToList();
+    var prisVatMap = await db.Prices
+        .Where(p => priceIds.Contains(p.Id))
         .AsNoTracking()
         .ToDictionaryAsync(p => p.Id, p => new { p.VatExempt, p.Description, p.ChargeId, OwnerGln = p.OwnerGln.Value });
 
     const decimal DanishVatRate = 25.0m;
 
-    var kunde = a.Leverance.Kunde;
+    var customer = a.Supply.Customer;
     var isCredit = a.IsCorrection && a.TotalAmount.Amount < 0;
     var documentType = a.IsCorrection
         ? (isCredit ? "creditNote" : "debitNote")
@@ -938,17 +938,17 @@ app.MapGet("/api/settlement-documents/{id:guid}", async (Guid id, WattsOnDbConte
     var documentId = $"WO-{year}-{a.DocumentNumber:D5}";
 
     string? originalDocumentId = null;
-    if (a.PreviousAfregningId.HasValue)
+    if (a.PreviousSettlementId.HasValue)
     {
-        var original = await db.Afregninger.AsNoTracking()
-            .FirstOrDefaultAsync(o => o.Id == a.PreviousAfregningId);
+        var original = await db.Settlements.AsNoTracking()
+            .FirstOrDefaultAsync(o => o.Id == a.PreviousSettlementId);
         if (original is not null)
             originalDocumentId = $"WO-{original.CalculatedAt.Year}-{original.DocumentNumber:D5}";
     }
 
     var lines = a.Lines.Select((line, idx) =>
     {
-        var prisInfo = prisVatMap.GetValueOrDefault(line.PrisId);
+        var prisInfo = prisVatMap.GetValueOrDefault(line.PriceId);
         var vatExempt = prisInfo?.VatExempt ?? false;
         var taxPercent = vatExempt ? 0m : DanishVatRate;
         var taxAmount = vatExempt ? 0m : Math.Round(line.Amount.Amount * taxPercent / 100m, 2);
@@ -1003,24 +1003,24 @@ app.MapGet("/api/settlement-documents/{id:guid}", async (Guid id, WattsOnDbConte
         },
         buyer = new
         {
-            name = kunde.Name,
-            identifier = kunde.IsPrivate ? kunde.Cpr?.Value : kunde.Cvr?.Value,
-            identifierScheme = kunde.IsPrivate ? "DK:CPR" : "DK:CVR",
-            address = kunde.Address != null ? new
+            name = customer.Name,
+            identifier = customer.IsPrivate ? customer.Cpr?.Value : customer.Cvr?.Value,
+            identifierScheme = customer.IsPrivate ? "DK:CPR" : "DK:CVR",
+            address = customer.Address != null ? new
             {
-                streetName = kunde.Address.StreetName,
-                buildingNumber = kunde.Address.BuildingNumber,
-                floor = kunde.Address.Floor,
-                suite = kunde.Address.Suite,
-                postCode = kunde.Address.PostCode,
-                cityName = kunde.Address.CityName
+                streetName = customer.Address.StreetName,
+                buildingNumber = customer.Address.BuildingNumber,
+                floor = customer.Address.Floor,
+                suite = customer.Address.Suite,
+                postCode = customer.Address.PostCode,
+                cityName = customer.Address.CityName
             } : (object?)null
         },
 
         meteringPoint = new
         {
-            gsrn = a.Målepunkt.Gsrn.Value,
-            gridArea = a.Målepunkt.GridArea
+            gsrn = a.MeteringPoint.Gsrn.Value,
+            gridArea = a.MeteringPoint.GridArea
         },
 
         lines,
@@ -1043,22 +1043,22 @@ app.MapGet("/api/settlement-documents/{id:guid}", async (Guid id, WattsOnDbConte
 /// </summary>
 app.MapPost("/api/settlement-documents/{id:guid}/confirm", async (Guid id, ConfirmSettlementRequest req, WattsOnDbContext db) =>
 {
-    var afregning = await db.Afregninger.FindAsync(id);
-    if (afregning is null) return Results.NotFound();
+    var settlement = await db.Settlements.FindAsync(id);
+    if (settlement is null) return Results.NotFound();
 
     try
     {
-        afregning.MarkInvoiced(req.ExternalInvoiceReference);
+        settlement.MarkInvoiced(req.ExternalInvoiceReference);
         await db.SaveChangesAsync();
 
-        var year = afregning.CalculatedAt.Year;
+        var year = settlement.CalculatedAt.Year;
         return Results.Ok(new
         {
-            documentId = $"WO-{year}-{afregning.DocumentNumber:D5}",
-            settlementId = afregning.Id,
-            status = afregning.Status.ToString(),
-            externalInvoiceReference = afregning.ExternalInvoiceReference,
-            invoicedAt = afregning.InvoicedAt
+            documentId = $"WO-{year}-{settlement.DocumentNumber:D5}",
+            settlementId = settlement.Id,
+            status = settlement.Status.ToString(),
+            externalInvoiceReference = settlement.ExternalInvoiceReference,
+            invoicedAt = settlement.InvoicedAt
         });
     }
     catch (InvalidOperationException ex)
@@ -1077,12 +1077,12 @@ app.MapPost("/api/settlement-documents/{id:guid}/confirm", async (Guid id, Confi
 /// </summary>
 app.MapPost("/api/simulation/supplier-change", async (SimulateSupplierChangeRequest req, WattsOnDbContext db) =>
 {
-    var ownAktør = await db.Aktører.FirstOrDefaultAsync(a => a.IsOwn);
-    if (ownAktør is null) return Results.Problem("No own aktør configured");
+    var ownActor = await db.Actors.FirstOrDefaultAsync(a => a.IsOwn);
+    if (ownActor is null) return Results.Problem("No own actor configured");
 
     // 1. Find or create the metering point
     var gsrn = Gsrn.Create(req.Gsrn);
-    var mp = await db.Målepunkter.FirstOrDefaultAsync(m => m.Gsrn.Value == req.Gsrn);
+    var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == req.Gsrn);
     if (mp is null)
     {
         var gridGln = GlnNumber.Create(req.GridCompanyGln ?? "5790000610976");
@@ -1090,35 +1090,35 @@ app.MapPost("/api/simulation/supplier-change", async (SimulateSupplierChangeRequ
             ? Address.Create(req.Address.StreetName, req.Address.BuildingNumber,
                 req.Address.PostCode, req.Address.CityName, req.Address.Floor, req.Address.Suite)
             : null;
-        mp = Målepunkt.Create(gsrn, MålepunktsType.Forbrug, MålepunktsArt.Fysisk,
+        mp = MeteringPoint.Create(gsrn, MeteringPointType.Forbrug, MeteringPointCategory.Fysisk,
             SettlementMethod.Flex, Resolution.PT1H, req.GridArea ?? "DK1", gridGln, address);
-        db.Målepunkter.Add(mp);
+        db.MeteringPoints.Add(mp);
     }
 
     // 2. Find or create the customer
-    Kunde? kunde = null;
+    Customer? customer = null;
     if (req.CprNumber != null)
-        kunde = await db.Kunder.FirstOrDefaultAsync(k => k.Cpr != null && k.Cpr.Value == req.CprNumber);
+        customer = await db.Customers.FirstOrDefaultAsync(k => k.Cpr != null && k.Cpr.Value == req.CprNumber);
     else if (req.CvrNumber != null)
-        kunde = await db.Kunder.FirstOrDefaultAsync(k => k.Cvr != null && k.Cvr.Value == req.CvrNumber);
+        customer = await db.Customers.FirstOrDefaultAsync(k => k.Cvr != null && k.Cvr.Value == req.CvrNumber);
 
-    if (kunde is null)
+    if (customer is null)
     {
         var address = req.Address != null
             ? Address.Create(req.Address.StreetName, req.Address.BuildingNumber,
                 req.Address.PostCode, req.Address.CityName, req.Address.Floor, req.Address.Suite)
             : null;
-        kunde = req.CprNumber != null
-            ? Kunde.CreatePerson(req.CustomerName, CprNumber.Create(req.CprNumber), address)
-            : Kunde.CreateCompany(req.CustomerName, CvrNumber.Create(req.CvrNumber!), address);
+        customer = req.CprNumber != null
+            ? Customer.CreatePerson(req.CustomerName, CprNumber.Create(req.CprNumber), address)
+            : Customer.CreateCompany(req.CustomerName, CvrNumber.Create(req.CvrNumber!), address);
         if (req.Email != null || req.Phone != null)
-            kunde.UpdateContactInfo(req.Email, req.Phone);
-        db.Kunder.Add(kunde);
+            customer.UpdateContactInfo(req.Email, req.Phone);
+        db.Customers.Add(customer);
     }
 
-    // 3. Check for existing leverance (if another supplier had this customer)
-    var currentLeverance = await db.Leverancer
-        .Where(l => l.MålepunktId == mp.Id)
+    // 3. Check for existing supply (if another supplier had this customer)
+    var currentSupply = await db.Supplies
+        .Where(l => l.MeteringPointId == mp.Id)
         .Where(l => l.SupplyPeriod.End == null || l.SupplyPeriod.End > req.EffectiveDate)
         .FirstOrDefaultAsync();
 
@@ -1136,14 +1136,14 @@ app.MapPost("/api/simulation/supplier-change", async (SimulateSupplierChangeRequ
 
     // 6. Execute the supplier change
     var result = Brs001Handler.ExecuteSupplierChange(
-        process, mp, kunde, ownAktør.Id, currentLeverance);
+        process, mp, customer, ownActor.Id, currentSupply);
 
     mp.SetActiveSupply(true);
 
     // 7. Create simulated inbox messages (audit trail)
     var requestMsg = InboxMessage.Create(
         $"MSG-{Guid.NewGuid().ToString()[..8]}",
-        "RSM-001", "5790000432752", ownAktør.Gln.Value,
+        "RSM-001", "5790000432752", ownActor.Gln.Value,
         System.Text.Json.JsonSerializer.Serialize(new
         {
             businessReason = "E03",
@@ -1158,7 +1158,7 @@ app.MapPost("/api/simulation/supplier-change", async (SimulateSupplierChangeRequ
 
     var confirmMsg = InboxMessage.Create(
         $"MSG-{Guid.NewGuid().ToString()[..8]}",
-        "RSM-001", "5790000432752", ownAktør.Gln.Value,
+        "RSM-001", "5790000432752", ownActor.Gln.Value,
         System.Text.Json.JsonSerializer.Serialize(new
         {
             businessReason = "E03",
@@ -1170,24 +1170,24 @@ app.MapPost("/api/simulation/supplier-change", async (SimulateSupplierChangeRequ
     confirmMsg.MarkProcessed(process.Id);
 
     // 8. Link standard prices to the metering point (if not already linked)
-    var existingLinks = await db.Pristilknytninger
-        .Where(pt => pt.MålepunktId == mp.Id)
+    var existingLinks = await db.PriceLinks
+        .Where(pt => pt.MeteringPointId == mp.Id)
         .CountAsync();
 
     var newPriceLinks = 0;
     if (existingLinks == 0)
     {
-        var allPrices = await db.Priser.ToListAsync();
+        var allPrices = await db.Prices.ToListAsync();
         foreach (var pris in allPrices)
         {
-            var link = Pristilknytning.Create(mp.Id, pris.Id, Period.From(req.EffectiveDate));
-            db.Pristilknytninger.Add(link);
+            var link = PriceLink.Create(mp.Id, pris.Id, Period.From(req.EffectiveDate));
+            db.PriceLinks.Add(link);
             newPriceLinks++;
         }
     }
 
     // 9. Generate simulated time series with consumption data
-    Tidsserie? tidsserie = null;
+    TimeSeries? time_series = null;
     if (req.GenerateConsumption)
     {
         var periodStart = req.EffectiveDate;
@@ -1196,7 +1196,7 @@ app.MapPost("/api/simulation/supplier-change", async (SimulateSupplierChangeRequ
             periodStart.Year, periodStart.Month, 1, 0, 0, 0, periodStart.Offset)
             .AddMonths(1);
 
-        tidsserie = Tidsserie.Create(mp.Id, Period.Create(periodStart, periodEnd),
+        time_series = TimeSeries.Create(mp.Id, Period.Create(periodStart, periodEnd),
             Resolution.PT1H, 1, $"SIM-{transactionId}");
 
         var hours = (int)(periodEnd - periodStart).TotalHours;
@@ -1214,14 +1214,14 @@ app.MapPost("/api/simulation/supplier-change", async (SimulateSupplierChangeRequ
                 >= 16 and <= 19 => 1.2m + (decimal)(rng.NextDouble() * 1.2),  // Evening peak: 1.2-2.4
                 _ => 0.6m + (decimal)(rng.NextDouble() * 0.8),                // Late evening: 0.6-1.4
             };
-            tidsserie.AddObservation(ts, EnergyQuantity.Create(baseKwh), QuantityQuality.Målt);
+            time_series.AddObservation(ts, EnergyQuantity.Create(baseKwh), QuantityQuality.Målt);
         }
-        db.Tidsserier.Add(tidsserie);
+        db.TimeSeriesCollection.Add(time_series);
     }
 
     // Save everything
     db.Processes.Add(process);
-    if (result.NewLeverance != null) db.Leverancer.Add(result.NewLeverance);
+    if (result.NewSupply != null) db.Supplies.Add(result.NewSupply);
     db.InboxMessages.Add(requestMsg);
     db.InboxMessages.Add(confirmMsg);
     await db.SaveChangesAsync();
@@ -1233,56 +1233,56 @@ app.MapPost("/api/simulation/supplier-change", async (SimulateSupplierChangeRequ
         status = process.Status.ToString(),
         currentState = process.CurrentState,
         gsrn = req.Gsrn,
-        customerName = kunde.Name,
-        customerId = kunde.Id,
-        newLeveranceId = result.NewLeverance?.Id,
-        endedLeveranceId = result.EndedLeverance?.Id,
+        customerName = customer.Name,
+        customerId = customer.Id,
+        newSupplyId = result.NewSupply?.Id,
+        endedSupplyId = result.EndedSupply?.Id,
         effectiveDate = req.EffectiveDate,
         priceLinksCreated = newPriceLinks,
-        timeSeriesGenerated = tidsserie != null,
-        totalEnergyKwh = tidsserie?.TotalEnergy.Value,
-        message = $"Leverandørskift gennemført for {kunde.Name} på {req.Gsrn}. " +
+        timeSeriesGenerated = time_series != null,
+        totalEnergyKwh = time_series?.TotalEnergy.Value,
+        message = $"Leverandørskift gennemført for {customer.Name} på {req.Gsrn}. " +
                   $"Effektiv dato: {req.EffectiveDate:yyyy-MM-dd}." +
-                  (tidsserie != null ? $" Genereret {tidsserie.Observations.Count} timer forbrugsdata ({tidsserie.TotalEnergy.Value:F1} kWh)." : "") +
-                  (newPriceLinks > 0 ? $" {newPriceLinks} priser tilknyttet." : "") +
-                  " SettlementWorker beregner automatisk afregning inden for 30 sekunder."
+                  (time_series != null ? $" Genereret {time_series.Observations.Count} timer forbrugsdata ({time_series.TotalEnergy.Value:F1} kWh)." : "") +
+                  (newPriceLinks > 0 ? $" {newPriceLinks} prices tilknyttet." : "") +
+                  " SettlementWorker beregner automatisk settlement inden for 30 secustomers."
     });
 }).WithName("SimulateSupplierChange");
 
 /// <summary>
 /// BRS-001 Recipient: Lose a customer — another supplier takes over.
-/// Ends the leverance and triggers final settlement.
+/// Ends the supply and triggers final settlement.
 /// </summary>
 app.MapPost("/api/simulation/supplier-change-outgoing", async (SimulateOutgoingSupplierChangeRequest req, WattsOnDbContext db) =>
 {
-    // Find the leverance
-    var leverance = await db.Leverancer
-        .Include(l => l.Kunde)
-        .Include(l => l.Målepunkt)
-        .Where(l => l.Id == req.LeveranceId)
+    // Find the supply
+    var supply = await db.Supplies
+        .Include(l => l.Customer)
+        .Include(l => l.MeteringPoint)
+        .Where(l => l.Id == req.SupplyId)
         .FirstOrDefaultAsync();
 
-    if (leverance is null)
-        return Results.NotFound("Leverance ikke fundet");
+    if (supply is null)
+        return Results.NotFound("Supply ikke fundet");
 
-    if (!leverance.IsActive)
-        return Results.Problem("Leverance er allerede afsluttet");
+    if (!supply.IsActive)
+        return Results.Problem("Supply er allerede afsluttet");
 
-    var gsrn = leverance.Målepunkt.Gsrn;
+    var gsrn = supply.MeteringPoint.Gsrn;
     var newSupplierGln = GlnNumber.Create(req.NewSupplierGln ?? "5790000000005");
 
     var result = Brs001Handler.HandleAsRecipient(
         gsrn, req.EffectiveDate,
         $"DH-SIM-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString()[..8]}",
-        newSupplierGln, leverance);
+        newSupplierGln, supply);
 
-    leverance.Målepunkt.SetActiveSupply(false);
+    supply.MeteringPoint.SetActiveSupply(false);
 
     // Create audit trail inbox message
-    var ownAktør = await db.Aktører.FirstOrDefaultAsync(a => a.IsOwn);
+    var ownActor = await db.Actors.FirstOrDefaultAsync(a => a.IsOwn);
     var msg = InboxMessage.Create(
         $"MSG-{Guid.NewGuid().ToString()[..8]}",
-        "RSM-004", "5790000432752", ownAktør?.Gln.Value ?? "unknown",
+        "RSM-004", "5790000432752", ownActor?.Gln.Value ?? "unknown",
         System.Text.Json.JsonSerializer.Serialize(new
         {
             businessReason = "E03",
@@ -1305,12 +1305,12 @@ app.MapPost("/api/simulation/supplier-change-outgoing", async (SimulateOutgoingS
         status = result.Process.Status.ToString(),
         currentState = result.Process.CurrentState,
         gsrn = gsrn.Value,
-        customerName = leverance.Kunde.Name,
-        customerId = leverance.Kunde.Id,
-        endedLeveranceId = result.EndedLeverance?.Id,
+        customerName = supply.Customer.Name,
+        customerId = supply.Customer.Id,
+        endedSupplyId = result.EndedSupply?.Id,
         effectiveDate = req.EffectiveDate,
-        message = $"Leverandørskift udgående — {leverance.Kunde.Name} forlader os på {gsrn.Value}. " +
-                  $"Leverance afsluttet pr. {req.EffectiveDate:yyyy-MM-dd}. Slutafregning beregnes automatisk."
+        message = $"Leverandørskift udgående — {supply.Customer.Name} forlader os på {gsrn.Value}. " +
+                  $"Supply afsluttet pr. {req.EffectiveDate:yyyy-MM-dd}. Slutsettlement beregnes automatisk."
     });
 }).WithName("SimulateOutgoingSupplierChange");
 
@@ -1319,12 +1319,12 @@ app.MapPost("/api/simulation/supplier-change-outgoing", async (SimulateOutgoingS
 /// </summary>
 app.MapPost("/api/simulation/move-in", async (SimulateMoveInRequest req, WattsOnDbContext db) =>
 {
-    var ownAktør = await db.Aktører.FirstOrDefaultAsync(a => a.IsOwn);
-    if (ownAktør is null) return Results.Problem("No own aktør configured");
+    var ownActor = await db.Actors.FirstOrDefaultAsync(a => a.IsOwn);
+    if (ownActor is null) return Results.Problem("No own actor configured");
 
     // Find or create metering point
     var gsrn = Gsrn.Create(req.Gsrn);
-    var mp = await db.Målepunkter.FirstOrDefaultAsync(m => m.Gsrn.Value == req.Gsrn);
+    var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == req.Gsrn);
     if (mp is null)
     {
         var gridGln = GlnNumber.Create(req.GridCompanyGln ?? "5790000610976");
@@ -1332,66 +1332,66 @@ app.MapPost("/api/simulation/move-in", async (SimulateMoveInRequest req, WattsOn
             ? Address.Create(req.Address.StreetName, req.Address.BuildingNumber,
                 req.Address.PostCode, req.Address.CityName, req.Address.Floor, req.Address.Suite)
             : null;
-        mp = Målepunkt.Create(gsrn, MålepunktsType.Forbrug, MålepunktsArt.Fysisk,
+        mp = MeteringPoint.Create(gsrn, MeteringPointType.Forbrug, MeteringPointCategory.Fysisk,
             SettlementMethod.Flex, Resolution.PT1H, req.GridArea ?? "DK1", gridGln, address);
-        db.Målepunkter.Add(mp);
+        db.MeteringPoints.Add(mp);
     }
 
     // Find or create customer
-    Kunde? kunde = null;
+    Customer? customer = null;
     if (req.CprNumber != null)
-        kunde = await db.Kunder.FirstOrDefaultAsync(k => k.Cpr != null && k.Cpr.Value == req.CprNumber);
+        customer = await db.Customers.FirstOrDefaultAsync(k => k.Cpr != null && k.Cpr.Value == req.CprNumber);
     else if (req.CvrNumber != null)
-        kunde = await db.Kunder.FirstOrDefaultAsync(k => k.Cvr != null && k.Cvr.Value == req.CvrNumber);
+        customer = await db.Customers.FirstOrDefaultAsync(k => k.Cvr != null && k.Cvr.Value == req.CvrNumber);
 
-    if (kunde is null)
+    if (customer is null)
     {
         var address = req.Address != null
             ? Address.Create(req.Address.StreetName, req.Address.BuildingNumber,
                 req.Address.PostCode, req.Address.CityName, req.Address.Floor, req.Address.Suite)
             : null;
-        kunde = req.CprNumber != null
-            ? Kunde.CreatePerson(req.CustomerName, CprNumber.Create(req.CprNumber), address)
-            : Kunde.CreateCompany(req.CustomerName, CvrNumber.Create(req.CvrNumber!), address);
+        customer = req.CprNumber != null
+            ? Customer.CreatePerson(req.CustomerName, CprNumber.Create(req.CprNumber), address)
+            : Customer.CreateCompany(req.CustomerName, CvrNumber.Create(req.CvrNumber!), address);
         if (req.Email != null || req.Phone != null)
-            kunde.UpdateContactInfo(req.Email, req.Phone);
-        db.Kunder.Add(kunde);
+            customer.UpdateContactInfo(req.Email, req.Phone);
+        db.Customers.Add(customer);
     }
 
-    // Check for existing leverance (previous tenant)
-    var currentLeverance = await db.Leverancer
-        .Where(l => l.MålepunktId == mp.Id)
+    // Check for existing supply (previous tenant)
+    var currentSupply = await db.Supplies
+        .Where(l => l.MeteringPointId == mp.Id)
         .Where(l => l.SupplyPeriod.End == null || l.SupplyPeriod.End > req.EffectiveDate)
         .FirstOrDefaultAsync();
 
     var result = Brs009Handler.ExecuteMoveIn(
         gsrn, req.EffectiveDate, req.CprNumber, req.CvrNumber,
-        mp, kunde, ownAktør.Id, currentLeverance);
+        mp, customer, ownActor.Id, currentSupply);
 
     mp.SetActiveSupply(true);
 
     // Link prices
-    var existingLinks = await db.Pristilknytninger
-        .Where(pt => pt.MålepunktId == mp.Id).CountAsync();
+    var existingLinks = await db.PriceLinks
+        .Where(pt => pt.MeteringPointId == mp.Id).CountAsync();
     var newPriceLinks = 0;
     if (existingLinks == 0)
     {
-        foreach (var pris in await db.Priser.ToListAsync())
+        foreach (var pris in await db.Prices.ToListAsync())
         {
-            db.Pristilknytninger.Add(Pristilknytning.Create(mp.Id, pris.Id, Period.From(req.EffectiveDate)));
+            db.PriceLinks.Add(PriceLink.Create(mp.Id, pris.Id, Period.From(req.EffectiveDate)));
             newPriceLinks++;
         }
     }
 
     // Generate consumption data
-    Tidsserie? tidsserie = null;
+    TimeSeries? time_series = null;
     if (req.GenerateConsumption)
     {
         var periodStart = req.EffectiveDate;
         var periodEnd = new DateTimeOffset(
             periodStart.Year, periodStart.Month, 1, 0, 0, 0, periodStart.Offset).AddMonths(1);
 
-        tidsserie = Tidsserie.Create(mp.Id, Period.Create(periodStart, periodEnd),
+        time_series = TimeSeries.Create(mp.Id, Period.Create(periodStart, periodEnd),
             Resolution.PT1H, 1, $"SIM-{result.Process.TransactionId}");
 
         var hours = (int)(periodEnd - periodStart).TotalHours;
@@ -1408,15 +1408,15 @@ app.MapPost("/api/simulation/move-in", async (SimulateMoveInRequest req, WattsOn
                 >= 16 and <= 19 => 1.2m + (decimal)(rng.NextDouble() * 1.2),
                 _ => 0.6m + (decimal)(rng.NextDouble() * 0.8),
             };
-            tidsserie.AddObservation(ts, EnergyQuantity.Create(baseKwh), QuantityQuality.Målt);
+            time_series.AddObservation(ts, EnergyQuantity.Create(baseKwh), QuantityQuality.Målt);
         }
-        db.Tidsserier.Add(tidsserie);
+        db.TimeSeriesCollection.Add(time_series);
     }
 
     // Audit trail
     var inboxMsg = InboxMessage.Create(
         $"MSG-{Guid.NewGuid().ToString()[..8]}",
-        "RSM-001", "5790000432752", ownAktør.Gln.Value,
+        "RSM-001", "5790000432752", ownActor.Gln.Value,
         System.Text.Json.JsonSerializer.Serialize(new
         {
             businessReason = "E65",
@@ -1429,7 +1429,7 @@ app.MapPost("/api/simulation/move-in", async (SimulateMoveInRequest req, WattsOn
     inboxMsg.MarkProcessed(result.Process.Id);
 
     db.Processes.Add(result.Process);
-    db.Leverancer.Add(result.NewLeverance);
+    db.Supplies.Add(result.NewSupply);
     db.InboxMessages.Add(inboxMsg);
     await db.SaveChangesAsync();
 
@@ -1440,51 +1440,51 @@ app.MapPost("/api/simulation/move-in", async (SimulateMoveInRequest req, WattsOn
         status = result.Process.Status.ToString(),
         currentState = result.Process.CurrentState,
         gsrn = req.Gsrn,
-        customerName = kunde.Name,
-        customerId = kunde.Id,
-        newLeveranceId = result.NewLeverance.Id,
-        endedLeveranceId = result.EndedLeverance?.Id,
-        previousCustomerName = result.EndedLeverance != null ? "Tidligere lejer" : null,
+        customerName = customer.Name,
+        customerId = customer.Id,
+        newSupplyId = result.NewSupply.Id,
+        endedSupplyId = result.EndedSupply?.Id,
+        previousCustomerName = result.EndedSupply != null ? "Tidligere lejer" : null,
         effectiveDate = req.EffectiveDate,
         priceLinksCreated = newPriceLinks,
-        timeSeriesGenerated = tidsserie != null,
-        totalEnergyKwh = tidsserie?.TotalEnergy.Value,
-        message = $"Tilflytning gennemført for {kunde.Name} på {req.Gsrn}. " +
+        timeSeriesGenerated = time_series != null,
+        totalEnergyKwh = time_series?.TotalEnergy.Value,
+        message = $"Tilflytning gennemført for {customer.Name} på {req.Gsrn}. " +
                   $"Effektiv dato: {req.EffectiveDate:yyyy-MM-dd}." +
-                  (result.EndedLeverance != null ? " Tidligere leverance afsluttet." : "") +
-                  (tidsserie != null ? $" Genereret {tidsserie.Observations.Count} timer forbrugsdata ({tidsserie.TotalEnergy.Value:F1} kWh)." : "") +
-                  (newPriceLinks > 0 ? $" {newPriceLinks} priser tilknyttet." : "") +
-                  " SettlementWorker beregner automatisk afregning inden for 30 sekunder."
+                  (result.EndedSupply != null ? " Tidligere supply afsluttet." : "") +
+                  (time_series != null ? $" Genereret {time_series.Observations.Count} timer forbrugsdata ({time_series.TotalEnergy.Value:F1} kWh)." : "") +
+                  (newPriceLinks > 0 ? $" {newPriceLinks} prices tilknyttet." : "") +
+                  " SettlementWorker beregner automatisk settlement inden for 30 secustomers."
     });
 }).WithName("SimulateMoveIn");
 
 /// <summary>
-/// Move-out: Customer leaves a metering point. Ends leverance, final settlement.
+/// Move-out: Customer leaves a metering point. Ends supply, final settlement.
 /// </summary>
 app.MapPost("/api/simulation/move-out", async (SimulateMoveOutRequest req, WattsOnDbContext db) =>
 {
-    var leverance = await db.Leverancer
-        .Include(l => l.Kunde)
-        .Include(l => l.Målepunkt)
-        .Where(l => l.Id == req.LeveranceId)
+    var supply = await db.Supplies
+        .Include(l => l.Customer)
+        .Include(l => l.MeteringPoint)
+        .Where(l => l.Id == req.SupplyId)
         .FirstOrDefaultAsync();
 
-    if (leverance is null)
-        return Results.NotFound("Leverance ikke fundet");
+    if (supply is null)
+        return Results.NotFound("Supply ikke fundet");
 
-    if (!leverance.IsActive)
-        return Results.Problem("Leverance er allerede afsluttet");
+    if (!supply.IsActive)
+        return Results.Problem("Supply er allerede afsluttet");
 
-    var gsrn = leverance.Målepunkt.Gsrn;
-    var result = Brs009Handler.ExecuteMoveOut(gsrn, req.EffectiveDate, leverance);
+    var gsrn = supply.MeteringPoint.Gsrn;
+    var result = Brs009Handler.ExecuteMoveOut(gsrn, req.EffectiveDate, supply);
 
-    leverance.Målepunkt.SetActiveSupply(false);
+    supply.MeteringPoint.SetActiveSupply(false);
 
     // Audit trail
-    var ownAktør = await db.Aktører.FirstOrDefaultAsync(a => a.IsOwn);
+    var ownActor = await db.Actors.FirstOrDefaultAsync(a => a.IsOwn);
     var msg = InboxMessage.Create(
         $"MSG-{Guid.NewGuid().ToString()[..8]}",
-        "RSM-001", "5790000432752", ownAktør?.Gln.Value ?? "unknown",
+        "RSM-001", "5790000432752", ownActor?.Gln.Value ?? "unknown",
         System.Text.Json.JsonSerializer.Serialize(new
         {
             businessReason = "E01",
@@ -1506,12 +1506,12 @@ app.MapPost("/api/simulation/move-out", async (SimulateMoveOutRequest req, Watts
         status = result.Process.Status.ToString(),
         currentState = result.Process.CurrentState,
         gsrn = gsrn.Value,
-        customerName = leverance.Kunde.Name,
-        customerId = leverance.Kunde.Id,
-        endedLeveranceId = result.EndedLeverance.Id,
+        customerName = supply.Customer.Name,
+        customerId = supply.Customer.Id,
+        endedSupplyId = result.EndedSupply.Id,
         effectiveDate = req.EffectiveDate,
-        message = $"Fraflytning gennemført — {leverance.Kunde.Name} fraflyttet {gsrn.Value}. " +
-                  $"Leverance afsluttet pr. {req.EffectiveDate:yyyy-MM-dd}. Slutafregning beregnes automatisk."
+        message = $"Fraflytning gennemført — {supply.Customer.Name} fraflyttet {gsrn.Value}. " +
+                  $"Supply afsluttet pr. {req.EffectiveDate:yyyy-MM-dd}. Slutsettlement beregnes automatisk."
     });
 }).WithName("SimulateMoveOut");
 
@@ -1519,37 +1519,37 @@ app.MapPost("/api/simulation/move-out", async (SimulateMoveOutRequest req, Watts
 
 app.MapGet("/api/dashboard", async (WattsOnDbContext db) =>
 {
-    var kundeCount = await db.Kunder.CountAsync();
-    var mpCount = await db.Målepunkter.CountAsync();
-    var activeLeverancer = await db.Leverancer.CountAsync(l => l.SupplyPeriod.End == null || l.SupplyPeriod.End > DateTimeOffset.UtcNow);
+    var customerCount = await db.Customers.CountAsync();
+    var mpCount = await db.MeteringPoints.CountAsync();
+    var activeSupplies = await db.Supplies.CountAsync(l => l.SupplyPeriod.End == null || l.SupplyPeriod.End > DateTimeOffset.UtcNow);
     var activeProcesses = await db.Processes.CountAsync(p => p.CompletedAt == null);
     var unprocessedInbox = await db.InboxMessages.CountAsync(m => !m.IsProcessed);
     var unsentOutbox = await db.OutboxMessages.CountAsync(m => !m.IsSent);
 
     // Settlement stats
-    var beregnede = await db.Afregninger.CountAsync(a => a.Status == AfregningStatus.Beregnet && !a.IsCorrection);
-    var fakturerede = await db.Afregninger.CountAsync(a => a.Status == AfregningStatus.Faktureret);
-    var justerede = await db.Afregninger.CountAsync(a => a.Status == AfregningStatus.Justeret);
-    var korrektioner = await db.Afregninger.CountAsync(a => a.IsCorrection && a.Status == AfregningStatus.Beregnet);
-    var totalSettlementAmount = await db.Afregninger
+    var beregnede = await db.Settlements.CountAsync(a => a.Status == SettlementStatus.Calculated && !a.IsCorrection);
+    var fakturerede = await db.Settlements.CountAsync(a => a.Status == SettlementStatus.Invoiced);
+    var justerede = await db.Settlements.CountAsync(a => a.Status == SettlementStatus.Adjusted);
+    var korrektioner = await db.Settlements.CountAsync(a => a.IsCorrection && a.Status == SettlementStatus.Calculated);
+    var totalSettlementAmount = await db.Settlements
         .Where(a => !a.IsCorrection)
         .SumAsync(a => a.TotalAmount.Amount);
 
     return Results.Ok(new
     {
-        kunder = kundeCount,
-        målepunkter = mpCount,
-        aktiveLeverancer = activeLeverancer,
-        aktiveProcesser = activeProcesses,
-        ubehandledeInbox = unprocessedInbox,
-        uafsendeOutbox = unsentOutbox,
-        afregninger = new
+        customers = customerCount,
+        meteringPoints = mpCount,
+        activeSupplies = activeSupplies,
+        activeProcesses = activeProcesses,
+        unprocessedInbox = unprocessedInbox,
+        unsentOutbox = unsentOutbox,
+        settlements = new
         {
-            beregnede,
-            fakturerede,
-            justerede,
-            korrektioner,
-            totalBeløb = totalSettlementAmount,
+            calculated = beregnede,
+            invoiced = fakturerede,
+            adjusted = justerede,
+            corrections = korrektioner,
+            totalAmount = totalSettlementAmount,
         }
     });
 }).WithName("GetDashboard");
@@ -1558,17 +1558,17 @@ app.Run();
 
 // ==================== REQUEST DTOs ====================
 
-record CreateAktørRequest(string Gln, string Name, string Role, string? Cvr, bool IsOwn = false);
+record CreateActorRequest(string Gln, string Name, string Role, string? Cvr, bool IsOwn = false);
 
 record AddressDto(string StreetName, string BuildingNumber, string PostCode, string CityName,
     string? Floor = null, string? Suite = null);
 
-record CreateKundeRequest(string Name, string? Cpr, string? Cvr, string? Email, string? Phone, AddressDto? Address);
+record CreateCustomerRequest(string Name, string? Cpr, string? Cvr, string? Email, string? Phone, AddressDto? Address);
 
-record CreateMålepunktRequest(string Gsrn, string Type, string Art, string SettlementMethod,
+record CreateMeteringPointRequest(string Gsrn, string Type, string Art, string SettlementMethod,
     string Resolution, string GridArea, string GridCompanyGln, AddressDto? Address);
 
-record CreateLeveranceRequest(Guid MålepunktId, Guid KundeId, Guid AktørId,
+record CreateSupplyRequest(Guid MeteringPointId, Guid CustomerId, Guid ActorId,
     DateTimeOffset SupplyStart, DateTimeOffset? SupplyEnd);
 
 record MarkInvoicedRequest(string ExternalInvoiceReference);
@@ -1586,9 +1586,9 @@ record CreatePrisRequest(
     string? PriceResolution = null,
     List<PricePointDto>? PricePoints = null);
 
-record CreatePristilknytningRequest(
-    Guid MålepunktId,
-    Guid PrisId,
+record CreatePriceLinkRequest(
+    Guid MeteringPointId,
+    Guid PriceId,
     DateTimeOffset LinkFrom,
     DateTimeOffset? LinkTo);
 
@@ -1609,7 +1609,7 @@ record SimulateSupplierChangeRequest(
     bool GenerateConsumption = true);
 
 record SimulateOutgoingSupplierChangeRequest(
-    Guid LeveranceId,
+    Guid SupplyId,
     DateTimeOffset EffectiveDate,
     string? NewSupplierGln = null);
 
@@ -1627,11 +1627,11 @@ record SimulateMoveInRequest(
     bool GenerateConsumption = true);
 
 record SimulateMoveOutRequest(
-    Guid LeveranceId,
+    Guid SupplyId,
     DateTimeOffset EffectiveDate);
 
-record CreateTidsserieRequest(
-    Guid MålepunktId,
+record CreateTimeSeriesRequest(
+    Guid MeteringPointId,
     DateTimeOffset PeriodStart,
     DateTimeOffset PeriodEnd,
     string Resolution,

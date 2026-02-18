@@ -11,10 +11,10 @@ namespace WattsOn.Worker;
 /// automatic settlement calculation. Also detects corrections for already-invoiced settlements.
 ///
 /// Flow:
-/// 1. Find latest time series that have no matching Afregning
+/// 1. Find latest time series that have no matching Settlement
 /// 2. For each: look up active price links, run SettlementCalculator
-/// 3. If a prior invoiced settlement exists for same målepunkt + period → correction flow
-/// 4. Save the resulting Afregning(er)
+/// 3. If a prior invoiced settlement exists for same metering_point + period → correction flow
+/// 4. Save the resulting Settlement(er)
 /// </summary>
 public class SettlementWorker : BackgroundService
 {
@@ -53,11 +53,11 @@ public class SettlementWorker : BackgroundService
         var db = scope.ServiceProvider.GetRequiredService<WattsOnDbContext>();
 
         // Find latest time series that don't have a matching settlement
-        var unsettled = await db.Tidsserier
+        var unsettled = await db.TimeSeriesCollection
             .Include(ts => ts.Observations)
             .Where(ts => ts.IsLatest)
-            .Where(ts => !db.Afregninger.Any(a =>
-                a.TidsserieId == ts.Id && a.TidsserieVersion == ts.Version))
+            .Where(ts => !db.Settlements.Any(a =>
+                a.TimeSeriesId == ts.Id && a.TimeSeriesVersion == ts.Version))
             .OrderBy(ts => ts.ReceivedAt)
             .Take(10)
             .ToListAsync(ct);
@@ -74,7 +74,7 @@ public class SettlementWorker : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to settle time series {TidsserieId} v{Version}",
+                _logger.LogWarning(ex, "Failed to settle time series {TimeSeriesId} v{Version}",
                     timeSeries.Id, timeSeries.Version);
             }
         }
@@ -82,7 +82,7 @@ public class SettlementWorker : BackgroundService
         await db.SaveChangesAsync(ct);
     }
 
-    private async Task SettleTimeSeries(WattsOnDbContext db, Tidsserie timeSeries, CancellationToken ct)
+    private async Task SettleTimeSeries(WattsOnDbContext db, TimeSeries timeSeries, CancellationToken ct)
     {
         if (timeSeries.Observations.Count == 0)
         {
@@ -90,62 +90,62 @@ public class SettlementWorker : BackgroundService
             return;
         }
 
-        // Find the active leverance for this målepunkt at the start of the settlement period
-        var leverance = await db.Leverancer
-            .Where(l => l.MålepunktId == timeSeries.MålepunktId)
+        // Find the active supply for this metering_point at the start of the settlement period
+        var supply = await db.Supplies
+            .Where(l => l.MeteringPointId == timeSeries.MeteringPointId)
             .Where(l => l.SupplyPeriod.Start <= timeSeries.Period.Start)
             .Where(l => l.SupplyPeriod.End == null || l.SupplyPeriod.End > timeSeries.Period.Start)
             .FirstOrDefaultAsync(ct);
 
-        if (leverance is null)
+        if (supply is null)
         {
-            _logger.LogWarning("No active leverance for målepunkt {MpId} at {PeriodStart} — skipping",
-                timeSeries.MålepunktId, timeSeries.Period.Start);
+            _logger.LogWarning("No active supply for metering_point {MpId} at {PeriodStart} — skipping",
+                timeSeries.MeteringPointId, timeSeries.Period.Start);
             return;
         }
 
-        // Get active price links for this målepunkt in this period
-        var priceLinks = await db.Pristilknytninger
-            .Include(pt => pt.Pris)
+        // Get active price links for this metering_point in this period
+        var priceLinks = await db.PriceLinks
+            .Include(pt => pt.Price)
                 .ThenInclude(p => p.PricePoints)
-            .Where(pt => pt.MålepunktId == timeSeries.MålepunktId)
+            .Where(pt => pt.MeteringPointId == timeSeries.MeteringPointId)
             .Where(pt => pt.LinkPeriod.Start <= timeSeries.Period.Start)
             .Where(pt => pt.LinkPeriod.End == null || pt.LinkPeriod.End > timeSeries.Period.Start)
             .ToListAsync(ct);
 
         var activePrices = priceLinks
-            .Select(pt => new PriceWithPoints(pt.Pris))
+            .Select(pt => new PriceWithPoints(pt.Price))
             .ToList();
 
         // Check if there's already an invoiced settlement for this period
-        var existingInvoicedSettlement = await db.Afregninger
+        var existingInvoicedSettlement = await db.Settlements
             .Include(a => a.Lines)
-            .Where(a => a.MålepunktId == timeSeries.MålepunktId)
+            .Where(a => a.MeteringPointId == timeSeries.MeteringPointId)
             .Where(a => a.SettlementPeriod.Start == timeSeries.Period.Start)
             .Where(a => a.SettlementPeriod.End == timeSeries.Period.End)
-            .Where(a => a.Status == AfregningStatus.Faktureret)
-            .OrderByDescending(a => a.TidsserieVersion)
+            .Where(a => a.Status == SettlementStatus.Invoiced)
+            .OrderByDescending(a => a.TimeSeriesVersion)
             .FirstOrDefaultAsync(ct);
 
         if (existingInvoicedSettlement is not null)
         {
             // Correction flow: calculate delta against the invoiced settlement
             _logger.LogInformation(
-                "Correction detected for målepunkt {MpId}, period {Start}-{End}. " +
+                "Correction detected for metering_point {MpId}, period {Start}-{End}. " +
                 "Original settlement {OriginalId} (v{OriginalVersion}) → new v{NewVersion}",
-                timeSeries.MålepunktId,
+                timeSeries.MeteringPointId,
                 timeSeries.Period.Start,
                 timeSeries.Period.End,
                 existingInvoicedSettlement.Id,
-                existingInvoicedSettlement.TidsserieVersion,
+                existingInvoicedSettlement.TimeSeriesVersion,
                 timeSeries.Version);
 
             existingInvoicedSettlement.MarkAdjusted();
 
             var correction = SettlementCalculator.CalculateCorrection(
-                timeSeries, leverance, existingInvoicedSettlement, activePrices);
+                timeSeries, supply, existingInvoicedSettlement, activePrices);
 
-            db.Afregninger.Add(correction);
+            db.Settlements.Add(correction);
 
             _logger.LogInformation(
                 "Created correction settlement {CorrectionId}: delta {DeltaAmount} DKK, {DeltaEnergy} kWh",
@@ -157,14 +157,14 @@ public class SettlementWorker : BackgroundService
         {
             // Normal flow: calculate new settlement
             var settlement = SettlementCalculator.Calculate(
-                timeSeries, leverance, activePrices);
+                timeSeries, supply, activePrices);
 
-            db.Afregninger.Add(settlement);
+            db.Settlements.Add(settlement);
 
             _logger.LogInformation(
-                "Created settlement {SettlementId} for målepunkt {MpId}: {Amount} DKK, {Energy} kWh",
+                "Created settlement {SettlementId} for metering_point {MpId}: {Amount} DKK, {Energy} kWh",
                 settlement.Id,
-                timeSeries.MålepunktId,
+                timeSeries.MeteringPointId,
                 settlement.TotalAmount.Amount,
                 settlement.TotalEnergy.Value);
         }

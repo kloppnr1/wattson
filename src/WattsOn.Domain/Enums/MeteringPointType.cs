@@ -1,10 +1,10 @@
 namespace WattsOn.Domain.Enums;
 
 /// <summary>
-/// Målepunktstype — the role/type of a metering point in the grid.
+/// MeteringPointstype — the role/type of a metering point in the grid.
 /// Maps to DataHub E17/E18/E20/D01-D99 code list.
 /// </summary>
-public enum MålepunktsType
+public enum MeteringPointType
 {
     /// <summary>E17 — Consumption (forbrug)</summary>
     Forbrug = 1,

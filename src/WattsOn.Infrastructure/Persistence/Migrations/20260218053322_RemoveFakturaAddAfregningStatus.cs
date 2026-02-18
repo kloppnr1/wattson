@@ -6,13 +6,13 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace WattsOn.Infrastructure.Persistence.Migrations
 {
     /// <inheritdoc />
-    public partial class RemoveFakturaAddAfregningStatus : Migration
+    public partial class RemoveFakturaAddSettlementStatus : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
-                name: "faktura_afregninger");
+                name: "faktura_settlements");
 
             migrationBuilder.DropTable(
                 name: "faktura_linjer");
@@ -22,28 +22,28 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
 
             migrationBuilder.AddColumn<string>(
                 name: "external_invoice_reference",
-                table: "afregninger",
+                table: "settlements",
                 type: "character varying(100)",
                 maxLength: 100,
                 nullable: true);
 
             migrationBuilder.AddColumn<DateTimeOffset>(
                 name: "invoiced_at",
-                table: "afregninger",
+                table: "settlements",
                 type: "timestamp with time zone",
                 nullable: true);
 
             migrationBuilder.AddColumn<string>(
                 name: "status",
-                table: "afregninger",
+                table: "settlements",
                 type: "character varying(50)",
                 maxLength: 50,
                 nullable: false,
                 defaultValue: "");
 
             migrationBuilder.CreateIndex(
-                name: "IX_afregninger_status",
-                table: "afregninger",
+                name: "IX_settlements_status",
+                table: "settlements",
                 column: "status");
         }
 
@@ -51,27 +51,27 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropIndex(
-                name: "IX_afregninger_status",
-                table: "afregninger");
+                name: "IX_settlements_status",
+                table: "settlements");
 
             migrationBuilder.DropColumn(
                 name: "external_invoice_reference",
-                table: "afregninger");
+                table: "settlements");
 
             migrationBuilder.DropColumn(
                 name: "invoiced_at",
-                table: "afregninger");
+                table: "settlements");
 
             migrationBuilder.DropColumn(
                 name: "status",
-                table: "afregninger");
+                table: "settlements");
 
             migrationBuilder.CreateTable(
                 name: "fakturaer",
                 columns: table => new
                 {
                     id = table.Column<Guid>(type: "uuid", nullable: false),
-                    kunde_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    customer_id = table.Column<Guid>(type: "uuid", nullable: false),
                     original_faktura_id = table.Column<Guid>(type: "uuid", nullable: true),
                     created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     due_date = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
@@ -100,31 +100,31 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "FK_fakturaer_kunder_kunde_id",
-                        column: x => x.kunde_id,
-                        principalTable: "kunder",
+                        name: "FK_fakturaer_customers_customer_id",
+                        column: x => x.customer_id,
+                        principalTable: "customers",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
-                name: "faktura_afregninger",
+                name: "faktura_settlements",
                 columns: table => new
                 {
-                    AfregningerId = table.Column<Guid>(type: "uuid", nullable: false),
+                    SettlementsId = table.Column<Guid>(type: "uuid", nullable: false),
                     FakturaId = table.Column<Guid>(type: "uuid", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_faktura_afregninger", x => new { x.AfregningerId, x.FakturaId });
+                    table.PrimaryKey("PK_faktura_settlements", x => new { x.SettlementsId, x.FakturaId });
                     table.ForeignKey(
-                        name: "FK_faktura_afregninger_afregninger_AfregningerId",
-                        column: x => x.AfregningerId,
-                        principalTable: "afregninger",
+                        name: "FK_faktura_settlements_settlements_SettlementsId",
+                        column: x => x.SettlementsId,
+                        principalTable: "settlements",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
-                        name: "FK_faktura_afregninger_fakturaer_FakturaId",
+                        name: "FK_faktura_settlements_fakturaer_FakturaId",
                         column: x => x.FakturaId,
                         principalTable: "fakturaer",
                         principalColumn: "id",
@@ -136,7 +136,7 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 columns: table => new
                 {
                     id = table.Column<Guid>(type: "uuid", nullable: false),
-                    afregning_linje_id = table.Column<Guid>(type: "uuid", nullable: true),
+                    settlement_linje_id = table.Column<Guid>(type: "uuid", nullable: true),
                     created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     description = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
                     faktura_id = table.Column<Guid>(type: "uuid", nullable: false),
@@ -159,8 +159,8 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_faktura_afregninger_FakturaId",
-                table: "faktura_afregninger",
+                name: "IX_faktura_settlements_FakturaId",
+                table: "faktura_settlements",
                 column: "FakturaId");
 
             migrationBuilder.CreateIndex(
@@ -175,9 +175,9 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_fakturaer_kunde_id",
+                name: "IX_fakturaer_customer_id",
                 table: "fakturaer",
-                column: "kunde_id");
+                column: "customer_id");
 
             migrationBuilder.CreateIndex(
                 name: "IX_fakturaer_original_faktura_id",

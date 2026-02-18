@@ -9,15 +9,15 @@ import { getProcesser, getProcess } from '../api/client';
 const { Text } = Typography;
 
 const statusMap: Record<string, { dot: string; label: string }> = {
-  Oprettet: { dot: 'blue', label: 'oprettet' },
-  Indsendt: { dot: 'blue', label: 'indsendt' },
-  Modtaget: { dot: 'blue', label: 'modtaget' },
-  Bekræftet: { dot: 'green', label: 'bekræftet' },
-  IgangVærende: { dot: 'blue', label: 'igangværende' },
-  Gennemført: { dot: 'green', label: 'gennemført' },
-  Afvist: { dot: 'red', label: 'afvist' },
-  Annulleret: { dot: 'gray', label: 'annulleret' },
-  Fejlet: { dot: 'red', label: 'fejlet' },
+  Created: { dot: 'blue', label: 'created' },
+  Submitted: { dot: 'blue', label: 'submitted' },
+  Received: { dot: 'blue', label: 'received' },
+  Confirmed: { dot: 'green', label: 'confirmed' },
+  InProgress: { dot: 'blue', label: 'in progress' },
+  Completed: { dot: 'green', label: 'completed' },
+  Rejected: { dot: 'red', label: 'rejected' },
+  Cancelled: { dot: 'gray', label: 'cancelled' },
+  Failed: { dot: 'red', label: 'failed' },
 };
 
 const formatDateTime = (d: string) => new Date(d).toLocaleString('da-DK');
@@ -39,13 +39,13 @@ export default function ProcesserPage() {
   }, []);
 
   const filtered = data.filter(p => {
-    if (search && !p.målepunktGsrn?.includes(search)) return false;
+    if (search && !p.meteringPointGsrn?.includes(search)) return false;
     if (statusFilter !== 'all' && p.status !== statusFilter) return false;
     if (typeFilter !== 'all' && p.processType !== typeFilter) return false;
     return true;
   });
 
-  const completed = data.filter(p => p.status === 'Gennemført').length;
+  const completed = data.filter(p => p.status === 'Completed').length;
   const processTypes = [...new Set(data.map(p => p.processType))];
 
   const openDetail = async (record: BrsProcess) => {
@@ -71,7 +71,7 @@ export default function ProcesserPage() {
     },
     {
       title: 'MÅLEPUNKT',
-      dataIndex: 'målepunktGsrn',
+      dataIndex: 'meteringPointGsrn',
       key: 'gsrn',
       render: (gsrn: string | null) => gsrn
         ? <span className="gsrn-badge">{gsrn}</span>
@@ -121,7 +121,7 @@ export default function ProcesserPage() {
       title: '',
       key: 'action',
       width: 60,
-      render: () => <span style={{ color: '#6b7280', cursor: 'pointer' }}>Vis</span>,
+      render: () => <span style={{ color: '#6b7280', cursor: 'pointer' }}>View</span>,
     },
   ];
 
@@ -131,14 +131,14 @@ export default function ProcesserPage() {
     <Space direction="vertical" size={24} style={{ width: '100%' }}>
       <div className="page-header">
         <h2>Processer</h2>
-        <div className="page-subtitle">BRS-processer med DataHub</div>
+        <div className="page-subtitle">BRS processes with DataHub</div>
       </div>
 
       {/* Filters */}
       <Card style={{ borderRadius: 8, padding: 0 }} styles={{ body: { padding: 0 } }}>
         <div className="filter-bar">
           <Input
-            placeholder="Søg efter GSRN..."
+            placeholder="Search by GSRN..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             allowClear
@@ -149,10 +149,10 @@ export default function ProcesserPage() {
             onChange={setStatusFilter}
             style={{ flex: 1 }}
             options={[
-              { value: 'all', label: 'Alle statusser' },
-              { value: 'Gennemført', label: 'Gennemført' },
-              { value: 'Afvist', label: 'Afvist' },
-              { value: 'Fejlet', label: 'Fejlet' },
+              { value: 'all', label: 'All statuses' },
+              { value: 'Completed', label: 'Completed' },
+              { value: 'Rejected', label: 'Rejected' },
+              { value: 'Failed', label: 'Failed' },
             ]}
           />
           <Select
@@ -160,7 +160,7 @@ export default function ProcesserPage() {
             onChange={setTypeFilter}
             style={{ flex: 1 }}
             options={[
-              { value: 'all', label: 'Alle typer' },
+              { value: 'all', label: 'All types' },
               ...processTypes.map(t => ({ value: t, label: t })),
             ]}
           />
@@ -170,10 +170,10 @@ export default function ProcesserPage() {
       {/* Stats — 4 cards */}
       <Row gutter={16}>
         {[
-          { title: 'Total processer', value: data.length },
-          { title: 'Gennemført', value: completed, color: '#10b981' },
-          { title: 'Igangværende', value: data.filter(p => !['Gennemført', 'Afvist', 'Annulleret', 'Fejlet'].includes(p.status)).length },
-          { title: 'Afvist', value: data.filter(p => p.status === 'Afvist').length, color: data.filter(p => p.status === 'Afvist').length > 0 ? '#dc2626' : undefined },
+          { title: 'Total Processes', value: data.length },
+          { title: 'Completed', value: completed, color: '#10b981' },
+          { title: 'In Progress', value: data.filter(p => !['Completed', 'Rejected', 'Cancelled', 'Failed'].includes(p.status)).length },
+          { title: 'Rejected', value: data.filter(p => p.status === 'Rejected').length, color: data.filter(p => p.status === 'Rejected').length > 0 ? '#dc2626' : undefined },
         ].map(s => (
           <Col xs={12} sm={6} key={s.title}>
             <Card style={{ borderRadius: 8 }}>
@@ -223,7 +223,7 @@ export default function ProcesserPage() {
                 </span>
               </Descriptions.Item>
               <Descriptions.Item label="GSRN">
-                {detail.målepunktGsrn ? <span className="gsrn-badge">{detail.målepunktGsrn}</span> : '—'}
+                {detail.meteringPointGsrn ? <span className="gsrn-badge">{detail.meteringPointGsrn}</span> : '—'}
               </Descriptions.Item>
               <Descriptions.Item label="Effektiv dato">
                 {detail.effectiveDate ? formatDate(detail.effectiveDate) : '—'}

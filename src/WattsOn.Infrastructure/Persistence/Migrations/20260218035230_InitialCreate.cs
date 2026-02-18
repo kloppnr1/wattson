@@ -12,7 +12,7 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
-                name: "aktører",
+                name: "actors",
                 columns: table => new
                 {
                     id = table.Column<Guid>(type: "uuid", nullable: false),
@@ -26,7 +26,7 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_aktører", x => x.id);
+                    table.PrimaryKey("PK_actors", x => x.id);
                 });
 
             migrationBuilder.CreateTable(
@@ -39,7 +39,7 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                     role = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
                     status = table.Column<string>(type: "character varying(30)", maxLength: 30, nullable: false),
                     current_state = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
-                    målepunkt_gsrn = table.Column<string>(type: "character varying(18)", maxLength: 18, nullable: true),
+                    metering_point_gsrn = table.Column<string>(type: "character varying(18)", maxLength: 18, nullable: true),
                     effective_date = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     counterpart_gln = table.Column<string>(type: "character varying(13)", maxLength: 13, nullable: true),
                     started_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
@@ -80,7 +80,7 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "kunder",
+                name: "customers",
                 columns: table => new
                 {
                     id = table.Column<Guid>(type: "uuid", nullable: false),
@@ -102,11 +102,11 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_kunder", x => x.id);
+                    table.PrimaryKey("PK_customers", x => x.id);
                 });
 
             migrationBuilder.CreateTable(
-                name: "målepunkter",
+                name: "metering_points",
                 columns: table => new
                 {
                     id = table.Column<Guid>(type: "uuid", nullable: false),
@@ -132,7 +132,7 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_målepunkter", x => x.id);
+                    table.PrimaryKey("PK_metering_points", x => x.id);
                 });
 
             migrationBuilder.CreateTable(
@@ -161,7 +161,7 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "priser",
+                name: "prices",
                 columns: table => new
                 {
                     id = table.Column<Guid>(type: "uuid", nullable: false),
@@ -178,7 +178,7 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_priser", x => x.id);
+                    table.PrimaryKey("PK_prices", x => x.id);
                 });
 
             migrationBuilder.CreateTable(
@@ -211,7 +211,7 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 {
                     id = table.Column<Guid>(type: "uuid", nullable: false),
                     invoice_number = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
-                    kunde_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    customer_id = table.Column<Guid>(type: "uuid", nullable: false),
                     type = table.Column<string>(type: "character varying(30)", maxLength: 30, nullable: false),
                     invoice_period_start = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     invoice_period_end = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
@@ -239,21 +239,21 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "FK_fakturaer_kunder_kunde_id",
-                        column: x => x.kunde_id,
-                        principalTable: "kunder",
+                        name: "FK_fakturaer_customers_customer_id",
+                        column: x => x.customer_id,
+                        principalTable: "customers",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
-                name: "leverancer",
+                name: "supplies",
                 columns: table => new
                 {
                     id = table.Column<Guid>(type: "uuid", nullable: false),
-                    målepunkt_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    kunde_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    aktør_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    metering_point_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    customer_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    actor_id = table.Column<Guid>(type: "uuid", nullable: false),
                     supply_start = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     supply_end = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     created_by_process_id = table.Column<Guid>(type: "uuid", nullable: true),
@@ -263,33 +263,33 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_leverancer", x => x.id);
+                    table.PrimaryKey("PK_supplies", x => x.id);
                     table.ForeignKey(
-                        name: "FK_leverancer_aktører_aktør_id",
-                        column: x => x.aktør_id,
-                        principalTable: "aktører",
+                        name: "FK_supplies_actors_actor_id",
+                        column: x => x.actor_id,
+                        principalTable: "actors",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "FK_leverancer_kunder_kunde_id",
-                        column: x => x.kunde_id,
-                        principalTable: "kunder",
+                        name: "FK_supplies_customers_customer_id",
+                        column: x => x.customer_id,
+                        principalTable: "customers",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "FK_leverancer_målepunkter_målepunkt_id",
-                        column: x => x.målepunkt_id,
-                        principalTable: "målepunkter",
+                        name: "FK_supplies_metering_points_metering_point_id",
+                        column: x => x.metering_point_id,
+                        principalTable: "metering_points",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
-                name: "tidsserier",
+                name: "time_series",
                 columns: table => new
                 {
                     id = table.Column<Guid>(type: "uuid", nullable: false),
-                    målepunkt_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    metering_point_id = table.Column<Guid>(type: "uuid", nullable: false),
                     period_start = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     period_end = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     resolution = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: false),
@@ -302,11 +302,11 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_tidsserier", x => x.id);
+                    table.PrimaryKey("PK_time_series", x => x.id);
                     table.ForeignKey(
-                        name: "FK_tidsserier_målepunkter_målepunkt_id",
-                        column: x => x.målepunkt_id,
-                        principalTable: "målepunkter",
+                        name: "FK_time_series_metering_points_metering_point_id",
+                        column: x => x.metering_point_id,
+                        principalTable: "metering_points",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
                 });
@@ -326,19 +326,19 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 {
                     table.PrimaryKey("PK_pris_points", x => x.id);
                     table.ForeignKey(
-                        name: "FK_pris_points_priser_pris_id",
+                        name: "FK_pris_points_prices_pris_id",
                         column: x => x.pris_id,
-                        principalTable: "priser",
+                        principalTable: "prices",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
-                name: "pristilknytninger",
+                name: "price_links",
                 columns: table => new
                 {
                     id = table.Column<Guid>(type: "uuid", nullable: false),
-                    målepunkt_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    metering_point_id = table.Column<Guid>(type: "uuid", nullable: false),
                     pris_id = table.Column<Guid>(type: "uuid", nullable: false),
                     link_start = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     link_end = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
@@ -347,17 +347,17 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_pristilknytninger", x => x.id);
+                    table.PrimaryKey("PK_price_links", x => x.id);
                     table.ForeignKey(
-                        name: "FK_pristilknytninger_målepunkter_målepunkt_id",
-                        column: x => x.målepunkt_id,
-                        principalTable: "målepunkter",
+                        name: "FK_price_links_metering_points_metering_point_id",
+                        column: x => x.metering_point_id,
+                        principalTable: "metering_points",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "FK_pristilknytninger_priser_pris_id",
+                        name: "FK_price_links_prices_pris_id",
                         column: x => x.pris_id,
-                        principalTable: "priser",
+                        principalTable: "prices",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
                 });
@@ -374,7 +374,7 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                     unit_price = table.Column<decimal>(type: "numeric(18,6)", precision: 18, scale: 6, nullable: true),
                     amount = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: false),
                     amount_currency = table.Column<string>(type: "character varying(3)", maxLength: 3, nullable: false, defaultValue: "DKK"),
-                    afregning_linje_id = table.Column<Guid>(type: "uuid", nullable: true),
+                    settlement_linje_id = table.Column<Guid>(type: "uuid", nullable: true),
                     created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
                 },
@@ -390,45 +390,45 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "afregninger",
+                name: "settlements",
                 columns: table => new
                 {
                     id = table.Column<Guid>(type: "uuid", nullable: false),
-                    målepunkt_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    leverance_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    metering_point_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    supply_id = table.Column<Guid>(type: "uuid", nullable: false),
                     settlement_start = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     settlement_end = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                    tidsserie_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    tidsserie_version = table.Column<int>(type: "integer", nullable: false),
+                    time_series_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    time_series_version = table.Column<int>(type: "integer", nullable: false),
                     total_energy_kwh = table.Column<decimal>(type: "numeric(18,3)", precision: 18, scale: 3, nullable: false),
                     total_energy_unit = table.Column<string>(type: "character varying(5)", maxLength: 5, nullable: false, defaultValue: "kWh"),
                     total_amount = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: false),
                     total_currency = table.Column<string>(type: "character varying(3)", maxLength: 3, nullable: false, defaultValue: "DKK"),
                     is_correction = table.Column<bool>(type: "boolean", nullable: false),
-                    previous_afregning_id = table.Column<Guid>(type: "uuid", nullable: true),
+                    previous_settlement_id = table.Column<Guid>(type: "uuid", nullable: true),
                     calculated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_afregninger", x => x.id);
+                    table.PrimaryKey("PK_settlements", x => x.id);
                     table.ForeignKey(
-                        name: "FK_afregninger_leverancer_leverance_id",
-                        column: x => x.leverance_id,
-                        principalTable: "leverancer",
+                        name: "FK_settlements_supplies_supply_id",
+                        column: x => x.supply_id,
+                        principalTable: "supplies",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "FK_afregninger_målepunkter_målepunkt_id",
-                        column: x => x.målepunkt_id,
-                        principalTable: "målepunkter",
+                        name: "FK_settlements_metering_points_metering_point_id",
+                        column: x => x.metering_point_id,
+                        principalTable: "metering_points",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "FK_afregninger_tidsserier_tidsserie_id",
-                        column: x => x.tidsserie_id,
-                        principalTable: "tidsserier",
+                        name: "FK_settlements_time_series_time_series_id",
+                        column: x => x.time_series_id,
+                        principalTable: "time_series",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Restrict);
                 });
@@ -438,7 +438,7 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 columns: table => new
                 {
                     id = table.Column<Guid>(type: "uuid", nullable: false),
-                    tidsserie_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    time_series_id = table.Column<Guid>(type: "uuid", nullable: false),
                     timestamp = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     quantity_kwh = table.Column<decimal>(type: "numeric(18,3)", precision: 18, scale: 3, nullable: false),
                     quantity_unit = table.Column<string>(type: "character varying(5)", maxLength: 5, nullable: false, defaultValue: "kWh"),
@@ -450,19 +450,19 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 {
                     table.PrimaryKey("PK_observations", x => x.id);
                     table.ForeignKey(
-                        name: "FK_observations_tidsserier_tidsserie_id",
-                        column: x => x.tidsserie_id,
-                        principalTable: "tidsserier",
+                        name: "FK_observations_time_series_time_series_id",
+                        column: x => x.time_series_id,
+                        principalTable: "time_series",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
-                name: "afregning_linjer",
+                name: "settlement_linjer",
                 columns: table => new
                 {
                     id = table.Column<Guid>(type: "uuid", nullable: false),
-                    afregning_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    settlement_id = table.Column<Guid>(type: "uuid", nullable: false),
                     pris_id = table.Column<Guid>(type: "uuid", nullable: false),
                     description = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
                     quantity_kwh = table.Column<decimal>(type: "numeric(18,3)", precision: 18, scale: 3, nullable: false),
@@ -475,33 +475,33 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_afregning_linjer", x => x.id);
+                    table.PrimaryKey("PK_settlement_linjer", x => x.id);
                     table.ForeignKey(
-                        name: "FK_afregning_linjer_afregninger_afregning_id",
-                        column: x => x.afregning_id,
-                        principalTable: "afregninger",
+                        name: "FK_settlement_linjer_settlements_settlement_id",
+                        column: x => x.settlement_id,
+                        principalTable: "settlements",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
-                name: "faktura_afregninger",
+                name: "faktura_settlements",
                 columns: table => new
                 {
-                    AfregningerId = table.Column<Guid>(type: "uuid", nullable: false),
+                    SettlementsId = table.Column<Guid>(type: "uuid", nullable: false),
                     FakturaId = table.Column<Guid>(type: "uuid", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_faktura_afregninger", x => new { x.AfregningerId, x.FakturaId });
+                    table.PrimaryKey("PK_faktura_settlements", x => new { x.SettlementsId, x.FakturaId });
                     table.ForeignKey(
-                        name: "FK_faktura_afregninger_afregninger_AfregningerId",
-                        column: x => x.AfregningerId,
-                        principalTable: "afregninger",
+                        name: "FK_faktura_settlements_settlements_SettlementsId",
+                        column: x => x.SettlementsId,
+                        principalTable: "settlements",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
-                        name: "FK_faktura_afregninger_fakturaer_FakturaId",
+                        name: "FK_faktura_settlements_fakturaer_FakturaId",
                         column: x => x.FakturaId,
                         principalTable: "fakturaer",
                         principalColumn: "id",
@@ -509,28 +509,28 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_afregning_linjer_afregning_id",
-                table: "afregning_linjer",
-                column: "afregning_id");
+                name: "IX_settlement_linjer_settlement_id",
+                table: "settlement_linjer",
+                column: "settlement_id");
 
             migrationBuilder.CreateIndex(
-                name: "IX_afregninger_leverance_id",
-                table: "afregninger",
-                column: "leverance_id");
+                name: "IX_settlements_supply_id",
+                table: "settlements",
+                column: "supply_id");
 
             migrationBuilder.CreateIndex(
-                name: "IX_afregninger_målepunkt_id",
-                table: "afregninger",
-                column: "målepunkt_id");
+                name: "IX_settlements_metering_point_id",
+                table: "settlements",
+                column: "metering_point_id");
 
             migrationBuilder.CreateIndex(
-                name: "IX_afregninger_tidsserie_id",
-                table: "afregninger",
-                column: "tidsserie_id");
+                name: "IX_settlements_time_series_id",
+                table: "settlements",
+                column: "time_series_id");
 
             migrationBuilder.CreateIndex(
-                name: "IX_aktører_gln",
-                table: "aktører",
+                name: "IX_actors_gln",
+                table: "actors",
                 column: "gln",
                 unique: true);
 
@@ -545,8 +545,8 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 column: "transaction_id");
 
             migrationBuilder.CreateIndex(
-                name: "IX_faktura_afregninger_FakturaId",
-                table: "faktura_afregninger",
+                name: "IX_faktura_settlements_FakturaId",
+                table: "faktura_settlements",
                 column: "FakturaId");
 
             migrationBuilder.CreateIndex(
@@ -561,9 +561,9 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_fakturaer_kunde_id",
+                name: "IX_fakturaer_customer_id",
                 table: "fakturaer",
-                column: "kunde_id");
+                column: "customer_id");
 
             migrationBuilder.CreateIndex(
                 name: "IX_fakturaer_original_faktura_id",
@@ -582,30 +582,30 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_leverancer_aktør_id",
-                table: "leverancer",
-                column: "aktør_id");
+                name: "IX_supplies_actor_id",
+                table: "supplies",
+                column: "actor_id");
 
             migrationBuilder.CreateIndex(
-                name: "IX_leverancer_kunde_id",
-                table: "leverancer",
-                column: "kunde_id");
+                name: "IX_supplies_customer_id",
+                table: "supplies",
+                column: "customer_id");
 
             migrationBuilder.CreateIndex(
-                name: "IX_leverancer_målepunkt_id",
-                table: "leverancer",
-                column: "målepunkt_id");
+                name: "IX_supplies_metering_point_id",
+                table: "supplies",
+                column: "metering_point_id");
 
             migrationBuilder.CreateIndex(
-                name: "IX_målepunkter_gsrn",
-                table: "målepunkter",
+                name: "IX_metering_points_gsrn",
+                table: "metering_points",
                 column: "gsrn",
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_observations_tidsserie_id_timestamp",
+                name: "IX_observations_time_series_id_timestamp",
                 table: "observations",
-                columns: new[] { "tidsserie_id", "timestamp" });
+                columns: new[] { "time_series_id", "timestamp" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_outbox_messages_is_sent",
@@ -618,18 +618,18 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 columns: new[] { "pris_id", "timestamp" });
 
             migrationBuilder.CreateIndex(
-                name: "IX_priser_charge_id",
-                table: "priser",
+                name: "IX_prices_charge_id",
+                table: "prices",
                 column: "charge_id");
 
             migrationBuilder.CreateIndex(
-                name: "IX_pristilknytninger_målepunkt_id",
-                table: "pristilknytninger",
-                column: "målepunkt_id");
+                name: "IX_price_links_metering_point_id",
+                table: "price_links",
+                column: "metering_point_id");
 
             migrationBuilder.CreateIndex(
-                name: "IX_pristilknytninger_pris_id",
-                table: "pristilknytninger",
+                name: "IX_price_links_pris_id",
+                table: "price_links",
                 column: "pris_id");
 
             migrationBuilder.CreateIndex(
@@ -638,19 +638,19 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 column: "process_id");
 
             migrationBuilder.CreateIndex(
-                name: "IX_tidsserier_målepunkt_id_is_latest",
-                table: "tidsserier",
-                columns: new[] { "målepunkt_id", "is_latest" });
+                name: "IX_time_series_metering_point_id_is_latest",
+                table: "time_series",
+                columns: new[] { "metering_point_id", "is_latest" });
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
-                name: "afregning_linjer");
+                name: "settlement_linjer");
 
             migrationBuilder.DropTable(
-                name: "faktura_afregninger");
+                name: "faktura_settlements");
 
             migrationBuilder.DropTable(
                 name: "faktura_linjer");
@@ -668,37 +668,37 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
                 name: "pris_points");
 
             migrationBuilder.DropTable(
-                name: "pristilknytninger");
+                name: "price_links");
 
             migrationBuilder.DropTable(
                 name: "process_state_transitions");
 
             migrationBuilder.DropTable(
-                name: "afregninger");
+                name: "settlements");
 
             migrationBuilder.DropTable(
                 name: "fakturaer");
 
             migrationBuilder.DropTable(
-                name: "priser");
+                name: "prices");
 
             migrationBuilder.DropTable(
                 name: "brs_processes");
 
             migrationBuilder.DropTable(
-                name: "leverancer");
+                name: "supplies");
 
             migrationBuilder.DropTable(
-                name: "tidsserier");
+                name: "time_series");
 
             migrationBuilder.DropTable(
-                name: "aktører");
+                name: "actors");
 
             migrationBuilder.DropTable(
-                name: "kunder");
+                name: "customers");
 
             migrationBuilder.DropTable(
-                name: "målepunkter");
+                name: "metering_points");
         }
     }
 }

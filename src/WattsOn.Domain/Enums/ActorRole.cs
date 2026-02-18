@@ -15,8 +15,8 @@ public enum ActorRole
     /// <summary>DDZ — Balanceansvarlig (Balance Responsible Party)</summary>
     Balanceansvarlig = 3,
 
-    /// <summary>DDX — Balanceafregningsansvarlig (Balance Settlement Responsible)</summary>
-    Balanceafregningsansvarlig = 4,
+    /// <summary>DDX — Balancesettlementsansvarlig (Balance Settlement Responsible)</summary>
+    Balancesettlementsansvarlig = 4,
 
     /// <summary>DGL — DataHub (Energinet)</summary>
     DataHub = 5,

@@ -8,8 +8,8 @@ import {
   ArrowLeftOutlined, UserOutlined, ThunderboltOutlined,
   CalculatorOutlined, MailOutlined, PhoneOutlined, HomeOutlined,
 } from '@ant-design/icons';
-import type { KundeDetail, SettlementDocument } from '../api/client';
-import { getKunde, getSettlementDocuments } from '../api/client';
+import type { CustomerDetail, SettlementDocument } from '../api/client';
+import { getCustomer, getSettlementDocuments } from '../api/client';
 
 const { Text, Title } = Typography;
 
@@ -18,12 +18,12 @@ const formatDKK = (amount: number) =>
 const formatDate = (d: string) => new Date(d).toLocaleDateString('da-DK');
 
 const statusColors: Record<string, string> = {
-  Beregnet: 'green', Faktureret: 'blue', Justeret: 'orange',
+  Calculated: 'green', Invoiced: 'blue', Adjusted: 'orange',
 };
 
-export default function KundeDetailPage() {
+export default function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const [kunde, setKunde] = useState<KundeDetail | null>(null);
+  const [customer, setCustomer] = useState<CustomerDetail | null>(null);
   const [settlements, setSettlements] = useState<SettlementDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -31,21 +31,21 @@ export default function KundeDetailPage() {
 
   useEffect(() => {
     if (!id) return;
-    Promise.all([getKunde(id), getSettlementDocuments('all')])
-      .then(([kundeRes, docsRes]) => {
-        setKunde(kundeRes.data);
-        const identifier = kundeRes.data.cpr || kundeRes.data.cvr;
+    Promise.all([getCustomer(id), getSettlementDocuments('all')])
+      .then(([customerRes, docsRes]) => {
+        setCustomer(customerRes.data);
+        const identifier = customerRes.data.cpr || customerRes.data.cvr;
         setSettlements(docsRes.data.filter(d => d.buyer.identifier === identifier));
       })
-      .catch(err => setError(err.response?.status === 404 ? 'Kunde ikke fundet' : err.message))
+      .catch(err => setError(err.response?.status === 404 ? 'Customer ikke fundet' : err.message))
       .finally(() => setLoading(false));
   }, [id]);
 
   if (loading) return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
   if (error) return <Alert type="error" message={error} />;
-  if (!kunde) return null;
+  if (!customer) return null;
 
-  const activeLev = kunde.leverancer.filter(l => l.isActive);
+  const activeLev = customer.supplies.filter(l => l.isActive);
   const totalSettled = settlements
     .filter(s => s.documentType === 'settlement')
     .reduce((sum, s) => sum + s.totalInclVat, 0);
@@ -53,14 +53,14 @@ export default function KundeDetailPage() {
 
   // --- Tables ---
 
-  const leveranceColumns = [
+  const supplyColumns = [
     {
       title: 'GSRN',
       dataIndex: 'gsrn',
       key: 'gsrn',
       render: (gsrn: string, record: any) => (
         <Text className="mono" style={{ cursor: 'pointer' }}
-          onClick={(e) => { e.stopPropagation(); navigate(`/målepunkter/${record.målepunktId}`); }}>
+          onClick={(e) => { e.stopPropagation(); navigate(`/metering_points/${record.meteringPointId}`); }}>
           {gsrn}
         </Text>
       ),
@@ -92,7 +92,7 @@ export default function KundeDetailPage() {
       key: 'documentId',
       render: (docId: string, record: SettlementDocument) => (
         <Text className="mono" strong style={{ cursor: 'pointer' }}
-          onClick={() => navigate(`/afregninger/${record.settlementId}`)}>
+          onClick={() => navigate(`/settlements/${record.settlementId}`)}>
           {docId}
         </Text>
       ),
@@ -104,7 +104,7 @@ export default function KundeDetailPage() {
       width: 110,
       render: (type: string) => {
         const map: Record<string, { label: string; color: string }> = {
-          settlement: { label: 'Afregning', color: '#5d7a91' },
+          settlement: { label: 'Settlement', color: '#5d7a91' },
           debitNote: { label: 'Debitnota', color: '#d97706' },
           creditNote: { label: 'Kreditnota', color: '#059669' },
         };
@@ -154,9 +154,9 @@ export default function KundeDetailPage() {
 
   return (
     <Space direction="vertical" size={20} style={{ width: '100%' }}>
-      <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/kunder')}
+      <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/customers')}
         style={{ color: '#7593a9', fontWeight: 500, paddingLeft: 0 }}>
-        Kunder
+        Customers
       </Button>
 
       {/* Hero card */}
@@ -172,14 +172,14 @@ export default function KundeDetailPage() {
                 <UserOutlined style={{ fontSize: 24, color: '#5d7a91' }} />
               </div>
               <div>
-                <Title level={3} style={{ margin: 0 }}>{kunde.name}</Title>
+                <Title level={3} style={{ margin: 0 }}>{customer.name}</Title>
                 <Space size={8} style={{ marginTop: 6 }}>
-                  <Tag color={kunde.isPrivate ? 'blue' : 'green'}>
-                    {kunde.isPrivate ? 'Privat' : 'Erhverv'}
+                  <Tag color={customer.isPrivate ? 'blue' : 'green'}>
+                    {customer.isPrivate ? 'Private' : 'Business'}
                   </Tag>
-                  <Text type="secondary" className="mono">{kunde.cpr || kunde.cvr}</Text>
+                  <Text type="secondary" className="mono">{customer.cpr || customer.cvr}</Text>
                   {activeLev.length > 0 && (
-                    <Tag color="green">{activeLev.length} aktiv leverance</Tag>
+                    <Tag color="green">{activeLev.length} aktiv supply</Tag>
                   )}
                 </Space>
               </div>
@@ -199,10 +199,10 @@ export default function KundeDetailPage() {
       {/* Quick stats */}
       <Row gutter={16}>
         {[
-          { title: 'Leverancer', value: kunde.leverancer.length, icon: <ThunderboltOutlined />, color: '#7c3aed' },
-          { title: 'Aktive', value: activeLev.length, icon: <ThunderboltOutlined />, color: '#059669' },
-          { title: 'Afregninger', value: settlements.length, icon: <CalculatorOutlined />, color: '#5d7a91' },
-          { title: 'Korrektioner', value: corrections.length, icon: <CalculatorOutlined />, color: corrections.length > 0 ? '#d97706' : '#99afc2' },
+          { title: 'Supplies', value: customer.supplies.length, icon: <ThunderboltOutlined />, color: '#7c3aed' },
+          { title: 'Active', value: activeLev.length, icon: <ThunderboltOutlined />, color: '#059669' },
+          { title: 'Settlements', value: settlements.length, icon: <CalculatorOutlined />, color: '#5d7a91' },
+          { title: 'Corrections', value: corrections.length, icon: <CalculatorOutlined />, color: corrections.length > 0 ? '#d97706' : '#99afc2' },
         ].map(s => (
           <Col xs={12} sm={6} key={s.title}>
             <Card size="small" style={{ borderRadius: 10, textAlign: 'center' }}>
@@ -229,25 +229,25 @@ export default function KundeDetailPage() {
                   <Col xs={24} md={12}>
                     <Card size="small" title="Kontaktoplysninger" style={{ borderRadius: 10 }}>
                       <Space direction="vertical" size={10} style={{ width: '100%' }}>
-                        {kunde.email && (
-                          <Space><MailOutlined style={{ color: '#7593a9' }} /><Text>{kunde.email}</Text></Space>
+                        {customer.email && (
+                          <Space><MailOutlined style={{ color: '#7593a9' }} /><Text>{customer.email}</Text></Space>
                         )}
-                        {kunde.phone && (
-                          <Space><PhoneOutlined style={{ color: '#7593a9' }} /><Text>{kunde.phone}</Text></Space>
+                        {customer.phone && (
+                          <Space><PhoneOutlined style={{ color: '#7593a9' }} /><Text>{customer.phone}</Text></Space>
                         )}
-                        {!kunde.email && !kunde.phone && <Text type="secondary">Ingen kontaktoplysninger</Text>}
+                        {!customer.email && !customer.phone && <Text type="secondary">Ingen kontaktoplysninger</Text>}
                       </Space>
                     </Card>
                   </Col>
                   <Col xs={24} md={12}>
                     <Card size="small" title="Adresse" style={{ borderRadius: 10 }}>
-                      {kunde.address ? (
+                      {customer.address ? (
                         <Space><HomeOutlined style={{ color: '#7593a9' }} />
                           <Text>
-                            {kunde.address.streetName} {kunde.address.buildingNumber}
-                            {kunde.address.floor ? `, ${kunde.address.floor}.` : ''}
-                            {kunde.address.suite ? ` ${kunde.address.suite}` : ''}
-                            <br />{kunde.address.postCode} {kunde.address.cityName}
+                            {customer.address.streetName} {customer.address.buildingNumber}
+                            {customer.address.floor ? `, ${customer.address.floor}.` : ''}
+                            {customer.address.suite ? ` ${customer.address.suite}` : ''}
+                            <br />{customer.address.postCode} {customer.address.cityName}
                           </Text>
                         </Space>
                       ) : <Text type="secondary">Ingen adresse registreret</Text>}
@@ -256,13 +256,13 @@ export default function KundeDetailPage() {
                   <Col xs={24}>
                     <Descriptions size="small" column={{ xs: 1, sm: 2 }} bordered>
                       <Descriptions.Item label="Type">
-                        <Tag color={kunde.isPrivate ? 'blue' : 'green'}>{kunde.isPrivate ? 'Privat' : 'Erhverv'}</Tag>
+                        <Tag color={customer.isPrivate ? 'blue' : 'green'}>{customer.isPrivate ? 'Private' : 'Business'}</Tag>
                       </Descriptions.Item>
-                      <Descriptions.Item label={kunde.isPrivate ? 'CPR' : 'CVR'}>
-                        <Text className="mono">{kunde.cpr || kunde.cvr || '—'}</Text>
+                      <Descriptions.Item label={customer.isPrivate ? 'CPR' : 'CVR'}>
+                        <Text className="mono">{customer.cpr || customer.cvr || '—'}</Text>
                       </Descriptions.Item>
-                      <Descriptions.Item label="Oprettet">
-                        {new Date(kunde.createdAt).toLocaleString('da-DK')}
+                      <Descriptions.Item label="Created">
+                        {new Date(customer.createdAt).toLocaleString('da-DK')}
                       </Descriptions.Item>
                       <Descriptions.Item label="Afregnet total">
                         <Text strong className="tnum">{formatDKK(totalSettled)}</Text>
@@ -273,23 +273,23 @@ export default function KundeDetailPage() {
               ),
             },
             {
-              key: 'leverancer',
-              label: `Leverancer (${kunde.leverancer.length})`,
-              children: kunde.leverancer.length > 0 ? (
+              key: 'supplies',
+              label: `Supplies (${customer.supplies.length})`,
+              children: customer.supplies.length > 0 ? (
                 <Table
-                  dataSource={kunde.leverancer}
-                  columns={leveranceColumns}
+                  dataSource={customer.supplies}
+                  columns={supplyColumns}
                   rowKey="id"
                   pagination={false}
                   size="small"
                 />
               ) : (
-                <Empty description="Ingen leverancer" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                <Empty description="Ingen supplies" image={Empty.PRESENTED_IMAGE_SIMPLE} />
               ),
             },
             {
-              key: 'afregninger',
-              label: `Afregninger (${settlements.length})`,
+              key: 'settlements',
+              label: `Settlements (${settlements.length})`,
               children: settlements.length > 0 ? (
                 <Table
                   dataSource={settlements}
@@ -299,7 +299,7 @@ export default function KundeDetailPage() {
                   size="small"
                 />
               ) : (
-                <Empty description="Ingen afregninger endnu" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                <Empty description="Ingen settlements endnu" image={Empty.PRESENTED_IMAGE_SIMPLE} />
               ),
             },
           ]}

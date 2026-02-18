@@ -5,7 +5,7 @@ namespace WattsOn.Domain.ValueObjects;
 
 /// <summary>
 /// Global Location Number — 13-digit identifier for market participants.
-/// Used to identify actors (aktører) in the Danish electricity market.
+/// Used to identify actors (actors) in the Danish electricity market.
 /// </summary>
 public partial class GlnNumber : ValueObject
 {

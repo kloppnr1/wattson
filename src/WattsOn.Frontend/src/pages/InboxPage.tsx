@@ -35,9 +35,9 @@ export default function InboxPage() {
       key: 'status',
       width: 130,
       render: (_: any, record: InboxMessage) => {
-        if (record.isProcessed) return <span className="pill-badge green">behandlet</span>;
-        if (record.processingError) return <span className="pill-badge red">fejl</span>;
-        return <span className="pill-badge blue">venter</span>;
+        if (record.isProcessed) return <span className="pill-badge green">processed</span>;
+        if (record.processingError) return <span className="pill-badge red">error</span>;
+        return <span className="pill-badge blue">pending</span>;
       },
     },
     {
@@ -66,16 +66,16 @@ export default function InboxPage() {
     <Space direction="vertical" size={24} style={{ width: '100%' }}>
       <div className="page-header">
         <h2>Beskeder</h2>
-        <div className="page-subtitle">Kommunikation med DataHub</div>
+        <div className="page-subtitle">Communication with DataHub</div>
       </div>
 
       {/* Stats */}
       <Row gutter={16}>
         {[
-          { title: 'Total Beskeder', value: data.length },
-          { title: 'Indgående', value: data.length },
-          { title: 'Behandlet', value: processed, color: '#10b981' },
-          { title: 'Uløste fejl', value: unresolved, color: unresolved > 0 ? '#dc2626' : undefined },
+          { title: 'Total Messages', value: data.length },
+          { title: 'Inbound', value: data.length },
+          { title: 'Processed', value: processed, color: '#10b981' },
+          { title: 'Unresolved Errors', value: unresolved, color: unresolved > 0 ? '#dc2626' : undefined },
         ].map(s => (
           <Col xs={12} sm={6} key={s.title}>
             <Card style={{ borderRadius: 8 }}>
@@ -95,8 +95,8 @@ export default function InboxPage() {
           value={tab}
           onChange={v => setTab(v as string)}
           options={[
-            { label: 'Indgående beskeder', value: 'inbound' },
-            { label: 'Udgående anmodninger', value: 'outbound' },
+            { label: 'Inbound Messages', value: 'inbound' },
+            { label: 'Outbound Requests', value: 'outbound' },
           ]}
           style={{ marginBottom: 16 }}
         />
@@ -107,7 +107,7 @@ export default function InboxPage() {
               defaultValue="all"
               style={{ width: 180 }}
               options={[
-                { value: 'all', label: 'Alle beskedtyper' },
+                { value: 'all', label: 'All message types' },
                 { value: 'RSM-001', label: 'RSM-001' },
                 { value: 'RSM-004', label: 'RSM-004' },
               ]}
@@ -116,8 +116,8 @@ export default function InboxPage() {
               defaultValue="all"
               style={{ width: 160 }}
               options={[
-                { value: 'all', label: 'Alle statusser' },
-                { value: 'processed', label: 'Behandlet' },
+                { value: 'all', label: 'All statuses' },
+                { value: 'processed', label: 'Processed' },
                 { value: 'pending', label: 'Venter' },
                 { value: 'error', label: 'Fejl' },
               ]}

@@ -1,16 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Table, Tag, Typography, Space } from 'antd';
 import { useNavigate } from 'react-router-dom';
-import type { Leverance } from '../api/client';
-import { getLeverancer } from '../api/client';
+import type { Supply } from '../api/client';
+import { getSupplies } from '../api/client';
 
-export default function LeverancerPage() {
-  const [data, setData] = useState<Leverance[]>([]);
+export default function SuppliesPage() {
+  const [data, setData] = useState<Supply[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
-    getLeverancer()
+    getSupplies()
       .then((res) => setData(res.data))
       .finally(() => setLoading(false));
   }, []);
@@ -20,18 +20,18 @@ export default function LeverancerPage() {
       title: 'GSRN',
       dataIndex: 'gsrn',
       key: 'gsrn',
-      render: (gsrn: string, record: Leverance) => (
-        <a onClick={() => navigate(`/målepunkter/${record.målepunktId}`)} style={{ fontFamily: 'monospace' }}>
+      render: (gsrn: string, record: Supply) => (
+        <a onClick={() => navigate(`/metering_points/${record.meteringPointId}`)} style={{ fontFamily: 'monospace' }}>
           {gsrn}
         </a>
       ),
     },
     {
-      title: 'Kunde',
-      dataIndex: 'kundeNavn',
-      key: 'kundeNavn',
-      render: (name: string, record: Leverance) => (
-        <a onClick={() => navigate(`/kunder/${record.kundeId}`)}>{name}</a>
+      title: 'Customer',
+      dataIndex: 'customerName',
+      key: 'customerName',
+      render: (name: string, record: Supply) => (
+        <a onClick={() => navigate(`/customers/${record.customerId}`)}>{name}</a>
       ),
     },
     {
@@ -58,7 +58,7 @@ export default function LeverancerPage() {
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <Typography.Title level={3}>Leverancer</Typography.Title>
+      <Typography.Title level={3}>Supplies</Typography.Title>
       <Table
         dataSource={data}
         columns={columns}

@@ -5,9 +5,7 @@ import {
   CalculatorOutlined,
   SyncOutlined,
   InboxOutlined,
-  SendOutlined,
   ExperimentOutlined,
-  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import WattsOnIcon from './WattsOnIcon';
@@ -16,17 +14,17 @@ const { Sider, Content } = Layout;
 
 const menuItems = [
   { key: '/', icon: <DashboardOutlined />, label: 'Dashboard' },
-  { type: 'group' as const, label: 'KUNDER', children: [
-    { key: '/kunder', icon: <UserOutlined />, label: 'Kunder' },
+  { type: 'group' as const, label: 'CUSTOMERS', children: [
+    { key: '/customers', icon: <UserOutlined />, label: 'Customers' },
   ]},
-  { type: 'group' as const, label: 'AFREGNING', children: [
-    { key: '/afregninger', icon: <CalculatorOutlined />, label: 'Afregninger' },
+  { type: 'group' as const, label: 'BILLING', children: [
+    { key: '/settlements', icon: <CalculatorOutlined />, label: 'Settlements' },
   ]},
   { type: 'group' as const, label: 'DATAHUB', children: [
-    { key: '/processer', icon: <SyncOutlined />, label: 'Processer' },
-    { key: '/inbox', icon: <InboxOutlined />, label: 'Beskeder' },
+    { key: '/processes', icon: <SyncOutlined />, label: 'Processes' },
+    { key: '/messages', icon: <InboxOutlined />, label: 'Messages' },
   ]},
-  { type: 'group' as const, label: 'UDVIKLING', children: [
+  { type: 'group' as const, label: 'DEVELOPMENT', children: [
     { key: '/simulation', icon: <ExperimentOutlined />, label: 'Simulator' },
   ]},
 ];
@@ -35,7 +33,6 @@ export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Flatten for matching
   const allItems = menuItems.flatMap(item =>
     'children' in item ? item.children || [] : [item]
   );
@@ -82,7 +79,6 @@ export default function AppLayout() {
           }}
         />
 
-        {/* Sidebar footer */}
         <div className="sidebar-footer">
           <div className="env-badge">
             <span className="env-dot" />

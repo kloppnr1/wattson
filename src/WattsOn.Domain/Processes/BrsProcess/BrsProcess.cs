@@ -27,7 +27,7 @@ public class BrsProcess : Entity
     public string CurrentState { get; private set; } = null!;
 
     /// <summary>GSRN of the metering point involved</summary>
-    public Gsrn? MålepunktGsrn { get; private set; }
+    public Gsrn? MeteringPointGsrn { get; private set; }
 
     /// <summary>Effective date of the process</summary>
     public DateTimeOffset? EffectiveDate { get; private set; }
@@ -57,7 +57,7 @@ public class BrsProcess : Entity
         ProcessType processType,
         ProcessRole role,
         string initialState,
-        Gsrn? målepunktGsrn = null,
+        Gsrn? meteringPointGsrn = null,
         DateTimeOffset? effectiveDate = null,
         GlnNumber? counterpartGln = null,
         string? transactionId = null)
@@ -66,9 +66,9 @@ public class BrsProcess : Entity
         {
             ProcessType = processType,
             Role = role,
-            Status = role == ProcessRole.Initiator ? ProcessStatus.Oprettet : ProcessStatus.Modtaget,
+            Status = role == ProcessRole.Initiator ? ProcessStatus.Created : ProcessStatus.Received,
             CurrentState = initialState,
-            MålepunktGsrn = målepunktGsrn,
+            MeteringPointGsrn = meteringPointGsrn,
             EffectiveDate = effectiveDate,
             CounterpartGln = counterpartGln,
             TransactionId = transactionId,
@@ -95,26 +95,26 @@ public class BrsProcess : Entity
     public void MarkSubmitted(string transactionId)
     {
         TransactionId = transactionId;
-        Status = ProcessStatus.Indsendt;
+        Status = ProcessStatus.Submitted;
         MarkUpdated();
     }
 
     public void MarkConfirmed()
     {
-        Status = ProcessStatus.Bekræftet;
+        Status = ProcessStatus.Confirmed;
         MarkUpdated();
     }
 
     public void MarkCompleted()
     {
-        Status = ProcessStatus.Gennemført;
+        Status = ProcessStatus.Completed;
         CompletedAt = DateTimeOffset.UtcNow;
         MarkUpdated();
     }
 
     public void MarkRejected(string reason)
     {
-        Status = ProcessStatus.Afvist;
+        Status = ProcessStatus.Rejected;
         ErrorMessage = reason;
         CompletedAt = DateTimeOffset.UtcNow;
         MarkUpdated();
@@ -122,7 +122,7 @@ public class BrsProcess : Entity
 
     public void MarkFailed(string error)
     {
-        Status = ProcessStatus.Fejlet;
+        Status = ProcessStatus.Failed;
         ErrorMessage = error;
         CompletedAt = DateTimeOffset.UtcNow;
         MarkUpdated();

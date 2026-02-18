@@ -4,18 +4,18 @@ using WattsOn.Domain.Entities;
 
 namespace WattsOn.Infrastructure.Persistence.Configurations;
 
-public class TidsserieConfiguration : IEntityTypeConfiguration<Tidsserie>
+public class TimeSeriesConfiguration : IEntityTypeConfiguration<TimeSeries>
 {
-    public void Configure(EntityTypeBuilder<Tidsserie> builder)
+    public void Configure(EntityTypeBuilder<TimeSeries> builder)
     {
-        builder.ToTable("tidsserier");
+        builder.ToTable("time_series");
 
         builder.HasKey(t => t.Id);
         builder.Property(t => t.Id).HasColumnName("id");
         builder.Property(t => t.CreatedAt).HasColumnName("created_at");
         builder.Property(t => t.UpdatedAt).HasColumnName("updated_at");
 
-        builder.Property(t => t.MålepunktId).HasColumnName("målepunkt_id").IsRequired();
+        builder.Property(t => t.MeteringPointId).HasColumnName("metering_point_id").IsRequired();
         builder.Property(t => t.Resolution).HasColumnName("resolution").HasConversion<string>().HasMaxLength(10);
         builder.Property(t => t.Version).HasColumnName("version");
         builder.Property(t => t.IsLatest).HasColumnName("is_latest");
@@ -30,11 +30,11 @@ public class TidsserieConfiguration : IEntityTypeConfiguration<Tidsserie>
 
         builder.HasMany(t => t.Observations)
             .WithOne()
-            .HasForeignKey(o => o.TidsserieId)
+            .HasForeignKey(o => o.TimeSeriesId)
             .OnDelete(DeleteBehavior.Cascade);
 
         // Composite index: find latest version for a metering point + period
-        builder.HasIndex(t => new { t.MålepunktId, t.IsLatest });
+        builder.HasIndex(t => new { t.MeteringPointId, t.IsLatest });
 
         builder.Ignore(t => t.TotalEnergy);
         builder.Ignore(t => t.DomainEvents);

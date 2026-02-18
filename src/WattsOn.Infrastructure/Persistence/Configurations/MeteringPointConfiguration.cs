@@ -4,11 +4,11 @@ using WattsOn.Domain.Entities;
 
 namespace WattsOn.Infrastructure.Persistence.Configurations;
 
-public class MålepunktConfiguration : IEntityTypeConfiguration<Målepunkt>
+public class MeteringPointConfiguration : IEntityTypeConfiguration<MeteringPoint>
 {
-    public void Configure(EntityTypeBuilder<Målepunkt> builder)
+    public void Configure(EntityTypeBuilder<MeteringPoint> builder)
     {
-        builder.ToTable("målepunkter");
+        builder.ToTable("metering_points");
 
         builder.HasKey(m => m.Id);
         builder.Property(m => m.Id).HasColumnName("id");
@@ -46,14 +46,14 @@ public class MålepunktConfiguration : IEntityTypeConfiguration<Målepunkt>
             addr.Property(a => a.CountryCode).HasColumnName("country_code").HasMaxLength(2);
         });
 
-        builder.HasMany(m => m.Leverancer)
-            .WithOne(l => l.Målepunkt)
-            .HasForeignKey(l => l.MålepunktId)
+        builder.HasMany(m => m.Supplies)
+            .WithOne(l => l.MeteringPoint)
+            .HasForeignKey(l => l.MeteringPointId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        builder.HasMany(m => m.Tidsserier)
-            .WithOne(t => t.Målepunkt)
-            .HasForeignKey(t => t.MålepunktId)
+        builder.HasMany(m => m.TimeSeriesCollection)
+            .WithOne(t => t.MeteringPoint)
+            .HasForeignKey(t => t.MeteringPointId)
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.Ignore(m => m.DomainEvents);

@@ -4,23 +4,23 @@ using WattsOn.Domain.Entities;
 
 namespace WattsOn.Infrastructure.Persistence.Configurations;
 
-public class AfregningConfiguration : IEntityTypeConfiguration<Afregning>
+public class SettlementConfiguration : IEntityTypeConfiguration<Settlement>
 {
-    public void Configure(EntityTypeBuilder<Afregning> builder)
+    public void Configure(EntityTypeBuilder<Settlement> builder)
     {
-        builder.ToTable("afregninger");
+        builder.ToTable("settlements");
 
         builder.HasKey(a => a.Id);
         builder.Property(a => a.Id).HasColumnName("id");
         builder.Property(a => a.CreatedAt).HasColumnName("created_at");
         builder.Property(a => a.UpdatedAt).HasColumnName("updated_at");
 
-        builder.Property(a => a.MålepunktId).HasColumnName("målepunkt_id").IsRequired();
-        builder.Property(a => a.LeveranceId).HasColumnName("leverance_id").IsRequired();
-        builder.Property(a => a.TidsserieId).HasColumnName("tidsserie_id").IsRequired();
-        builder.Property(a => a.TidsserieVersion).HasColumnName("tidsserie_version");
+        builder.Property(a => a.MeteringPointId).HasColumnName("metering_point_id").IsRequired();
+        builder.Property(a => a.SupplyId).HasColumnName("supply_id").IsRequired();
+        builder.Property(a => a.TimeSeriesId).HasColumnName("time_series_id").IsRequired();
+        builder.Property(a => a.TimeSeriesVersion).HasColumnName("time_series_version");
         builder.Property(a => a.IsCorrection).HasColumnName("is_correction");
-        builder.Property(a => a.PreviousAfregningId).HasColumnName("previous_afregning_id");
+        builder.Property(a => a.PreviousSettlementId).HasColumnName("previous_settlement_id");
         builder.Property(a => a.CalculatedAt).HasColumnName("calculated_at");
 
         // Document numbering (PostgreSQL sequence — sequential, no gaps under normal operation)
@@ -52,32 +52,32 @@ public class AfregningConfiguration : IEntityTypeConfiguration<Afregning>
             money.Property(m => m.Currency).HasColumnName("total_currency").HasMaxLength(3).HasDefaultValue("DKK");
         });
 
-        builder.HasOne(a => a.Målepunkt).WithMany().HasForeignKey(a => a.MålepunktId).OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne(a => a.Leverance).WithMany().HasForeignKey(a => a.LeveranceId).OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne(a => a.Tidsserie).WithMany().HasForeignKey(a => a.TidsserieId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(a => a.MeteringPoint).WithMany().HasForeignKey(a => a.MeteringPointId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(a => a.Supply).WithMany().HasForeignKey(a => a.SupplyId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(a => a.TimeSeries).WithMany().HasForeignKey(a => a.TimeSeriesId).OnDelete(DeleteBehavior.Restrict);
 
         builder.HasMany(a => a.Lines)
             .WithOne()
-            .HasForeignKey(l => l.AfregningId)
+            .HasForeignKey(l => l.SettlementId)
             .OnDelete(DeleteBehavior.Cascade);
 
         builder.Ignore(a => a.DomainEvents);
     }
 }
 
-public class AfregningLinjeConfiguration : IEntityTypeConfiguration<AfregningLinje>
+public class SettlementLinjeConfiguration : IEntityTypeConfiguration<SettlementLinje>
 {
-    public void Configure(EntityTypeBuilder<AfregningLinje> builder)
+    public void Configure(EntityTypeBuilder<SettlementLinje> builder)
     {
-        builder.ToTable("afregning_linjer");
+        builder.ToTable("settlement_lines");
 
         builder.HasKey(l => l.Id);
         builder.Property(l => l.Id).HasColumnName("id");
         builder.Property(l => l.CreatedAt).HasColumnName("created_at");
         builder.Property(l => l.UpdatedAt).HasColumnName("updated_at");
 
-        builder.Property(l => l.AfregningId).HasColumnName("afregning_id").IsRequired();
-        builder.Property(l => l.PrisId).HasColumnName("pris_id").IsRequired();
+        builder.Property(l => l.SettlementId).HasColumnName("settlement_id").IsRequired();
+        builder.Property(l => l.PriceId).HasColumnName("pris_id").IsRequired();
         builder.Property(l => l.Description).HasColumnName("description").HasMaxLength(500);
         builder.Property(l => l.UnitPrice).HasColumnName("unit_price").HasPrecision(18, 6);
 

@@ -54,9 +54,9 @@ export default function DashboardPage() {
       dataIndex: 'status',
       key: 'status',
       render: (status: string) => {
-        const color = status === 'Beregnet' ? 'green'
-          : status === 'Faktureret' ? 'blue'
-          : status === 'Justeret' ? 'orange' : 'gray';
+        const color = status === 'Calculated' ? 'green'
+          : status === 'Invoiced' ? 'blue'
+          : status === 'Adjusted' ? 'orange' : 'gray';
         return (
           <span className="status-badge">
             <span className={`status-dot ${color}`} />
@@ -86,16 +86,16 @@ export default function DashboardPage() {
     <Space direction="vertical" size={24} style={{ width: '100%' }}>
       <div className="page-header">
         <h2>Dashboard</h2>
-        <div className="page-subtitle">Overblik over din elleverandør-drift</div>
+        <div className="page-subtitle">Overview of your electricity supplier operations</div>
       </div>
 
       {/* 4 stat cards in a row — flat, no icons, just label + number */}
       <Row gutter={16}>
         {[
-          { title: 'Aktive Kunder', value: stats.kunder, color: undefined },
-          { title: 'Afregninger klar', value: stats.afregninger.beregnede, color: '#10b981' },
-          { title: 'Korrektioner', value: stats.afregninger.korrektioner, color: stats.afregninger.korrektioner > 0 ? '#dc2626' : undefined },
-          { title: 'Målepunkter', value: stats.målepunkter, color: undefined },
+          { title: 'Active Customers', value: stats.customers, color: undefined },
+          { title: 'Ready to Invoice', value: stats.settlements.calculated, color: '#10b981' },
+          { title: 'Corrections', value: stats.settlements.corrections, color: stats.settlements.corrections > 0 ? '#dc2626' : undefined },
+          { title: 'Metering Points', value: stats.meteringPoints, color: undefined },
         ].map(card => (
           <Col xs={12} sm={6} key={card.title}>
             <Card style={{ borderRadius: 8 }}>
@@ -118,10 +118,10 @@ export default function DashboardPage() {
         <div className="section-header">
           <div className="section-title">
             <div className="accent-bar" />
-            <span>Seneste afregninger</span>
+            <span>Recent Settlements</span>
           </div>
-          <span className="view-all" onClick={() => navigate('/afregninger')}>
-            Se alle &gt;
+          <span className="view-all" onClick={() => navigate('/settlements')}>
+            View all &gt;
           </span>
         </div>
         <Table
@@ -131,7 +131,7 @@ export default function DashboardPage() {
           pagination={false}
           size="small"
           onRow={record => ({
-            onClick: () => navigate(`/afregninger/${record.settlementId}`),
+            onClick: () => navigate(`/settlements/${record.settlementId}`),
             style: { cursor: 'pointer' },
           })}
         />

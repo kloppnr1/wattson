@@ -10,22 +10,22 @@ const api = axios.create({
 // ==================== Types ====================
 
 export interface DashboardStats {
-  kunder: number;
-  målepunkter: number;
-  aktiveLeverancer: number;
-  aktiveProcesser: number;
-  ubehandledeInbox: number;
-  uafsendeOutbox: number;
-  afregninger: {
-    beregnede: number;
-    fakturerede: number;
-    justerede: number;
-    korrektioner: number;
-    totalBeløb: number;
+  customers: number;
+  meteringPoints: number;
+  activeSupplies: number;
+  activeProcesses: number;
+  unprocessedInbox: number;
+  unsentOutbox: number;
+  settlements: {
+    calculated: number;
+    invoiced: number;
+    adjusted: number;
+    corrections: number;
+    totalAmount: number;
   };
 }
 
-export interface Aktør {
+export interface Actor {
   id: string;
   gln: string;
   name: string;
@@ -35,7 +35,7 @@ export interface Aktør {
   createdAt: string;
 }
 
-export interface Kunde {
+export interface Customer {
   id: string;
   name: string;
   cpr: string | null;
@@ -47,9 +47,9 @@ export interface Kunde {
   createdAt: string;
 }
 
-export interface KundeDetail extends Kunde {
+export interface CustomerDetail extends Customer {
   address: AddressDto | null;
-  leverancer: LeveranceRef[];
+  supplies: SupplyRef[];
 }
 
 export interface AddressDto {
@@ -61,18 +61,18 @@ export interface AddressDto {
   cityName: string;
 }
 
-export interface LeveranceRef {
+export interface SupplyRef {
   id: string;
-  målepunktId: string;
+  meteringPointId: string;
   gsrn?: string;
-  kundeId?: string;
-  kundeNavn?: string;
+  customerId?: string;
+  customerName?: string;
   supplyStart: string;
   supplyEnd: string | null;
   isActive: boolean;
 }
 
-export interface Målepunkt {
+export interface MeteringPoint {
   id: string;
   gsrn: string;
   type: string;
@@ -86,13 +86,13 @@ export interface Målepunkt {
   createdAt: string;
 }
 
-export interface MålepunktDetail extends Målepunkt {
+export interface MeteringPointDetail extends MeteringPoint {
   address: AddressDto | null;
-  leverancer: LeveranceRef[];
-  tidsserier: TidsserieRef[];
+  supplies: SupplyRef[];
+  time_series: TimeSeriesRef[];
 }
 
-export interface TidsserieRef {
+export interface TimeSeriesRef {
   id: string;
   periodStart: string;
   periodEnd: string | null;
@@ -102,12 +102,12 @@ export interface TidsserieRef {
   receivedAt: string;
 }
 
-export interface Leverance {
+export interface Supply {
   id: string;
-  målepunktId: string;
+  meteringPointId: string;
   gsrn: string;
-  kundeId: string;
-  kundeNavn: string;
+  customerId: string;
+  customerName: string;
   supplyStart: string;
   supplyEnd: string | null;
   isActive: boolean;
@@ -121,7 +121,7 @@ export interface BrsProcess {
   role: string;
   status: string;
   currentState: string;
-  målepunktGsrn: string | null;
+  meteringPointGsrn: string | null;
   effectiveDate: string | null;
   startedAt: string;
   completedAt: string | null;
@@ -142,10 +142,10 @@ export interface InboxMessage {
   processingAttempts: number;
 }
 
-export interface Afregning {
+export interface Settlement {
   id: string;
-  målepunktId: string;
-  leveranceId: string;
+  meteringPointId: string;
+  supplyId: string;
   periodStart: string;
   periodEnd: string | null;
   totalEnergyKwh: number;
@@ -153,7 +153,7 @@ export interface Afregning {
   currency: string;
   status: string;
   isCorrection: boolean;
-  previousAfregningId: string | null;
+  previousSettlementId: string | null;
   externalInvoiceReference: string | null;
   invoicedAt: string | null;
   calculatedAt: string;
@@ -209,40 +209,40 @@ export interface SettlementDocument {
 // Dashboard
 export const getDashboard = () => api.get<DashboardStats>('/dashboard');
 
-// Aktører
-export const getAktører = () => api.get<Aktør[]>('/aktører');
-export const createAktør = (data: { gln: string; name: string; role: string; cvr?: string; isOwn?: boolean }) =>
-  api.post('/aktører', data);
+// Actors
+export const getActors = () => api.get<Actor[]>('/actors');
+export const createActor = (data: { gln: string; name: string; role: string; cvr?: string; isOwn?: boolean }) =>
+  api.post('/actors', data);
 
-// Kunder
-export const getKunder = () => api.get<Kunde[]>('/kunder');
-export const getKunde = (id: string) => api.get<KundeDetail>(`/kunder/${id}`);
-export const createKunde = (data: {
+// Customers
+export const getCustomers = () => api.get<Customer[]>('/customers');
+export const getCustomer = (id: string) => api.get<CustomerDetail>(`/customers/${id}`);
+export const createCustomer = (data: {
   name: string; cpr?: string; cvr?: string;
   email?: string; phone?: string; address?: AddressDto;
-}) => api.post('/kunder', data);
+}) => api.post('/customers', data);
 
-// Målepunkter
-export const getMålepunkter = () => api.get<Målepunkt[]>('/målepunkter');
-export const getMålepunkt = (id: string) => api.get<MålepunktDetail>(`/målepunkter/${id}`);
-export const createMålepunkt = (data: {
+// MeteringPoints
+export const getMeteringPoints = () => api.get<MeteringPoint[]>('/metering-points');
+export const getMeteringPoint = (id: string) => api.get<MeteringPointDetail>(`/metering-points/${id}`);
+export const createMeteringPoint = (data: {
   gsrn: string; type: string; art: string; settlementMethod: string;
   resolution: string; gridArea: string; gridCompanyGln: string; address?: AddressDto;
-}) => api.post('/målepunkter', data);
+}) => api.post('/metering-points', data);
 
-// Leverancer
-export const getLeverancer = () => api.get<Leverance[]>('/leverancer');
-export const createLeverance = (data: {
-  målepunktId: string; kundeId: string; aktørId: string;
+// Supplies
+export const getSupplies = () => api.get<Supply[]>('/supplies');
+export const createSupply = (data: {
+  meteringPointId: string; customerId: string; actorId: string;
   supplyStart: string; supplyEnd?: string;
-}) => api.post('/leverancer', data);
+}) => api.post('/supplies', data);
 
-// Processer
-export const getProcesser = () => api.get<BrsProcess[]>('/processer');
-export const getProcess = (id: string) => api.get<any>(`/processer/${id}`);
+// Processes
+export const getProcesser = () => api.get<BrsProcess[]>('/processes');
+export const getProcess = (id: string) => api.get<any>(`/processes/${id}`);
 
-// Afregninger
-export const getAfregninger = () => api.get<Afregning[]>('/afregninger');
+// Settlements
+export const getSettlements = () => api.get<Settlement[]>('/settlements');
 
 // Settlement Documents
 export const getSettlementDocuments = (status?: string) =>

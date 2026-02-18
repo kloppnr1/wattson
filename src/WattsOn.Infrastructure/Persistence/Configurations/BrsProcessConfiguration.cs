@@ -26,9 +26,9 @@ public class BrsProcessConfiguration : IEntityTypeConfiguration<BrsProcess>
         builder.Property(p => p.ErrorMessage).HasColumnName("error_message").HasMaxLength(2000);
         builder.Property(p => p.ProcessData).HasColumnName("process_data").HasColumnType("jsonb");
 
-        builder.OwnsOne(p => p.MålepunktGsrn, gsrn =>
+        builder.OwnsOne(p => p.MeteringPointGsrn, gsrn =>
         {
-            gsrn.Property(g => g.Value).HasColumnName("målepunkt_gsrn").HasMaxLength(18);
+            gsrn.Property(g => g.Value).HasColumnName("metering_point_gsrn").HasMaxLength(18);
         });
 
         builder.OwnsOne(p => p.CounterpartGln, gln =>

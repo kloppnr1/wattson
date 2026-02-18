@@ -17,7 +17,7 @@ public class ObservationConfiguration : IEntityTypeConfiguration<Observation>
         builder.Property(o => o.CreatedAt).HasColumnName("created_at");
         builder.Property(o => o.UpdatedAt).HasColumnName("updated_at");
 
-        builder.Property(o => o.TidsserieId).HasColumnName("tidsserie_id").IsRequired();
+        builder.Property(o => o.TimeSeriesId).HasColumnName("time_series_id").IsRequired();
         builder.Property(o => o.Timestamp).HasColumnName("timestamp").IsRequired();
         builder.Property(o => o.Quality).HasColumnName("quality").HasConversion<string>().HasMaxLength(30);
 
@@ -28,7 +28,7 @@ public class ObservationConfiguration : IEntityTypeConfiguration<Observation>
         });
 
         // Index for time-range queries (TimescaleDB will make this a hypertable)
-        builder.HasIndex(o => new { o.TidsserieId, o.Timestamp });
+        builder.HasIndex(o => new { o.TimeSeriesId, o.Timestamp });
 
         builder.Ignore(o => o.DomainEvents);
     }

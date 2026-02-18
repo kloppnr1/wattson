@@ -10,7 +10,7 @@ const formatDKK = (amount: number) =>
   new Intl.NumberFormat('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
 const formatDate = (d: string) => new Date(d).toLocaleDateString('da-DK');
 
-export default function AfregningerPage() {
+export default function SettlementsPage() {
   const [allDocs, setAllDocs] = useState<SettlementDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +25,7 @@ export default function AfregningerPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (error) return <Alert type="error" message="Kunne ikke hente afregninger" description={error} />;
+  if (error) return <Alert type="error" message="Kunne ikke hente settlements" description={error} />;
 
   const runs = allDocs.filter(d => d.documentType === 'settlement');
   const corrections = allDocs.filter(d => d.documentType !== 'settlement');
@@ -40,9 +40,9 @@ export default function AfregningerPage() {
       key: 'status',
       width: 130,
       render: (status: string) => {
-        const color = status === 'Beregnet' ? 'green'
-          : status === 'Faktureret' ? 'blue'
-          : status === 'Justeret' ? 'orange' : 'gray';
+        const color = status === 'Calculated' ? 'green'
+          : status === 'Invoiced' ? 'blue'
+          : status === 'Adjusted' ? 'orange' : 'gray';
         return (
           <span className="status-badge">
             <span className={`status-dot ${color}`} />
@@ -93,8 +93,8 @@ export default function AfregningerPage() {
   return (
     <Space direction="vertical" size={24} style={{ width: '100%' }}>
       <div className="page-header">
-        <h2>Afregninger</h2>
-        <div className="page-subtitle">Afregningskørsler og korrektioner</div>
+        <h2>Settlements</h2>
+        <div className="page-subtitle">Settlementsruns og korrektioner</div>
       </div>
 
       {/* Tabs */}
@@ -102,8 +102,8 @@ export default function AfregningerPage() {
         value={tab}
         onChange={v => setTab(v as string)}
         options={[
-          { label: 'Kørsler', value: 'runs' },
-          { label: 'Korrektioner', value: 'corrections' },
+          { label: 'Runs', value: 'runs' },
+          { label: 'Corrections', value: 'corrections' },
         ]}
       />
 
@@ -115,14 +115,14 @@ export default function AfregningerPage() {
             onChange={setStatusFilter}
             style={{ flex: 1 }}
             options={[
-              { value: 'all', label: 'Alle statusser' },
-              { value: 'Beregnet', label: 'Beregnet' },
-              { value: 'Faktureret', label: 'Faktureret' },
-              { value: 'Justeret', label: 'Justeret' },
+              { value: 'all', label: 'All statuses' },
+              { value: 'Calculated', label: 'Calculated' },
+              { value: 'Invoiced', label: 'Invoiced' },
+              { value: 'Adjusted', label: 'Adjusted' },
             ]}
           />
           <Input
-            placeholder="Målepunkt..."
+            placeholder="MeteringPoint..."
             style={{ flex: 1 }}
           />
           <Input
@@ -137,10 +137,10 @@ export default function AfregningerPage() {
       {/* Stats — 4 cards */}
       <Row gutter={16}>
         {[
-          { title: 'Total kørsler', value: allDocs.length },
-          { title: 'Klar til fakturering', value: allDocs.filter(d => d.status === 'Beregnet').length, color: '#10b981' },
-          { title: 'Korrektioner', value: corrections.length, color: corrections.length > 0 ? '#dc2626' : undefined },
-          { title: 'På denne side', value: statusFiltered.length },
+          { title: 'Total runs', value: allDocs.length },
+          { title: 'Ready to Invoice', value: allDocs.filter(d => d.status === 'Calculated').length, color: '#10b981' },
+          { title: 'Corrections', value: corrections.length, color: corrections.length > 0 ? '#dc2626' : undefined },
+          { title: 'On This Page', value: statusFiltered.length },
         ].map(s => (
           <Col xs={12} sm={6} key={s.title}>
             <Card style={{ borderRadius: 8 }}>
@@ -162,7 +162,7 @@ export default function AfregningerPage() {
           rowKey="settlementId"
           pagination={statusFiltered.length > 20 ? { pageSize: 20 } : false}
           onRow={record => ({
-            onClick: () => navigate(`/afregninger/${record.settlementId}`),
+            onClick: () => navigate(`/settlements/${record.settlementId}`),
             style: { cursor: 'pointer' },
           })}
         />

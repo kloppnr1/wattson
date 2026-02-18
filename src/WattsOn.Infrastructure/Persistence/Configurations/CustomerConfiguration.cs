@@ -4,11 +4,11 @@ using WattsOn.Domain.Entities;
 
 namespace WattsOn.Infrastructure.Persistence.Configurations;
 
-public class KundeConfiguration : IEntityTypeConfiguration<Kunde>
+public class CustomerConfiguration : IEntityTypeConfiguration<Customer>
 {
-    public void Configure(EntityTypeBuilder<Kunde> builder)
+    public void Configure(EntityTypeBuilder<Customer> builder)
     {
-        builder.ToTable("kunder");
+        builder.ToTable("customers");
 
         builder.HasKey(k => k.Id);
         builder.Property(k => k.Id).HasColumnName("id");
@@ -41,9 +41,9 @@ public class KundeConfiguration : IEntityTypeConfiguration<Kunde>
             addr.Property(a => a.CountryCode).HasColumnName("country_code").HasMaxLength(2);
         });
 
-        builder.HasMany(k => k.Leverancer)
-            .WithOne(l => l.Kunde)
-            .HasForeignKey(l => l.KundeId)
+        builder.HasMany(k => k.Supplies)
+            .WithOne(l => l.Customer)
+            .HasForeignKey(l => l.CustomerId)
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.Ignore(k => k.DomainEvents);

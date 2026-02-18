@@ -1,10 +1,10 @@
 namespace WattsOn.Domain.Enums;
 
 /// <summary>
-/// Målepunktsart — category of metering point.
+/// MeteringPointsart — category of metering point.
 /// Maps to DataHub D05 code list.
 /// </summary>
-public enum MålepunktsArt
+public enum MeteringPointCategory
 {
     /// <summary>D01 — Physical metering point with a physical meter</summary>
     Fysisk = 1,

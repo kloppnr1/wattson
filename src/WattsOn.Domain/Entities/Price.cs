@@ -5,11 +5,11 @@ using WattsOn.Domain.ValueObjects;
 namespace WattsOn.Domain.Entities;
 
 /// <summary>
-/// Pris — a price/charge from a grid company or other party.
+/// Price — a price/charge from a grid company or other party.
 /// Received via BRS-031 (price updates) or BRS-034 (price requests).
 /// Prices have validity periods and can have time-varying rates (e.g., hourly tariffs).
 /// </summary>
-public class Pris : Entity
+public class Price : Entity
 {
     /// <summary>Charge type ID from DataHub</summary>
     public string ChargeId { get; private set; } = null!;
@@ -36,9 +36,9 @@ public class Pris : Entity
     private readonly List<PrisPoint> _pricePoints = new();
     public IReadOnlyList<PrisPoint> PricePoints => _pricePoints.AsReadOnly();
 
-    private Pris() { } // EF Core
+    private Price() { } // EF Core
 
-    public static Pris Create(
+    public static Price Create(
         string chargeId,
         GlnNumber ownerGln,
         PriceType type,
@@ -47,7 +47,7 @@ public class Pris : Entity
         bool vatExempt = false,
         Resolution? priceResolution = null)
     {
-        return new Pris
+        return new Price
         {
             ChargeId = chargeId,
             OwnerGln = ownerGln,
@@ -86,17 +86,17 @@ public class Pris : Entity
 /// </summary>
 public class PrisPoint : Entity
 {
-    public Guid PrisId { get; private set; }
+    public Guid PriceId { get; private set; }
     public DateTimeOffset Timestamp { get; private set; }
     public decimal Price { get; private set; }
 
     private PrisPoint() { } // EF Core
 
-    public static PrisPoint Create(Guid prisId, DateTimeOffset timestamp, decimal price)
+    public static PrisPoint Create(Guid priceId, DateTimeOffset timestamp, decimal price)
     {
         return new PrisPoint
         {
-            PrisId = prisId,
+            PriceId = priceId,
             Timestamp = timestamp,
             Price = price
         };

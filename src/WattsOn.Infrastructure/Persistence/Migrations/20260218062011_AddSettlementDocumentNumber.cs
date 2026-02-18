@@ -14,7 +14,7 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
 
             migrationBuilder.AddColumn<long>(
                 name: "document_number",
-                table: "afregninger",
+                table: "settlements",
                 type: "bigint",
                 nullable: false,
                 defaultValueSql: "nextval('settlement_document_seq')");
@@ -25,7 +25,7 @@ namespace WattsOn.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.DropColumn(
                 name: "document_number",
-                table: "afregninger");
+                table: "settlements");
 
             migrationBuilder.Sql("DROP SEQUENCE IF EXISTS settlement_document_seq;");
         }

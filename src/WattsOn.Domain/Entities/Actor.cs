@@ -5,10 +5,10 @@ using WattsOn.Domain.ValueObjects;
 namespace WattsOn.Domain.Entities;
 
 /// <summary>
-/// Aktør — a market participant in the Danish electricity market.
+/// Actor — a market participant in the Danish electricity market.
 /// Could be us (elleverandør), a grid company, DataHub, etc.
 /// </summary>
-public class Aktør : Entity
+public class Actor : Entity
 {
     public GlnNumber Gln { get; private set; } = null!;
     public string Name { get; private set; } = null!;
@@ -16,11 +16,11 @@ public class Aktør : Entity
     public CvrNumber? Cvr { get; private set; }
     public bool IsOwn { get; private set; }
 
-    private Aktør() { } // EF Core
+    private Actor() { } // EF Core
 
-    public static Aktør Create(GlnNumber gln, string name, ActorRole role, CvrNumber? cvr = null, bool isOwn = false)
+    public static Actor Create(GlnNumber gln, string name, ActorRole role, CvrNumber? cvr = null, bool isOwn = false)
     {
-        return new Aktør
+        return new Actor
         {
             Gln = gln,
             Name = name,
@@ -31,7 +31,7 @@ public class Aktør : Entity
     }
 
     /// <summary>Create our own company actor (elleverandør)</summary>
-    public static Aktør CreateOwn(GlnNumber gln, string name, CvrNumber cvr)
+    public static Actor CreateOwn(GlnNumber gln, string name, CvrNumber cvr)
     {
         return Create(gln, name, ActorRole.Elleverandør, cvr, isOwn: true);
     }

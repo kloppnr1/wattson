@@ -15,26 +15,26 @@ public static class Brs009Handler
 {
     public record MoveInResult(
         BrsProcess Process,
-        Leverance NewLeverance,
-        Leverance? EndedLeverance);
+        Supply NewSupply,
+        Supply? EndedSupply);
 
     public record MoveOutResult(
         BrsProcess Process,
-        Leverance EndedLeverance);
+        Supply EndedSupply);
 
     /// <summary>
     /// Move-in (initiator): Register a new customer at a metering point.
-    /// Creates the BRS process and new leverance.
+    /// Creates the BRS process and new supply.
     /// </summary>
     public static MoveInResult ExecuteMoveIn(
         Gsrn gsrn,
         DateTimeOffset effectiveDate,
         string? cprNumber,
         string? cvrNumber,
-        Målepunkt målepunkt,
-        Kunde kunde,
-        Guid ownAktørId,
-        Leverance? currentLeverance)
+        MeteringPoint metering_point,
+        Customer customer,
+        Guid ownActorId,
+        Supply? currentSupply)
     {
         if (cprNumber is null && cvrNumber is null)
             throw new InvalidOperationException("Either CPR or CVR is required for move-in.");
@@ -54,21 +54,21 @@ public static class Brs009Handler
         process.TransitionTo(Brs009StateMachine.Confirmed, "DataHub godkendt");
         process.MarkConfirmed();
 
-        // End current leverance if different customer
-        if (currentLeverance is not null)
+        // End current supply if different customer
+        if (currentSupply is not null)
         {
-            currentLeverance.EndSupply(effectiveDate, process.Id);
+            currentSupply.EndSupply(effectiveDate, process.Id);
         }
 
-        // Create new leverance
-        var newLeverance = Leverance.Create(
-            målepunkt.Id, kunde.Id, ownAktørId,
+        // Create new supply
+        var newSupply = Supply.Create(
+            metering_point.Id, customer.Id, ownActorId,
             Period.From(effectiveDate), process.Id);
 
         process.TransitionTo(Brs009StateMachine.Completed, "Tilflytning gennemført");
         process.MarkCompleted();
 
-        return new MoveInResult(process, newLeverance, currentLeverance);
+        return new MoveInResult(process, newSupply, currentSupply);
     }
 
     /// <summary>
@@ -78,10 +78,10 @@ public static class Brs009Handler
     public static MoveOutResult ExecuteMoveOut(
         Gsrn gsrn,
         DateTimeOffset effectiveDate,
-        Leverance currentLeverance)
+        Supply currentSupply)
     {
-        if (!currentLeverance.IsActive)
-            throw new InvalidOperationException("Leverance is not active — cannot process move-out.");
+        if (!currentSupply.IsActive)
+            throw new InvalidOperationException("Supply is not active — cannot process move-out.");
 
         // Move-out uses Fraflytning process type
         var process = BrsProcess.Create(
@@ -98,11 +98,11 @@ public static class Brs009Handler
         process.MarkConfirmed();
 
         // End the supply
-        currentLeverance.EndSupply(effectiveDate, process.Id);
+        currentSupply.EndSupply(effectiveDate, process.Id);
 
-        process.TransitionTo("Completed", "Fraflytning gennemført — afventer slutafregning");
+        process.TransitionTo("Completed", "Fraflytning gennemført — afventer slutsettlement");
         process.MarkCompleted();
 
-        return new MoveOutResult(process, currentLeverance);
+        return new MoveOutResult(process, currentSupply);
     }
 }

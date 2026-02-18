@@ -15,8 +15,8 @@ import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import api from '../api/client';
-import type { Leverance } from '../api/client';
-import { getLeverancer } from '../api/client';
+import type { Supply } from '../api/client';
+import { getSupplies } from '../api/client';
 
 const { Text, Title, Paragraph } = Typography;
 
@@ -41,8 +41,8 @@ interface SimulationResult {
   gsrn: string;
   customerName: string;
   customerId: string;
-  newLeveranceId?: string | null;
-  endedLeveranceId?: string | null;
+  newSupplyId?: string | null;
+  endedSupplyId?: string | null;
   effectiveDate: string;
   priceLinksCreated?: number;
   timeSeriesGenerated?: boolean;
@@ -102,35 +102,35 @@ function generateCpr(): string {
 
 const scenarioConfig: Record<ScenarioType, {
   label: string; icon: React.ReactNode; color: string;
-  description: string; needsExistingLeverance: boolean;
+  description: string; needsExistingSupply: boolean;
 }> = {
   'supplier-in': {
     label: 'Leverandørskift · Indgående',
     icon: <LoginOutlined />,
     color: '#059669',
-    description: 'Vi overtager en kunde fra en anden elleverandør',
-    needsExistingLeverance: false,
+    description: 'Vi overtager en customer fra en anden elleverandør',
+    needsExistingSupply: false,
   },
   'supplier-out': {
     label: 'Leverandørskift · Udgående',
     icon: <UserDeleteOutlined />,
     color: '#e11d48',
-    description: 'En anden leverandør overtager vores kunde',
-    needsExistingLeverance: true,
+    description: 'En anden leverandør overtager vores customer',
+    needsExistingSupply: true,
   },
   'move-in': {
     label: 'Tilflytning',
     icon: <LoginOutlined />,
     color: '#7c3aed',
-    description: 'Ny kunde flytter ind på et målepunkt',
-    needsExistingLeverance: false,
+    description: 'Ny customer flytter ind på et metering_point',
+    needsExistingSupply: false,
   },
   'move-out': {
     label: 'Fraflytning',
     icon: <LogoutOutlined />,
     color: '#d97706',
-    description: 'Kunde fraflytter — leverance afsluttes og slutafregning',
-    needsExistingLeverance: true,
+    description: 'Customer fraflytter — supply afsluttes og slutsettlement',
+    needsExistingSupply: true,
   },
 };
 
@@ -154,10 +154,10 @@ export default function SimulationPage() {
   const [postCode, setPostCode] = useState('');
   const [city, setCity] = useState('');
 
-  // Form state — existing leverance (for outgoing/move-out)
-  const [activeLeverancer, setActiveLeverancer] = useState<Leverance[]>([]);
-  const [selectedLeveranceId, setSelectedLeveranceId] = useState<string | null>(null);
-  const [loadingLeverancer, setLoadingLeverancer] = useState(false);
+  // Form state — existing supply (for outgoing/move-out)
+  const [activeSupplies, setActiveSupplies] = useState<Supply[]>([]);
+  const [selectedSupplyId, setSelectedSupplyId] = useState<string | null>(null);
+  const [loadingSupplies, setLoadingSupplies] = useState(false);
 
   // Simulation state
   const [running, setRunning] = useState(false);
@@ -167,19 +167,19 @@ export default function SimulationPage() {
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef(false);
 
-  // Load active leverancer for outgoing scenarios
+  // Load active supplies for outgoing scenarios
   useEffect(() => {
-    if (config.needsExistingLeverance) {
-      setLoadingLeverancer(true);
-      getLeverancer()
+    if (config.needsExistingSupply) {
+      setLoadingSupplies(true);
+      getSupplies()
         .then(res => {
-          const active = res.data.filter((l: Leverance) => l.isActive);
-          setActiveLeverancer(active);
-          if (active.length > 0 && !selectedLeveranceId) {
-            setSelectedLeveranceId(active[0].id);
+          const active = res.data.filter((l: Supply) => l.isActive);
+          setActiveSupplies(active);
+          if (active.length > 0 && !selectedSupplyId) {
+            setSelectedSupplyId(active[0].id);
           }
         })
-        .finally(() => setLoadingLeverancer(false));
+        .finally(() => setLoadingSupplies(false));
     }
   }, [scenario]);
 
@@ -217,39 +217,39 @@ export default function SimulationPage() {
       base.push(
         { key: 'request', title: 'Anmodning om leverandørskift', description: 'Sender RSM-001/E03 til DataHub', status: 'waiting' },
         { key: 'validate', title: 'DataHub validering', description: 'Validerer GSRN, CPR, tilgængelighed', status: 'waiting' },
-        { key: 'confirm', title: 'Bekræftelse modtaget', description: 'DataHub godkender leverandørskift', status: 'waiting' },
-        { key: 'masterdata', title: 'Stamdata & pristilknytning', description: 'Modtager kunde- og målepunktdata', status: 'waiting' },
-        { key: 'execute', title: 'Leverandørskift gennemført', description: 'Ny leverance aktiv', status: 'waiting' },
+        { key: 'confirm', title: 'Bekræftelse received', description: 'DataHub godkender leverandørskift', status: 'waiting' },
+        { key: 'masterdata', title: 'Stamdata & price_link', description: 'Modtager customer- og metering_pointdata', status: 'waiting' },
+        { key: 'execute', title: 'Leverandørskift completed', description: 'Ny supply aktiv', status: 'waiting' },
       );
     } else if (scenario === 'supplier-out') {
       base.push(
-        { key: 'notification', title: 'Stop-of-supply modtaget', description: 'DataHub sender RSM-004/E03', status: 'waiting' },
+        { key: 'notification', title: 'Stop-of-supply received', description: 'DataHub sender RSM-004/E03', status: 'waiting' },
         { key: 'acknowledge', title: 'Besked bekræftet', description: 'Vi modtager og behandler notifikation', status: 'waiting' },
-        { key: 'end-supply', title: 'Leverance afsluttet', description: 'Supply afsluttes pr. effektiv dato', status: 'waiting' },
-        { key: 'final', title: 'Proces gennemført', description: 'Kunde overdraget til ny leverandør', status: 'waiting' },
+        { key: 'end-supply', title: 'Supply afsluttet', description: 'Supply afsluttes pr. effektiv dato', status: 'waiting' },
+        { key: 'final', title: 'Proces completed', description: 'Customer overdraget til ny leverandør', status: 'waiting' },
       );
     } else if (scenario === 'move-in') {
       base.push(
         { key: 'request', title: 'Tilflytningsanmodning', description: 'Sender RSM-001/E65 til DataHub', status: 'waiting' },
         { key: 'validate', title: 'DataHub validering', description: 'Validerer GSRN, CPR, tilgængelighed', status: 'waiting' },
-        { key: 'confirm', title: 'Bekræftelse modtaget', description: 'DataHub godkender tilflytning', status: 'waiting' },
-        { key: 'masterdata', title: 'Stamdata & pristilknytning', description: 'Modtager målepunktdata', status: 'waiting' },
-        { key: 'execute', title: 'Tilflytning gennemført', description: 'Ny leverance aktiv', status: 'waiting' },
+        { key: 'confirm', title: 'Bekræftelse received', description: 'DataHub godkender tilflytning', status: 'waiting' },
+        { key: 'masterdata', title: 'Stamdata & price_link', description: 'Modtager metering_pointdata', status: 'waiting' },
+        { key: 'execute', title: 'Tilflytning completed', description: 'Ny supply aktiv', status: 'waiting' },
       );
     } else if (scenario === 'move-out') {
       base.push(
         { key: 'request', title: 'Fraflytningsanmodning', description: 'Sender anmodning til DataHub', status: 'waiting' },
         { key: 'confirm', title: 'DataHub bekræftelse', description: 'Fraflytning godkendt', status: 'waiting' },
-        { key: 'end-supply', title: 'Leverance afsluttet', description: 'Supply afsluttes pr. fraflytningsdato', status: 'waiting' },
-        { key: 'final', title: 'Afventer slutafregning', description: 'SettlementWorker beregner automatisk', status: 'waiting' },
+        { key: 'end-supply', title: 'Supply afsluttet', description: 'Supply afsluttes pr. fraflytningsdato', status: 'waiting' },
+        { key: 'final', title: 'Afpending slutsettlement', description: 'SettlementWorker beregner automatisk', status: 'waiting' },
       );
     }
 
     // Add consumption + settlement steps for incoming scenarios
-    if (!config.needsExistingLeverance && generateConsumption) {
+    if (!config.needsExistingSupply && generateConsumption) {
       base.push(
-        { key: 'timeseries', title: 'Forbrugsdata modtaget', description: 'Timemålinger indlæst fra DataHub', status: 'waiting' },
-        { key: 'settlement', title: 'Afregning beregnet', description: 'SettlementWorker afregner automatisk', status: 'waiting' },
+        { key: 'timeseries', title: 'Forbrugsdata received', description: 'Timemålinger indlæst fra DataHub', status: 'waiting' },
+        { key: 'settlement', title: 'Settlement beregnet', description: 'SettlementWorker afregner automatisk', status: 'waiting' },
       );
     }
 
@@ -277,7 +277,7 @@ export default function SimulationPage() {
         }
       } catch { /* keep polling */ }
       updateStep('settlement', {
-        detail: `Afventer SettlementWorker... (${(attempt + 1) * 8}s)`,
+        detail: `Afpending SettlementWorker... (${(attempt + 1) * 8}s)`,
       });
     }
     return null;
@@ -301,7 +301,7 @@ export default function SimulationPage() {
         await runOutgoingFlow();
       }
     } catch (err: any) {
-      const msg = err.response?.data?.toString?.() || err.message || 'Ukendt fejl';
+      const msg = err.response?.data?.toString?.() || err.message || 'Ukendt error';
       setError(msg);
       setSteps(prev => prev.map(s =>
         s.status === 'running' ? { ...s, status: 'error', detail: msg } : s
@@ -327,12 +327,12 @@ export default function SimulationPage() {
     updateStep('validate', { status: 'done', detail: 'Alle valideringer bestået' });
 
     // Step 3: Confirm
-    updateStep('confirm', { status: 'running', detail: 'Afventer DataHub bekræftelse...', timestamp: now() });
+    updateStep('confirm', { status: 'running', detail: 'Afpending DataHub bekræftelse...', timestamp: now() });
     await sleep(700);
     updateStep('confirm', { status: 'done', detail: 'Godkendt af DataHub' });
 
     // Step 4: Masterdata — actual API call
-    updateStep('masterdata', { status: 'running', detail: 'Opretter stamdata og pristilknytninger...', timestamp: now() });
+    updateStep('masterdata', { status: 'running', detail: 'Opretter stamdata og price_links...', timestamp: now() });
 
     const emailName = customerName.toLowerCase().replace(/\s+/g, '.').replace(/[æ]/g,'ae').replace(/[ø]/g,'oe').replace(/[å]/g,'aa');
     const response = await api.post<SimulationResult>(endpoint, {
@@ -349,15 +349,15 @@ export default function SimulationPage() {
     setResult(data);
 
     await sleep(500);
-    updateStep('masterdata', { status: 'done', detail: `Kunde oprettet, ${data.priceLinksCreated ?? 0} priser tilknyttet` });
+    updateStep('masterdata', { status: 'done', detail: `Customer created, ${data.priceLinksCreated ?? 0} prices tilknyttet` });
 
     // Step 5: Execute
-    updateStep('execute', { status: 'running', detail: 'Opretter leverance...', timestamp: now() });
+    updateStep('execute', { status: 'running', detail: 'Opretter supply...', timestamp: now() });
     await sleep(600);
     updateStep('execute', {
       status: 'done',
-      detail: `Leverance aktiv fra ${dayjs(data.effectiveDate).format('D. MMM YYYY')}` +
-        (data.endedLeveranceId ? ' (tidligere leverance afsluttet)' : ''),
+      detail: `Supply aktiv fra ${dayjs(data.effectiveDate).format('D. MMM YYYY')}` +
+        (data.endedSupplyId ? ' (tidligere supply afsluttet)' : ''),
     });
 
     // Steps 6-7: Time series + settlement
@@ -366,7 +366,7 @@ export default function SimulationPage() {
       await sleep(800);
       updateStep('timeseries', { status: 'done', detail: `${data.totalEnergyKwh?.toFixed(1)} kWh timemålinger indlæst` });
 
-      updateStep('settlement', { status: 'running', detail: 'Afventer SettlementWorker...', timestamp: now() });
+      updateStep('settlement', { status: 'running', detail: 'Afpending SettlementWorker...', timestamp: now() });
       const doc = await pollForSettlement(data.customerName);
       if (doc) {
         updateStep('settlement', {
@@ -374,28 +374,28 @@ export default function SimulationPage() {
           detail: `${doc.documentId}: ${doc.totalExclVat.toLocaleString('da-DK', { minimumFractionDigits: 2 })} DKK excl. moms`,
         });
       } else {
-        updateStep('settlement', { status: 'done', detail: 'Afventer — Worker beregner snart' });
+        updateStep('settlement', { status: 'done', detail: 'Afpending — Worker beregner snart' });
       }
     }
   };
 
   // --- Outgoing flow (supplier-out, move-out) ---
   const runOutgoingFlow = async () => {
-    if (!selectedLeveranceId) throw new Error('Vælg en aktiv leverance');
+    if (!selectedSupplyId) throw new Error('Vælg en aktiv supply');
     const isSupplierOut = scenario === 'supplier-out';
     const endpoint = isSupplierOut ? '/simulation/supplier-change-outgoing' : '/simulation/move-out';
 
-    const selectedLev = activeLeverancer.find(l => l.id === selectedLeveranceId);
+    const selectedLev = activeSupplies.find(l => l.id === selectedSupplyId);
 
     if (isSupplierOut) {
       // Step 1: Notification received
       updateStep('notification', {
         status: 'running',
-        detail: `DataHub sender stop-of-supply for ${selectedLev?.kundeNavn ?? 'kunde'}...`,
+        detail: `DataHub sender stop-of-supply for ${selectedLev?.customerName ?? 'customer'}...`,
         timestamp: now(),
       });
       await sleep(1000);
-      updateStep('notification', { status: 'done', detail: 'RSM-004/E03 modtaget fra DataHub' });
+      updateStep('notification', { status: 'done', detail: 'RSM-004/E03 received fra DataHub' });
 
       // Step 2: Acknowledge
       updateStep('acknowledge', { status: 'running', detail: 'Behandler notifikation...', timestamp: now() });
@@ -403,19 +403,19 @@ export default function SimulationPage() {
       // Step 1: Request
       updateStep('request', {
         status: 'running',
-        detail: `Sender fraflytningsanmodning for ${selectedLev?.kundeNavn ?? 'kunde'}...`,
+        detail: `Sender fraflytningsanmodning for ${selectedLev?.customerName ?? 'customer'}...`,
         timestamp: now(),
       });
       await sleep(800);
       updateStep('request', { status: 'done', detail: 'Anmodning afsendt' });
 
       // Step 2: Confirm
-      updateStep('confirm', { status: 'running', detail: 'Afventer DataHub bekræftelse...', timestamp: now() });
+      updateStep('confirm', { status: 'running', detail: 'Afpending DataHub bekræftelse...', timestamp: now() });
     }
 
     // API call
     const response = await api.post<SimulationResult>(endpoint, {
-      leveranceId: selectedLeveranceId,
+      supplyId: selectedSupplyId,
       effectiveDate: effectiveDate?.toISOString(),
       ...(isSupplierOut ? { newSupplierGln: '5790000000005' } : {}),
     });
@@ -425,7 +425,7 @@ export default function SimulationPage() {
 
     await sleep(600);
     if (isSupplierOut) {
-      updateStep('acknowledge', { status: 'done', detail: 'Notifikation behandlet' });
+      updateStep('acknowledge', { status: 'done', detail: 'Notifikation processed' });
     } else {
       updateStep('confirm', { status: 'done', detail: 'DataHub godkendt' });
     }
@@ -433,23 +433,23 @@ export default function SimulationPage() {
     // Step 3: End supply
     updateStep('end-supply', {
       status: 'running',
-      detail: `Afslutter leverance pr. ${dayjs(data.effectiveDate).format('D. MMM YYYY')}...`,
+      detail: `Afslutter supply pr. ${dayjs(data.effectiveDate).format('D. MMM YYYY')}...`,
       timestamp: now(),
     });
     await sleep(700);
     updateStep('end-supply', {
       status: 'done',
-      detail: `Leverance afsluttet for ${data.customerName}`,
+      detail: `Supply afsluttet for ${data.customerName}`,
     });
 
     // Step 4: Final
-    updateStep('final', { status: 'running', detail: 'Afventer slutafregning...', timestamp: now() });
+    updateStep('final', { status: 'running', detail: 'Afpending slutsettlement...', timestamp: now() });
     await sleep(500);
     updateStep('final', {
       status: 'done',
       detail: isSupplierOut
         ? `${data.customerName} overdraget til ny leverandør`
-        : `${data.customerName} fraflyttet — slutafregning beregnes`,
+        : `${data.customerName} fraflyttet — slutsettlement beregnes`,
     });
   };
 
@@ -460,7 +460,7 @@ export default function SimulationPage() {
     setResult(null);
     setSettlement(null);
     setError(null);
-    setSelectedLeveranceId(null);
+    setSelectedSupplyId(null);
     randomize();
   };
 
@@ -470,8 +470,8 @@ export default function SimulationPage() {
   const formatDKK = (amount: number) =>
     new Intl.NumberFormat('da-DK', { style: 'currency', currency: 'DKK' }).format(amount);
 
-  const canRun = config.needsExistingLeverance
-    ? !!selectedLeveranceId && effectiveDate
+  const canRun = config.needsExistingSupply
+    ? !!selectedSupplyId && effectiveDate
     : !!customerName && !!gsrn && !!cpr && effectiveDate;
 
   return (
@@ -514,7 +514,7 @@ export default function SimulationPage() {
               </Space>
             }
             extra={
-              !config.needsExistingLeverance && (
+              !config.needsExistingSupply && (
                 <Button size="small" icon={<ReloadOutlined />} onClick={randomize} disabled={running}>
                   Tilfældig
                 </Button>
@@ -525,31 +525,31 @@ export default function SimulationPage() {
             <Paragraph type="secondary" style={{ marginBottom: 16 }}>{config.description}</Paragraph>
 
             <Space direction="vertical" size={16} style={{ width: '100%' }}>
-              {config.needsExistingLeverance ? (
-                /* Outgoing: select existing leverance */
+              {config.needsExistingSupply ? (
+                /* Outgoing: select existing supply */
                 <>
                   <div>
                     <Text type="secondary" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                      Vælg aktiv leverance
+                      Vælg aktiv supply
                     </Text>
-                    {loadingLeverancer ? <Spin size="small" style={{ marginLeft: 8 }} /> : (
-                      activeLeverancer.length === 0 ? (
+                    {loadingSupplies ? <Spin size="small" style={{ marginLeft: 8 }} /> : (
+                      activeSupplies.length === 0 ? (
                         <Empty
                           image={Empty.PRESENTED_IMAGE_SIMPLE}
-                          description="Ingen aktive leverancer — kør først et indgående scenarie"
+                          description="Ingen aktive supplies — kør først et indgående scenarie"
                           style={{ marginTop: 12 }}
                         />
                       ) : (
                         <Select
-                          value={selectedLeveranceId}
-                          onChange={setSelectedLeveranceId}
+                          value={selectedSupplyId}
+                          onChange={setSelectedSupplyId}
                           disabled={running}
                           style={{ width: '100%', marginTop: 4 }}
-                          options={activeLeverancer.map(l => ({
+                          options={activeSupplies.map(l => ({
                             value: l.id,
                             label: (
                               <Space>
-                                <Text strong>{l.kundeNavn}</Text>
+                                <Text strong>{l.customerName}</Text>
                                 <Text type="secondary" style={{ fontFamily: 'monospace', fontSize: 11 }}>
                                   {l.gsrn}
                                 </Text>
@@ -578,11 +578,11 @@ export default function SimulationPage() {
                 <>
                   <div>
                     <Text type="secondary" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                      Kunde
+                      Customer
                     </Text>
                     <Input
                       value={customerName} onChange={e => setCustomerName(e.target.value)}
-                      placeholder="Kundenavn" disabled={running}
+                      placeholder="Customernavn" disabled={running}
                       prefix={<UserOutlined style={{ color: '#99afc2' }} />}
                       style={{ marginTop: 4 }}
                     />
@@ -706,7 +706,7 @@ export default function SimulationPage() {
               <Paragraph type="secondary" style={{ maxWidth: 360, margin: '0 auto' }}>
                 Vælg et scenarie, konfigurer parametrene, og tryk Kør.
                 Systemet gennemfører den komplette forretningsproces
-                og beregner automatisk afregning.
+                og beregner automatisk settlement.
               </Paragraph>
             </Card>
           ) : (
@@ -758,10 +758,10 @@ export default function SimulationPage() {
                 <Card
                   style={{
                     borderRadius: 12,
-                    background: config.needsExistingLeverance
+                    background: config.needsExistingSupply
                       ? 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)'
                       : 'linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)',
-                    border: config.needsExistingLeverance ? '1px solid #fbbf24' : '1px solid #ddd6fe',
+                    border: config.needsExistingSupply ? '1px solid #fbbf24' : '1px solid #ddd6fe',
                   }}
                 >
                   <Result
@@ -773,16 +773,16 @@ export default function SimulationPage() {
                       <Space wrap>
                         <Button
                           type="primary" icon={<UserOutlined />}
-                          onClick={() => navigate(`/kunder/${result.customerId}`)}
+                          onClick={() => navigate(`/customers/${result.customerId}`)}
                         >
-                          Se kunde
+                          Se customer
                         </Button>
                         {settlement && (
-                          <Button icon={<CalculatorOutlined />} onClick={() => navigate('/afregninger')}>
-                            Se afregning
+                          <Button icon={<CalculatorOutlined />} onClick={() => navigate('/settlements')}>
+                            Se settlement
                           </Button>
                         )}
-                        <Button icon={<SwapOutlined />} onClick={() => navigate('/processer')}>
+                        <Button icon={<SwapOutlined />} onClick={() => navigate('/processes')}>
                           Se processer
                         </Button>
                       </Space>
@@ -792,7 +792,7 @@ export default function SimulationPage() {
                   <Divider style={{ margin: '8px 0 16px' }} />
 
                   <Descriptions size="small" column={{ xs: 1, sm: 2 }} bordered>
-                    <Descriptions.Item label="Kunde">{result.customerName}</Descriptions.Item>
+                    <Descriptions.Item label="Customer">{result.customerName}</Descriptions.Item>
                     <Descriptions.Item label="GSRN">
                       <Text copyable style={{ fontFamily: 'monospace', fontSize: 12 }}>{result.gsrn}</Text>
                     </Descriptions.Item>
@@ -814,7 +814,7 @@ export default function SimulationPage() {
                       </Descriptions.Item>
                     )}
                     {settlement && (
-                      <Descriptions.Item label="Afregning">
+                      <Descriptions.Item label="Settlement">
                         <Space>
                           <Tag color="blue">{settlement.documentId}</Tag>
                           <Text strong>{formatDKK(settlement.totalInclVat)}</Text>
@@ -826,7 +826,7 @@ export default function SimulationPage() {
               )}
 
               {error && (
-                <Alert type="error" showIcon message="Simulation fejlede" description={error} />
+                <Alert type="error" showIcon message="Simulation errorede" description={error} />
               )}
             </Space>
           )}

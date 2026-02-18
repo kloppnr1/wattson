@@ -4,16 +4,16 @@ using WattsOn.Domain.ValueObjects;
 namespace WattsOn.Domain.Entities;
 
 /// <summary>
-/// Leverance — a supply agreement linking our company to a metering point for a customer.
+/// Supply — a supply agreement linking our company to a metering point for a customer.
 /// Represents the period during which we supply electricity to a specific metering point.
 /// Created via BRS-001 (supplier change), BRS-009 (move-in).
 /// Ended via BRS-002 (supply cessation), BRS-010 (move-out), or another BRS-001.
 /// </summary>
-public class Leverance : Entity
+public class Supply : Entity
 {
-    public Guid MålepunktId { get; private set; }
-    public Guid KundeId { get; private set; }
-    public Guid AktørId { get; private set; }
+    public Guid MeteringPointId { get; private set; }
+    public Guid CustomerId { get; private set; }
+    public Guid ActorId { get; private set; }
 
     /// <summary>The period during which this supply is active [start, end)</summary>
     public Period SupplyPeriod { get; private set; } = null!;
@@ -28,24 +28,24 @@ public class Leverance : Entity
     public Guid? EndedByProcessId { get; private set; }
 
     // Navigation properties
-    public Målepunkt Målepunkt { get; private set; } = null!;
-    public Kunde Kunde { get; private set; } = null!;
-    public Aktør Aktør { get; private set; } = null!;
+    public MeteringPoint MeteringPoint { get; private set; } = null!;
+    public Customer Customer { get; private set; } = null!;
+    public Actor Actor { get; private set; } = null!;
 
-    private Leverance() { } // EF Core
+    private Supply() { } // EF Core
 
-    public static Leverance Create(
-        Guid målepunktId,
-        Guid kundeId,
-        Guid aktørId,
+    public static Supply Create(
+        Guid meteringPointId,
+        Guid customerId,
+        Guid actorId,
         Period supplyPeriod,
         Guid? createdByProcessId = null)
     {
-        return new Leverance
+        return new Supply
         {
-            MålepunktId = målepunktId,
-            KundeId = kundeId,
-            AktørId = aktørId,
+            MeteringPointId = meteringPointId,
+            CustomerId = customerId,
+            ActorId = actorId,
             SupplyPeriod = supplyPeriod,
             CreatedByProcessId = createdByProcessId
         };

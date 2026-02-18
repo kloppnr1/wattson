@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Table, Tag, Typography, Space } from 'antd';
 import { useNavigate } from 'react-router-dom';
-import type { Målepunkt } from '../api/client';
-import { getMålepunkter } from '../api/client';
+import type { MeteringPoint } from '../api/client';
+import { getMeteringPoints } from '../api/client';
 
 const connectionStateColors: Record<string, string> = {
   Tilsluttet: 'green',
@@ -11,13 +11,13 @@ const connectionStateColors: Record<string, string> = {
   Nedlagt: 'default',
 };
 
-export default function MålepunkterPage() {
-  const [data, setData] = useState<Målepunkt[]>([]);
+export default function MeteringPointsPage() {
+  const [data, setData] = useState<MeteringPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
-    getMålepunkter()
+    getMeteringPoints()
       .then((res) => setData(res.data))
       .finally(() => setLoading(false));
   }, []);
@@ -27,14 +27,14 @@ export default function MålepunkterPage() {
       title: 'GSRN',
       dataIndex: 'gsrn',
       key: 'gsrn',
-      render: (gsrn: string, record: Målepunkt) => (
-        <a onClick={() => navigate(`/målepunkter/${record.id}`)} style={{ fontFamily: 'monospace' }}>
+      render: (gsrn: string, record: MeteringPoint) => (
+        <a onClick={() => navigate(`/metering_points/${record.id}`)} style={{ fontFamily: 'monospace' }}>
           {gsrn}
         </a>
       ),
     },
     { title: 'Type', dataIndex: 'type', key: 'type' },
-    { title: 'Afregningsmetode', dataIndex: 'settlementMethod', key: 'settlementMethod' },
+    { title: 'Settlementsmetode', dataIndex: 'settlementMethod', key: 'settlementMethod' },
     { title: 'Opløsning', dataIndex: 'resolution', key: 'resolution' },
     {
       title: 'Tilstand',
@@ -57,7 +57,7 @@ export default function MålepunkterPage() {
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <Typography.Title level={3}>Målepunkter</Typography.Title>
+      <Typography.Title level={3}>MeteringPoints</Typography.Title>
       <Table
         dataSource={data}
         columns={columns}
