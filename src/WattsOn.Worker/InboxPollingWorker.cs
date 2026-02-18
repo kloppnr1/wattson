@@ -118,6 +118,12 @@ public class InboxPollingWorker : BackgroundService
                 var gsrn = GetPayloadString(payload, "gsrn");
                 var transactionId = GetPayloadString(payload, "transactionId") ?? message.MessageId;
 
+                if (string.IsNullOrEmpty(gsrn))
+                {
+                    _logger.LogWarning("BRS-001 RSM-001 missing GSRN — skipping message {MessageId}", message.MessageId);
+                    break;
+                }
+
                 // Find the active BRS-001 process for this GSRN
                 var process = await db.Processes
                     .Where(p => p.ProcessType == ProcessType.Leverandørskift)
