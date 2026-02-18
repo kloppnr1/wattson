@@ -1,0 +1,41 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.dll
+*.exe
+*.pdb
+.vs/
+*.DotSettings.user
+
+# Frontend
+node_modules/
+dist/
+.vite/
+
+# Docker
+pgdata/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+appsettings.Development.json
+
+# Migrations are tracked
+!**/Migrations/
+
+# Test results
+TestResults/
+coverage/

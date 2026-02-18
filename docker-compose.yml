@@ -1,0 +1,55 @@
+services:
+  db:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: wattson
+      POSTGRES_PASSWORD: wattson_dev
+      POSTGRES_DB: wattson
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/home/postgres/pgdata/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wattson"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: src/WattsOn.Api/Dockerfile
+    ports:
+      - "5100:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__WattsOn: "Host=db;Port=5432;Database=wattson;Username=wattson;Password=wattson_dev"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: src/WattsOn.Worker/Dockerfile
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      ConnectionStrings__WattsOn: "Host=db;Port=5432;Database=wattson;Username=wattson;Password=wattson_dev"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./src/WattsOn.Frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./src/WattsOn.Frontend:/app
+      - /app/node_modules
+    environment:
+      VITE_API_URL: http://localhost:5100
+
+volumes:
+  pgdata:
