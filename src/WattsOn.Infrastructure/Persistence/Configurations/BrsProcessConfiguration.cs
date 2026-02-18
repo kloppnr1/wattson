@@ -41,6 +41,9 @@ public class BrsProcessConfiguration : IEntityTypeConfiguration<BrsProcess>
             .HasForeignKey(t => t.ProcessId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        builder.Navigation(p => p.Transitions)
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
+
         builder.HasIndex(p => p.TransactionId);
         builder.HasIndex(p => p.Status);
 

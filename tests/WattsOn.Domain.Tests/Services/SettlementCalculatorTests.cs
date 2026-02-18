@@ -29,7 +29,7 @@ public class SettlementCalculatorTests
             ts.AddObservation(
                 Jan1.AddHours(i),
                 EnergyQuantity.Create(kwhPerHour),
-                QuantityQuality.Målt);
+                QuantityQuality.Measured);
         }
 
         return ts;
@@ -189,10 +189,10 @@ public class SettlementCalculatorTests
         var period = Period.Create(start, end);
 
         var ts = TimeSeries.Create(MpId, period, Resolution.PT1H, 1);
-        ts.AddObservation(start.AddHours(0), EnergyQuantity.Create(1.0m), QuantityQuality.Målt); // hour 0
-        ts.AddObservation(start.AddHours(1), EnergyQuantity.Create(1.0m), QuantityQuality.Målt); // hour 1
-        ts.AddObservation(start.AddHours(2), EnergyQuantity.Create(1.0m), QuantityQuality.Målt); // hour 2
-        ts.AddObservation(start.AddHours(3), EnergyQuantity.Create(1.0m), QuantityQuality.Målt); // hour 3
+        ts.AddObservation(start.AddHours(0), EnergyQuantity.Create(1.0m), QuantityQuality.Measured); // hour 0
+        ts.AddObservation(start.AddHours(1), EnergyQuantity.Create(1.0m), QuantityQuality.Measured); // hour 1
+        ts.AddObservation(start.AddHours(2), EnergyQuantity.Create(1.0m), QuantityQuality.Measured); // hour 2
+        ts.AddObservation(start.AddHours(3), EnergyQuantity.Create(1.0m), QuantityQuality.Measured); // hour 3
 
         // Price varies: 0.10 for hours 0-1, 0.30 for hours 2-3
         var pris = Price.Create("TV-001", GlnNumber.Create("5790001330552"),

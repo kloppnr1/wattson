@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace WattsOn.Domain.Common;
 
 /// <summary>
@@ -10,6 +12,8 @@ public abstract class Entity
     public DateTimeOffset? UpdatedAt { get; protected set; }
 
     private readonly List<DomainEvent> _domainEvents = new();
+
+    [NotMapped]
     public IReadOnlyList<DomainEvent> DomainEvents => _domainEvents.AsReadOnly();
 
     protected void AddDomainEvent(DomainEvent domainEvent)

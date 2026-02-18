@@ -51,10 +51,17 @@ public class MeteringPointConfiguration : IEntityTypeConfiguration<MeteringPoint
             .HasForeignKey(l => l.MeteringPointId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        builder.Navigation(m => m.Supplies)
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
+
         builder.HasMany(m => m.TimeSeriesCollection)
             .WithOne(t => t.MeteringPoint)
             .HasForeignKey(t => t.MeteringPointId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Navigation(m => m.TimeSeriesCollection)
+            .HasField("_time_series")
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
 
         builder.Ignore(m => m.DomainEvents);
     }

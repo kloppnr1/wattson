@@ -115,7 +115,7 @@ public class SettlementTests
     public void AddLine_RecalculatesTotal()
     {
         var settlement = CreateTestSettlement();
-        var line = SettlementLinje.Create(
+        var line = SettlementLine.Create(
             settlement.Id, Guid.NewGuid(), "Nettarif", EnergyQuantity.Create(100m), 0.25m);
 
         settlement.AddLine(line);
@@ -128,11 +128,11 @@ public class SettlementTests
     {
         var settlement = CreateTestSettlement();
 
-        settlement.AddLine(SettlementLinje.Create(
+        settlement.AddLine(SettlementLine.Create(
             settlement.Id, Guid.NewGuid(), "Nettarif", EnergyQuantity.Create(100m), 0.25m));
-        settlement.AddLine(SettlementLinje.Create(
+        settlement.AddLine(SettlementLine.Create(
             settlement.Id, Guid.NewGuid(), "Systemtarif", EnergyQuantity.Create(100m), 0.10m));
-        settlement.AddLine(SettlementLinje.Create(
+        settlement.AddLine(SettlementLine.Create(
             settlement.Id, Guid.NewGuid(), "Elafgift", EnergyQuantity.Create(100m), 0.763m));
 
         // 25.00 + 10.00 + 76.30 = 111.30
@@ -256,7 +256,7 @@ public class SettlementTests
     {
         // Original settlement
         var original = CreateTestSettlement();
-        original.AddLine(SettlementLinje.Create(
+        original.AddLine(SettlementLine.Create(
             original.Id, Guid.NewGuid(), "Spotpris", EnergyQuantity.Create(500m), 1.50m));
         original.MarkInvoiced("INV-2026-001");
 
@@ -267,7 +267,7 @@ public class SettlementTests
         var newEnergy = EnergyQuantity.Create(520m); // 20 kWh more than original
         var correction = Settlement.CreateCorrection(
             MpId, LevId, Jan2026, TsId, 2, newEnergy, original.Id);
-        correction.AddLine(SettlementLinje.Create(
+        correction.AddLine(SettlementLine.Create(
             correction.Id, Guid.NewGuid(), "Spotpris (justering)", EnergyQuantity.Create(20m), 1.50m));
 
         // Verify correction
@@ -278,12 +278,12 @@ public class SettlementTests
     }
 }
 
-public class SettlementLinjeTests
+public class SettlementLineTests
 {
     [Fact]
     public void Create_CalculatesAmount()
     {
-        var line = SettlementLinje.Create(
+        var line = SettlementLine.Create(
             Guid.NewGuid(), Guid.NewGuid(), "Nettarif",
             EnergyQuantity.Create(150.5m), 0.3456m);
 
@@ -295,7 +295,7 @@ public class SettlementLinjeTests
     [Fact]
     public void Create_SetsDescription()
     {
-        var line = SettlementLinje.Create(
+        var line = SettlementLine.Create(
             Guid.NewGuid(), Guid.NewGuid(), "Elafgift",
             EnergyQuantity.Create(100m), 0.763m);
 
@@ -305,7 +305,7 @@ public class SettlementLinjeTests
     [Fact]
     public void Create_SetsQuantityAndUnitPrice()
     {
-        var line = SettlementLinje.Create(
+        var line = SettlementLine.Create(
             Guid.NewGuid(), Guid.NewGuid(), "Systemtarif",
             EnergyQuantity.Create(250.123m), 0.054m);
 
@@ -316,7 +316,7 @@ public class SettlementLinjeTests
     [Fact]
     public void Create_ZeroQuantity_ZeroAmount()
     {
-        var line = SettlementLinje.Create(
+        var line = SettlementLine.Create(
             Guid.NewGuid(), Guid.NewGuid(), "Nettarif",
             EnergyQuantity.Create(0m), 0.25m);
 

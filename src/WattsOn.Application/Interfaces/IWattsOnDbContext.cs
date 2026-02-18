@@ -18,10 +18,11 @@ public interface IWattsOnDbContext
     DbSet<TimeSeries> TimeSeriesCollection { get; }
     DbSet<Observation> Observations { get; }
     DbSet<Price> Prices { get; }
-    DbSet<PrisPoint> PrisPoints { get; }
+    DbSet<PricePoint> PricePoints { get; }
     DbSet<PriceLink> PriceLinks { get; }
     DbSet<Settlement> Settlements { get; }
-    DbSet<SettlementLinje> SettlementLinjer { get; }
+    DbSet<SettlementLine> SettlementLines { get; }
+    DbSet<SpotPrice> SpotPrices { get; }
     DbSet<BrsProcess> Processes { get; }
     DbSet<ProcessStateTransition> ProcessTransitions { get; }
     DbSet<InboxMessage> InboxMessages { get; }

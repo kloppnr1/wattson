@@ -46,6 +46,9 @@ public class CustomerConfiguration : IEntityTypeConfiguration<Customer>
             .HasForeignKey(l => l.CustomerId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        builder.Navigation(k => k.Supplies)
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
+
         builder.Ignore(k => k.DomainEvents);
     }
 }

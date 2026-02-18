@@ -37,15 +37,18 @@ public class PrisConfiguration : IEntityTypeConfiguration<Price>
             .HasForeignKey(pp => pp.PriceId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        builder.Navigation(p => p.PricePoints)
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
+
         builder.HasIndex(p => p.ChargeId);
 
         builder.Ignore(p => p.DomainEvents);
     }
 }
 
-public class PrisPointConfiguration : IEntityTypeConfiguration<PrisPoint>
+public class PricePointConfiguration : IEntityTypeConfiguration<PricePoint>
 {
-    public void Configure(EntityTypeBuilder<PrisPoint> builder)
+    public void Configure(EntityTypeBuilder<PricePoint> builder)
     {
         builder.ToTable("price_points");
 

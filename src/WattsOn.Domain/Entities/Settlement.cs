@@ -52,8 +52,8 @@ public class Settlement : Entity
     public long DocumentNumber { get; private set; }
 
     /// <summary>Individual line items of this settlement</summary>
-    private readonly List<SettlementLinje> _lines = new();
-    public IReadOnlyList<SettlementLinje> Lines => _lines.AsReadOnly();
+    private readonly List<SettlementLine> _lines = new();
+    public IReadOnlyList<SettlementLine> Lines => _lines.AsReadOnly();
 
     // Navigation
     public MeteringPoint MeteringPoint { get; private set; } = null!;
@@ -110,7 +110,7 @@ public class Settlement : Entity
         };
     }
 
-    public void AddLine(SettlementLinje line)
+    public void AddLine(SettlementLine line)
     {
         _lines.Add(line);
         RecalculateTotal();
@@ -152,10 +152,10 @@ public class Settlement : Entity
 }
 
 /// <summary>
-/// SettlementLinje — a single line item in a settlement.
+/// SettlementLine — a single line item in a settlement.
 /// One per charge type (grid tariff, system tariff, etc.)
 /// </summary>
-public class SettlementLinje : Entity
+public class SettlementLine : Entity
 {
     public Guid SettlementId { get; private set; }
     public Guid PriceId { get; private set; }
@@ -164,9 +164,9 @@ public class SettlementLinje : Entity
     public decimal UnitPrice { get; private set; }
     public Money Amount { get; private set; } = null!;
 
-    private SettlementLinje() { } // EF Core
+    private SettlementLine() { } // EF Core
 
-    public static SettlementLinje Create(
+    public static SettlementLine Create(
         Guid settlementId,
         Guid priceId,
         string description,
@@ -174,7 +174,7 @@ public class SettlementLinje : Entity
         decimal unitPrice)
     {
         var amount = Money.DKK(quantity.Value * unitPrice);
-        return new SettlementLinje
+        return new SettlementLine
         {
             SettlementId = settlementId,
             PriceId = priceId,

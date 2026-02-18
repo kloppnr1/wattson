@@ -33,7 +33,7 @@ public class Actor : Entity
     /// <summary>Create our own company actor (elleverandør)</summary>
     public static Actor CreateOwn(GlnNumber gln, string name, CvrNumber cvr)
     {
-        return Create(gln, name, ActorRole.Elleverandør, cvr, isOwn: true);
+        return Create(gln, name, ActorRole.Supplier, cvr, isOwn: true);
     }
 
     public void UpdateName(string name)

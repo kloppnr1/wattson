@@ -33,6 +33,9 @@ public class TimeSeriesConfiguration : IEntityTypeConfiguration<TimeSeries>
             .HasForeignKey(o => o.TimeSeriesId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        builder.Navigation(t => t.Observations)
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
+
         // Composite index: find latest version for a metering point + period
         builder.HasIndex(t => new { t.MeteringPointId, t.IsLatest });
 

@@ -9,13 +9,13 @@ namespace WattsOn.Domain.Services;
 /// No side effects, no persistence — just math.
 ///
 /// Input: a time series (with observations) + a list of active price links (with prices + price points)
-/// Output: an Settlement with SettlementLinjer
+/// Output: an Settlement with SettlementLiner
 /// </summary>
 public static class SettlementCalculator
 {
     /// <summary>
     /// Calculate a settlement for the given time series and linked prices.
-    /// Each price produces one SettlementLinje.
+    /// Each price produces one SettlementLine.
     /// </summary>
     public static Settlement Calculate(
         TimeSeries time_series,
@@ -92,7 +92,7 @@ public static class SettlementCalculator
                 ? delta / deltaQty
                 : newLine.UnitPrice;
 
-            correction.AddLine(SettlementLinje.Create(
+            correction.AddLine(SettlementLine.Create(
                 correction.Id,
                 newLine.PriceId,
                 $"{newLine.Description} (justering)",
@@ -103,7 +103,7 @@ public static class SettlementCalculator
         return correction;
     }
 
-    private static SettlementLinje? CalculateLine(
+    private static SettlementLine? CalculateLine(
         Guid settlementId,
         TimeSeries time_series,
         PriceWithPoints priceLink)
@@ -123,7 +123,7 @@ public static class SettlementCalculator
     /// Tariff: for each observation, multiply energy × price at that hour.
     /// Supports both hourly-varying and flat tariffs.
     /// </summary>
-    private static SettlementLinje CalculateTariffLine(
+    private static SettlementLine CalculateTariffLine(
         Guid settlementId,
         TimeSeries time_series,
         PriceWithPoints priceLink)
@@ -143,7 +143,7 @@ public static class SettlementCalculator
         // Average unit price across the period
         var avgUnitPrice = totalEnergy != 0m ? totalAmount / totalEnergy : 0m;
 
-        return SettlementLinje.Create(
+        return SettlementLine.Create(
             settlementId,
             priceLink.Price.Id,
             priceLink.Price.Description,
@@ -155,7 +155,7 @@ public static class SettlementCalculator
     /// Subscription: flat daily fee × number of days in the settlement period.
     /// Not energy-based — uses count of days instead of kWh.
     /// </summary>
-    private static SettlementLinje CalculateSubscriptionLine(
+    private static SettlementLine CalculateSubscriptionLine(
         Guid settlementId,
         TimeSeries time_series,
         PriceWithPoints priceLink)
@@ -168,7 +168,7 @@ public static class SettlementCalculator
         var dailyPrice = priceLink.GetPriceAt(period.Start) ?? 0m;
 
         // For subscriptions, quantity represents days (not kWh)
-        return SettlementLinje.Create(
+        return SettlementLine.Create(
             settlementId,
             priceLink.Price.Id,
             priceLink.Price.Description,

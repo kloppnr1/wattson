@@ -1,29 +1,29 @@
 namespace WattsOn.Domain.Enums;
 
 /// <summary>
-/// Market participant role in the Danish electricity market.
-/// Maps to DataHub role codes.
+/// Actor roles in the Danish electricity market.
+/// Maps to DataHub actor role codes.
 /// </summary>
 public enum ActorRole
 {
-    /// <summary>DDQ — Elleverandør (Electricity Supplier)</summary>
-    Elleverandør = 1,
+    /// <summary>DDQ — Electricity Supplier (Elleverandør)</summary>
+    Supplier = 1,
 
-    /// <summary>DDM — Netvirksomhed (Grid Company / DSO)</summary>
-    Netvirksomhed = 2,
+    /// <summary>DDM — Grid Company (Netvirksomhed)</summary>
+    GridCompany = 2,
 
-    /// <summary>DDZ — Balanceansvarlig (Balance Responsible Party)</summary>
-    Balanceansvarlig = 3,
+    /// <summary>DDK — Balance Responsible Party (Balanceansvarlig)</summary>
+    BalanceResponsible = 3,
 
-    /// <summary>DDX — Balancesettlementsansvarlig (Balance Settlement Responsible)</summary>
-    Balancesettlementsansvarlig = 4,
+    /// <summary>DDX — Balance Settlement Responsible (Balancesettlementsansvarlig)</summary>
+    BalanceSettlementResponsible = 4,
 
     /// <summary>DGL — DataHub (Energinet)</summary>
     DataHub = 5,
 
-    /// <summary>EZ — TSO (Energinet as Transmission System Operator)</summary>
+    /// <summary>TSO (Energinet Transmission)</summary>
     TSO = 6,
 
-    /// <summary>STS — Energistyrelsen (Danish Energy Agency)</summary>
-    Energistyrelsen = 7
+    /// <summary>STS — Danish Energy Agency (Energistyrelsen)</summary>
+    EnergyAgency = 7
 }

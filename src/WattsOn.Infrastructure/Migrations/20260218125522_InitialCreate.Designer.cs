@@ -12,7 +12,7 @@ using WattsOn.Infrastructure.Persistence;
 namespace WattsOn.Infrastructure.Migrations
 {
     [DbContext(typeof(WattsOnDbContext))]
-    [Migration("20260218121648_InitialCreate")]
+    [Migration("20260218125522_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -273,7 +273,7 @@ namespace WattsOn.Infrastructure.Migrations
                     b.ToTable("price_links", (string)null);
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.PrisPoint", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.PricePoint", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -385,7 +385,7 @@ namespace WattsOn.Infrastructure.Migrations
                     b.ToTable("settlements", (string)null);
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.SettlementLinje", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.SettlementLine", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -424,6 +424,47 @@ namespace WattsOn.Infrastructure.Migrations
                     b.HasIndex("SettlementId");
 
                     b.ToTable("settlement_lines", (string)null);
+                });
+
+            modelBuilder.Entity("WattsOn.Domain.Entities.SpotPrice", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("HourDk")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("HourUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PriceArea")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<decimal>("SpotPriceDkkPerMwh")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<decimal>("SpotPriceEurPerMwh")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("HourUtc", "PriceArea")
+                        .IsUnique();
+
+                    b.HasIndex("PriceArea", "HourUtc");
+
+                    b.ToTable("spot_prices", (string)null);
                 });
 
             modelBuilder.Entity("WattsOn.Domain.Entities.Supply", b =>
@@ -1202,7 +1243,7 @@ namespace WattsOn.Infrastructure.Migrations
                     b.Navigation("Price");
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.PrisPoint", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.PricePoint", b =>
                 {
                     b.HasOne("WattsOn.Domain.Entities.Price", null)
                         .WithMany("PricePoints")
@@ -1320,7 +1361,7 @@ namespace WattsOn.Infrastructure.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("WattsOn.Domain.Entities.SettlementLinje", b =>
+            modelBuilder.Entity("WattsOn.Domain.Entities.SettlementLine", b =>
                 {
                     b.HasOne("WattsOn.Domain.Entities.Settlement", null)
                         .WithMany("Lines")
@@ -1330,7 +1371,7 @@ namespace WattsOn.Infrastructure.Migrations
 
                     b.OwnsOne("WattsOn.Domain.ValueObjects.Money", "Amount", b1 =>
                         {
-                            b1.Property<Guid>("SettlementLinjeId")
+                            b1.Property<Guid>("SettlementLineId")
                                 .HasColumnType("uuid");
 
                             b1.Property<decimal>("Amount")
@@ -1346,17 +1387,17 @@ namespace WattsOn.Infrastructure.Migrations
                                 .HasDefaultValue("DKK")
                                 .HasColumnName("amount_currency");
 
-                            b1.HasKey("SettlementLinjeId");
+                            b1.HasKey("SettlementLineId");
 
                             b1.ToTable("settlement_lines");
 
                             b1.WithOwner()
-                                .HasForeignKey("SettlementLinjeId");
+                                .HasForeignKey("SettlementLineId");
                         });
 
                     b.OwnsOne("WattsOn.Domain.ValueObjects.EnergyQuantity", "Quantity", b1 =>
                         {
-                            b1.Property<Guid>("SettlementLinjeId")
+                            b1.Property<Guid>("SettlementLineId")
                                 .HasColumnType("uuid");
 
                             b1.Property<string>("Unit")
@@ -1372,12 +1413,12 @@ namespace WattsOn.Infrastructure.Migrations
                                 .HasColumnType("numeric(18,3)")
                                 .HasColumnName("quantity_kwh");
 
-                            b1.HasKey("SettlementLinjeId");
+                            b1.HasKey("SettlementLineId");
 
                             b1.ToTable("settlement_lines");
 
                             b1.WithOwner()
-                                .HasForeignKey("SettlementLinjeId");
+                                .HasForeignKey("SettlementLineId");
                         });
 
                     b.Navigation("Amount")

@@ -31,7 +31,7 @@ public class TimeSeriesTests
         ts.AddObservation(
             new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
             EnergyQuantity.Create(1.5m),
-            QuantityQuality.Målt);
+            QuantityQuality.Measured);
 
         Assert.Single(ts.Observations);
         Assert.Equal(1.5m, ts.Observations[0].Quantity.Value);
@@ -48,9 +48,9 @@ public class TimeSeriesTests
 
         ts.AddObservations(new[]
         {
-            (new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero), EnergyQuantity.Create(1.0m), QuantityQuality.Målt),
-            (new DateTimeOffset(2026, 1, 1, 1, 0, 0, TimeSpan.Zero), EnergyQuantity.Create(1.5m), QuantityQuality.Målt),
-            (new DateTimeOffset(2026, 1, 1, 2, 0, 0, TimeSpan.Zero), EnergyQuantity.Create(2.0m), QuantityQuality.Målt),
+            (new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero), EnergyQuantity.Create(1.0m), QuantityQuality.Measured),
+            (new DateTimeOffset(2026, 1, 1, 1, 0, 0, TimeSpan.Zero), EnergyQuantity.Create(1.5m), QuantityQuality.Measured),
+            (new DateTimeOffset(2026, 1, 1, 2, 0, 0, TimeSpan.Zero), EnergyQuantity.Create(2.0m), QuantityQuality.Measured),
         });
 
         Assert.Equal(3, ts.Observations.Count);

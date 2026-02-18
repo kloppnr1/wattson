@@ -11,7 +11,6 @@ namespace WattsOn.Infrastructure.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            // Create sequence for settlement document numbering
             migrationBuilder.Sql("CREATE SEQUENCE IF NOT EXISTS settlement_document_seq START WITH 1 INCREMENT BY 1;");
 
             migrationBuilder.CreateTable(
@@ -182,6 +181,24 @@ namespace WattsOn.Infrastructure.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_prices", x => x.id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "spot_prices",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    HourUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    HourDk = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    PriceArea = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: false),
+                    SpotPriceDkkPerMwh = table.Column<decimal>(type: "numeric(18,6)", precision: 18, scale: 6, nullable: false),
+                    SpotPriceEurPerMwh = table.Column<decimal>(type: "numeric(18,6)", precision: 18, scale: 6, nullable: false),
+                    CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    UpdatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_spot_prices", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -517,6 +534,17 @@ namespace WattsOn.Infrastructure.Migrations
                 column: "time_series_id");
 
             migrationBuilder.CreateIndex(
+                name: "IX_spot_prices_HourUtc_PriceArea",
+                table: "spot_prices",
+                columns: new[] { "HourUtc", "PriceArea" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_spot_prices_PriceArea_HourUtc",
+                table: "spot_prices",
+                columns: new[] { "PriceArea", "HourUtc" });
+
+            migrationBuilder.CreateIndex(
                 name: "IX_supplies_actor_id",
                 table: "supplies",
                 column: "actor_id");
@@ -536,7 +564,6 @@ namespace WattsOn.Infrastructure.Migrations
                 table: "time_series",
                 columns: new[] { "metering_point_id", "is_latest" });
 
-            // Convert observations to TimescaleDB hypertable
             migrationBuilder.Sql("SELECT create_hypertable('observations', 'timestamp', migrate_data => true);");
         }
 
@@ -563,6 +590,9 @@ namespace WattsOn.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "settlement_lines");
+
+            migrationBuilder.DropTable(
+                name: "spot_prices");
 
             migrationBuilder.DropTable(
                 name: "prices");

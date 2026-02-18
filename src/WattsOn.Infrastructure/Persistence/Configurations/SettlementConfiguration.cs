@@ -61,13 +61,16 @@ public class SettlementConfiguration : IEntityTypeConfiguration<Settlement>
             .HasForeignKey(l => l.SettlementId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        builder.Navigation(a => a.Lines)
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
+
         builder.Ignore(a => a.DomainEvents);
     }
 }
 
-public class SettlementLinjeConfiguration : IEntityTypeConfiguration<SettlementLinje>
+public class SettlementLineConfiguration : IEntityTypeConfiguration<SettlementLine>
 {
-    public void Configure(EntityTypeBuilder<SettlementLinje> builder)
+    public void Configure(EntityTypeBuilder<SettlementLine> builder)
     {
         builder.ToTable("settlement_lines");
 

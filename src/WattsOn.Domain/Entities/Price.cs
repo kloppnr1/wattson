@@ -33,8 +33,8 @@ public class Price : Entity
     public Resolution? PriceResolution { get; private set; }
 
     /// <summary>Price points (for tariffs: one per hour/quarter-hour)</summary>
-    private readonly List<PrisPoint> _pricePoints = new();
-    public IReadOnlyList<PrisPoint> PricePoints => _pricePoints.AsReadOnly();
+    private readonly List<PricePoint> _pricePoints = new();
+    public IReadOnlyList<PricePoint> PricePoints => _pricePoints.AsReadOnly();
 
     private Price() { } // EF Core
 
@@ -61,7 +61,7 @@ public class Price : Entity
 
     public void AddPricePoint(DateTimeOffset timestamp, decimal price)
     {
-        _pricePoints.Add(PrisPoint.Create(Id, timestamp, price));
+        _pricePoints.Add(PricePoint.Create(Id, timestamp, price));
     }
 
     /// <summary>Get the price at a specific point in time</summary>
@@ -84,17 +84,17 @@ public class Price : Entity
 /// <summary>
 /// A single price point (rate at a specific time).
 /// </summary>
-public class PrisPoint : Entity
+public class PricePoint : Entity
 {
     public Guid PriceId { get; private set; }
     public DateTimeOffset Timestamp { get; private set; }
     public decimal Price { get; private set; }
 
-    private PrisPoint() { } // EF Core
+    private PricePoint() { } // EF Core
 
-    public static PrisPoint Create(Guid priceId, DateTimeOffset timestamp, decimal price)
+    public static PricePoint Create(Guid priceId, DateTimeOffset timestamp, decimal price)
     {
-        return new PrisPoint
+        return new PricePoint
         {
             PriceId = priceId,
             Timestamp = timestamp,

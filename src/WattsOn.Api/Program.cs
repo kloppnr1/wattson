@@ -1214,7 +1214,7 @@ app.MapPost("/api/simulation/supplier-change", async (SimulateSupplierChangeRequ
                 >= 16 and <= 19 => 1.2m + (decimal)(rng.NextDouble() * 1.2),  // Evening peak: 1.2-2.4
                 _ => 0.6m + (decimal)(rng.NextDouble() * 0.8),                // Late evening: 0.6-1.4
             };
-            time_series.AddObservation(ts, EnergyQuantity.Create(baseKwh), QuantityQuality.Målt);
+            time_series.AddObservation(ts, EnergyQuantity.Create(baseKwh), QuantityQuality.Measured);
         }
         db.TimeSeriesCollection.Add(time_series);
     }
@@ -1408,7 +1408,7 @@ app.MapPost("/api/simulation/move-in", async (SimulateMoveInRequest req, WattsOn
                 >= 16 and <= 19 => 1.2m + (decimal)(rng.NextDouble() * 1.2),
                 _ => 0.6m + (decimal)(rng.NextDouble() * 0.8),
             };
-            time_series.AddObservation(ts, EnergyQuantity.Create(baseKwh), QuantityQuality.Målt);
+            time_series.AddObservation(ts, EnergyQuantity.Create(baseKwh), QuantityQuality.Measured);
         }
         db.TimeSeriesCollection.Add(time_series);
     }
@@ -1553,6 +1553,69 @@ app.MapGet("/api/dashboard", async (WattsOnDbContext db) =>
         }
     });
 }).WithName("GetDashboard");
+
+// ==================== SPOT PRICES ====================
+
+app.MapGet("/api/spot-prices", async (string? area, int? days, WattsOnDbContext db) =>
+{
+    var since = DateTimeOffset.UtcNow.AddDays(-(days ?? 7));
+    var query = db.SpotPrices
+        .Where(sp => sp.HourUtc >= since)
+        .OrderByDescending(sp => sp.HourUtc)
+        .AsQueryable();
+
+    if (!string.IsNullOrEmpty(area))
+        query = query.Where(sp => sp.PriceArea == area);
+
+    var prices = await query.Take(1000).Select(sp => new
+    {
+        sp.HourUtc,
+        sp.HourDk,
+        sp.PriceArea,
+        sp.SpotPriceDkkPerMwh,
+        sp.SpotPriceEurPerMwh,
+        spotPriceDkkPerKwh = sp.SpotPriceDkkPerMwh / 1000m
+    }).ToListAsync();
+
+    return Results.Ok(prices);
+}).WithName("GetSpotPrices");
+
+app.MapGet("/api/spot-prices/latest", async (WattsOnDbContext db) =>
+{
+    // Get the latest price for each area
+    var dk1 = await db.SpotPrices
+        .Where(sp => sp.PriceArea == "DK1")
+        .OrderByDescending(sp => sp.HourUtc)
+        .FirstOrDefaultAsync();
+
+    var dk2 = await db.SpotPrices
+        .Where(sp => sp.PriceArea == "DK2")
+        .OrderByDescending(sp => sp.HourUtc)
+        .FirstOrDefaultAsync();
+
+    var totalCount = await db.SpotPrices.CountAsync();
+
+    return Results.Ok(new
+    {
+        totalRecords = totalCount,
+        dk1 = dk1 == null ? null : new
+        {
+            dk1.HourUtc,
+            dk1.HourDk,
+            dk1.SpotPriceDkkPerMwh,
+            dk1.SpotPriceEurPerMwh,
+            spotPriceDkkPerKwh = dk1.SpotPriceDkkPerMwh / 1000m
+        },
+        dk2 = dk2 == null ? null : new
+        {
+            dk2.HourUtc,
+            dk2.HourDk,
+            dk2.SpotPriceDkkPerMwh,
+            dk2.SpotPriceEurPerMwh,
+            spotPriceDkkPerKwh = dk2.SpotPriceDkkPerMwh / 1000m
+        }
+    });
+}).WithName("GetLatestSpotPrices");
 
 app.Run();
 
