@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   Card, Row, Col, Button, Space, Typography, Steps, Tag, Descriptions,
   Alert, Spin, Input, DatePicker, Switch, Divider, Collapse, Result,
-  Segmented, Select, Empty,
+  Segmented, Select, Empty, Modal,
 } from 'antd';
 import {
   SwapOutlined, PlayCircleOutlined,
@@ -11,7 +11,7 @@ import {
   ReloadOutlined, ExperimentOutlined, LoginOutlined,
   LogoutOutlined, UserDeleteOutlined,
 } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useBlocker } from 'react-router-dom';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import api from '../api/client';
@@ -179,13 +179,23 @@ export default function SimulationPage() {
 
   // Simulation state
   const [running, setRunning] = useState(false);
+  const [correctionRunning, setCorrectionRunning] = useState(false);
   const [steps, setSteps] = useState<SimulationStep[]>([]);
   const [result, setResult] = useState<SimulationResult | null>(null);
   const [settlement, setSettlement] = useState<SettlementPollResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef(false);
 
-  // Block browser refresh/close/navigation while running
+  // Block in-app navigation while any simulation is running
+  const anyRunning = running || correctionRunning;
+  const blocker = useBlocker(anyRunning);
+  useEffect(() => {
+    if (blocker.state === 'blocked' && !anyRunning) {
+      blocker.proceed();
+    }
+  }, [blocker, anyRunning]);
+
+  // Block browser refresh/close while running
   useEffect(() => {
     if (!running) return;
     const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
@@ -495,6 +505,19 @@ export default function SimulationPage() {
 
   return (
     <Space direction="vertical" size={24} style={{ width: '100%' }}>
+      {/* Navigation blocker dialog */}
+      <Modal
+        title="Simulation kører"
+        open={blocker.state === 'blocked'}
+        onOk={() => blocker.proceed?.()}
+        onCancel={() => blocker.reset?.()}
+        okText="Forlad alligevel"
+        cancelText="Bliv her"
+        okButtonProps={{ danger: true }}
+      >
+        <p>En simulation kører stadig. Hvis du navigerer væk, mister du fremskridtet.</p>
+      </Modal>
+
       <Row align="middle" justify="space-between">
         <Col>
           <Space align="center" size={12}>
@@ -917,7 +940,7 @@ export default function SimulationPage() {
       </Row>
 
       {/* Correction Simulation Section */}
-      <CorrectionSimulation navigate={navigate} />
+      <CorrectionSimulation navigate={navigate} onRunningChange={setCorrectionRunning} />
     </Space>
   );
 }
@@ -935,11 +958,12 @@ interface CorrectionStep {
   timestamp?: string;
 }
 
-function CorrectionSimulation({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
+function CorrectionSimulation({ navigate, onRunningChange }: { navigate: ReturnType<typeof useNavigate>; onRunningChange: (v: boolean) => void }) {
   const [invoicedSettlements, setInvoicedSettlements] = useState<InvoicedSettlement[]>([]);
   const [selectedSettlementId, setSelectedSettlementId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [running, setRunning] = useState(false);
+  const [running, setRunningLocal] = useState(false);
+  const setRunning = (v: boolean) => { setRunningLocal(v); onRunningChange(v); };
 
   // Block browser refresh/close while running
   useEffect(() => {

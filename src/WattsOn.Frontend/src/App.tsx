@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import { ConfigProvider } from 'antd';
 import daDK from 'antd/locale/da_DK';
 import { wattsOnTheme } from './theme';
@@ -18,29 +18,32 @@ import MeteringPointDetailPage from './pages/MeteringPointDetailPage';
 import SuppliesPage from './pages/SuppliesPage';
 import OutboxPage from './pages/OutboxPage';
 
+const router = createBrowserRouter([
+  {
+    element: <AppLayout />,
+    children: [
+      { path: '/', element: <DashboardPage /> },
+      { path: '/customers', element: <CustomersPage /> },
+      { path: '/customers/:id', element: <CustomerDetailPage /> },
+      { path: '/settlements', element: <SettlementsPage /> },
+      { path: '/settlements/:id', element: <SettlementDetailPage /> },
+      { path: '/prices', element: <PricesPage /> },
+      { path: '/processes', element: <ProcesserPage /> },
+      { path: '/admin', element: <AdminPage /> },
+      { path: '/simulation', element: <SimulationPage /> },
+      { path: '/messages', element: <InboxPage /> },
+      { path: '/metering-points', element: <MeteringPointsPage /> },
+      { path: '/metering-points/:id', element: <MeteringPointDetailPage /> },
+      { path: '/supplies', element: <SuppliesPage /> },
+      { path: '/outbox', element: <OutboxPage /> },
+    ],
+  },
+]);
+
 export default function App() {
   return (
     <ConfigProvider locale={daDK} theme={wattsOnTheme}>
-      <BrowserRouter>
-        <Routes>
-          <Route element={<AppLayout />}>
-            <Route path="/" element={<DashboardPage />} />
-            <Route path="/customers" element={<CustomersPage />} />
-            <Route path="/customers/:id" element={<CustomerDetailPage />} />
-            <Route path="/settlements" element={<SettlementsPage />} />
-            <Route path="/settlements/:id" element={<SettlementDetailPage />} />
-            <Route path="/prices" element={<PricesPage />} />
-            <Route path="/processes" element={<ProcesserPage />} />
-            <Route path="/admin" element={<AdminPage />} />
-            <Route path="/simulation" element={<SimulationPage />} />
-            <Route path="/messages" element={<InboxPage />} />
-            <Route path="/metering-points" element={<MeteringPointsPage />} />
-            <Route path="/metering-points/:id" element={<MeteringPointDetailPage />} />
-            <Route path="/supplies" element={<SuppliesPage />} />
-            <Route path="/outbox" element={<OutboxPage />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      <RouterProvider router={router} />
     </ConfigProvider>
   );
 }
