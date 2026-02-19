@@ -305,10 +305,11 @@ export default function PricesPage() {
       <Card style={{ borderRadius: 12 }}>
         <div style={{
           background: 'linear-gradient(135deg, #f0fdfa, #ccfbf1)',
-          border: '1px solid #99f6e4',
+          border: '2px solid #5eead4',
           borderRadius: 12,
           padding: '16px 24px',
           marginBottom: 20,
+          boxShadow: '0 2px 8px rgba(13, 148, 136, 0.12)',
           display: 'flex',
           alignItems: 'center',
           gap: 14,
