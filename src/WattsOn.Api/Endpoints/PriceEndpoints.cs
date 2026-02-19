@@ -74,7 +74,9 @@ public static class PriceEndpoints
                 : Period.From(req.ValidFrom);
             var resolution = req.PriceResolution != null ? Enum.Parse<Resolution>(req.PriceResolution) : (Resolution?)null;
 
-            var pris = Price.Create(req.ChargeId, ownerGln, type, req.Description, validityPeriod, req.VatExempt, resolution);
+            // Supplier-created prices are never pass-through (they're our own revenue)
+            var pris = Price.Create(req.ChargeId, ownerGln, type, req.Description, validityPeriod, req.VatExempt, resolution,
+                isTax: false, isPassThrough: false);
 
             if (req.PricePoints != null)
             {
