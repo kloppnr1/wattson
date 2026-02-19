@@ -68,30 +68,34 @@ export default function AppLayout() {
           top: 0,
           bottom: 0,
           zIndex: 10,
+          display: 'flex',
+          flexDirection: 'column',
           overflow: 'hidden',
         }}
       >
-        <div className="sidebar-brand">
+        <div className="sidebar-brand" style={{ flexShrink: 0 }}>
           <div className="sidebar-brand-row">
             <WattsOnIcon size={24} />
             <h4>WattsOn</h4>
           </div>
           <div className="subtitle">Energy Platform</div>
         </div>
-        <Menu
-          theme="dark"
-          mode="inline"
-          selectedKeys={[selectedKey]}
-          items={menuItems}
-          onClick={({ key }) => navigate(key)}
-          style={{
-            background: 'transparent',
-            borderRight: 'none',
-            marginTop: 8,
-          }}
-        />
+        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
+          <Menu
+            theme="dark"
+            mode="inline"
+            selectedKeys={[selectedKey]}
+            items={menuItems}
+            onClick={({ key }) => navigate(key)}
+            style={{
+              background: 'transparent',
+              borderRight: 'none',
+              marginTop: 8,
+            }}
+          />
+        </div>
 
-        <div className="sidebar-footer">
+        <div className="sidebar-footer" style={{ flexShrink: 0 }}>
           <div className="env-badge">
             <span className="env-dot" />
             <span>Development</span>
