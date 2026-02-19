@@ -323,6 +323,55 @@ public class SettlementCalculatorTests
         Assert.Empty(correction.Lines); // No delta → no lines
     }
 
+    // --- Spot price (PT15M) with hourly time series ---
+
+    [Fact]
+    public void Calculate_SpotPricePT15M_AveragesQuarterHourlyPrices()
+    {
+        // Spot price with 15-minute resolution: 4 different prices per hour
+        var spotPrice = Price.Create(
+            "SPOT-DK1",
+            GlnNumber.Create("5790000432752"),
+            PriceType.Tarif,
+            "Spotpris — DK1",
+            Period.From(new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero)),
+            priceResolution: Resolution.PT15M,
+            isPassThrough: true);
+
+        // Add 4 quarter-hour prices for hour 0 (00:00-01:00):
+        // 0.50, 0.60, 0.70, 0.80 → average = 0.65
+        spotPrice.AddPricePoint(Jan1.AddMinutes(0), 0.50m);
+        spotPrice.AddPricePoint(Jan1.AddMinutes(15), 0.60m);
+        spotPrice.AddPricePoint(Jan1.AddMinutes(30), 0.70m);
+        spotPrice.AddPricePoint(Jan1.AddMinutes(45), 0.80m);
+
+        // Add 4 quarter-hour prices for hour 1 (01:00-02:00):
+        // 0.40, 0.40, 0.40, 0.40 → average = 0.40
+        spotPrice.AddPricePoint(Jan1.AddHours(1).AddMinutes(0), 0.40m);
+        spotPrice.AddPricePoint(Jan1.AddHours(1).AddMinutes(15), 0.40m);
+        spotPrice.AddPricePoint(Jan1.AddHours(1).AddMinutes(30), 0.40m);
+        spotPrice.AddPricePoint(Jan1.AddHours(1).AddMinutes(45), 0.40m);
+
+        var spotPriceWithPoints = new PriceWithPoints(spotPrice);
+
+        // Create a 2-hour time series (PT1H) with 1 kWh per hour
+        var ts = TimeSeries.Create(MpId, Period.Create(Jan1, Jan1.AddHours(2)), Resolution.PT1H, 1, "TX-SPOT");
+        ts.AddObservation(Jan1, EnergyQuantity.Create(1.0m), QuantityQuality.Measured);
+        ts.AddObservation(Jan1.AddHours(1), EnergyQuantity.Create(1.0m), QuantityQuality.Measured);
+
+        var supply = CreateSupply();
+        var settlement = SettlementCalculator.Calculate(ts, supply, new[] { spotPriceWithPoints });
+
+        Assert.Single(settlement.Lines);
+        var spotLine = settlement.Lines.First();
+
+        // Hour 0: 1.0 kWh × 0.65 = 0.65 DKK
+        // Hour 1: 1.0 kWh × 0.40 = 0.40 DKK
+        // Total: 1.05 DKK
+        Assert.Equal(1.05m, spotLine.Amount.Amount);
+        Assert.Equal(2.0m, spotLine.Quantity.Value);
+    }
+
     [Fact]
     public void CalculateCorrection_MultiplePrices_CorrectDeltas()
     {

@@ -168,6 +168,10 @@ public static class SimulationEndpoints
                 var allPrices = await db.Prices.ToListAsync();
                 foreach (var pris in allPrices)
                 {
+                    // Skip spot prices for wrong grid area
+                    if (pris.ChargeId.StartsWith("SPOT-") && pris.ChargeId != $"SPOT-{req.GridArea ?? "DK1"}")
+                        continue;
+
                     // Create D17 inbox message (same format BRS-037 sends from DataHub)
                     var d17TransactionId = Guid.NewGuid().ToString();
                     var d17Payload = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, object?>
@@ -393,6 +397,10 @@ public static class SimulationEndpoints
             {
                 foreach (var pris in await db.Prices.ToListAsync())
                 {
+                    // Skip spot prices for wrong grid area
+                    if (pris.ChargeId.StartsWith("SPOT-") && pris.ChargeId != $"SPOT-{mp.GridArea}")
+                        continue;
+
                     var d17Payload = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, object?>
                     {
                         ["businessReason"] = "D17",

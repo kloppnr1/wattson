@@ -122,6 +122,8 @@ public static class SettlementCalculator
     /// <summary>
     /// Tariff: for each observation, multiply energy × price at that hour.
     /// Supports both hourly-varying and flat tariffs.
+    /// When time series is hourly (PT1H) but price is sub-hourly (PT15M),
+    /// averages the sub-hourly price points within each hour.
     /// </summary>
     private static SettlementLine CalculateTariffLine(
         Guid settlementId,
@@ -130,10 +132,22 @@ public static class SettlementCalculator
     {
         var totalAmount = 0m;
         var totalEnergy = 0m;
+        var needsAveraging = time_series.Resolution == Resolution.PT1H
+            && priceLink.Price.PriceResolution == Resolution.PT15M;
 
         foreach (var obs in time_series.Observations)
         {
-            var price = priceLink.GetPriceAt(obs.Timestamp);
+            decimal? price;
+            if (needsAveraging)
+            {
+                // Average the 4 quarter-hour prices within this hour
+                price = priceLink.GetAveragePriceInHour(obs.Timestamp);
+            }
+            else
+            {
+                price = priceLink.GetPriceAt(obs.Timestamp);
+            }
+
             if (price is null) continue;
 
             totalAmount += obs.Quantity.Value * price.Value;
@@ -216,5 +230,26 @@ public class PriceWithPoints
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Get the average price within a one-hour window starting at the given timestamp.
+    /// Used when time series is PT1H but price is PT15M (e.g. spot prices).
+    /// Averages up to 4 quarter-hour price points within [timestamp, timestamp+1h).
+    /// Falls back to GetPriceAt if no sub-hourly points found.
+    /// </summary>
+    public decimal? GetAveragePriceInHour(DateTimeOffset hourStart)
+    {
+        if (_sortedPoints.Count == 0) return null;
+
+        var hourEnd = hourStart.AddHours(1);
+        var pointsInHour = _sortedPoints
+            .Where(p => p.Timestamp >= hourStart && p.Timestamp < hourEnd)
+            .ToList();
+
+        if (pointsInHour.Count == 0)
+            return GetPriceAt(hourStart); // Fallback
+
+        return pointsInHour.Average(p => p.Price);
     }
 }
