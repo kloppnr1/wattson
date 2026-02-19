@@ -32,6 +32,15 @@ public enum ProcessType
     /// <summary>BRS-031 — Opdatering af prices (Update of Prices)</summary>
     PrisOpdatering = 31,
 
-    /// <summary>BRS-034 — Anmodning om prices (Request for Prices)</summary>
-    PrisAnmodning = 34
+    /// <summary>BRS-003 — Fejlagtigt leverandørskift (Incorrect Supplier Switch)</summary>
+    FejlagtigtLeverandørskift = 3,
+
+    /// <summary>BRS-011 — Fejlagtig flytning (Incorrect Move)</summary>
+    FejlagtigFlytning = 11,
+
+    /// <summary>BRS-034 — Anmodning om priser (Request for Prices)</summary>
+    PrisAnmodning = 34,
+
+    /// <summary>BRS-038 — Anmodning om pristilknytninger (Request for Charge Links)</summary>
+    PristilknytningAnmodning = 38
 }

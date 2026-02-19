@@ -64,6 +64,22 @@ internal class InboxMessageRouter
                 await new Brs031InboxHandler(_logger).Handle(db, message, payload, ct);
                 break;
 
+            case "BRS-003":
+                await new Brs003InboxHandler(_logger).Handle(db, message, payload, ct);
+                break;
+
+            case "BRS-011":
+                await new Brs011InboxHandler(_logger).Handle(db, message, payload, ct);
+                break;
+
+            case "BRS-034":
+                await new Brs034InboxHandler(_logger).Handle(db, message, payload, ct);
+                break;
+
+            case "BRS-038":
+                await new Brs038InboxHandler(_logger).Handle(db, message, payload, ct);
+                break;
+
             default:
                 // Unknown business process — log and mark as processed
                 _logger.LogInformation(

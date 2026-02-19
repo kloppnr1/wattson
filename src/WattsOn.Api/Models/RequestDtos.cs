@@ -99,3 +99,20 @@ record CustomerUpdateRequest(
     string? Email,
     string? Phone,
     AddressDto? Address);
+
+record IncorrectSwitchRequest(string Gsrn, DateTimeOffset SwitchDate, string? Reason);
+
+record IncorrectMoveRequest(string Gsrn, DateTimeOffset MoveDate, string MoveType, string? Reason);
+
+record RequestPricesRequest(
+    DateTimeOffset StartDate,
+    DateTimeOffset? EndDate = null,
+    string? PriceOwnerGln = null,
+    string? PriceType = null,
+    string? ChargeId = null,
+    string RequestType = "E0G");
+
+record RequestChargeLinksRequest(
+    string Gsrn,
+    DateTimeOffset StartDate,
+    DateTimeOffset? EndDate = null);

@@ -29,6 +29,12 @@ public static class DataHubEndpoints
 
         // RSM-027 (customer master data update) uses /requestservice per DataHub mapping
         ["RSM-027"] = "/requestservice",
+
+        // BRS-034 — Request prices
+        ["RSM-035"] = "/requestservice",
+
+        // BRS-038 — Request charge links
+        ["RSM-032"] = "/requestservice",
     };
 
     /// <summary>

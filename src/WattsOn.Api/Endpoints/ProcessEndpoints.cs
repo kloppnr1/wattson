@@ -183,6 +183,120 @@ public static class ProcessEndpoints
             });
         }).WithName("SendCustomerUpdate");
 
+        // ==================== BRS-003: INCORRECT SUPPLIER SWITCH ====================
+
+        app.MapPost("/api/processes/incorrect-switch", async (IncorrectSwitchRequest req, WattsOnDbContext db) =>
+        {
+            var gsrn = Gsrn.Create(req.Gsrn);
+            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn);
+            if (mp is null) return Results.BadRequest(new { error = "Metering point not found" });
+
+            var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive);
+            if (identity is null) return Results.BadRequest(new { error = "No active supplier identity" });
+
+            var supplierGln = GlnNumber.Create(identity.Gln.Value);
+            var result = Brs003Handler.InitiateReversal(gsrn, req.SwitchDate, supplierGln, req.Reason ?? "Fejlagtigt leverandørskift");
+
+            db.Processes.Add(result.Process);
+            db.OutboxMessages.Add(result.OutboxMessage);
+            await db.SaveChangesAsync();
+
+            return Results.Created($"/api/processes/{result.Process.Id}", new
+            {
+                result.Process.Id,
+                ProcessType = result.Process.ProcessType.ToString(),
+                Status = result.Process.Status.ToString(),
+                result.Process.CurrentState,
+                Gsrn = req.Gsrn,
+                SwitchDate = req.SwitchDate
+            });
+        }).WithName("InitiateIncorrectSwitch");
+
+        // ==================== BRS-011: INCORRECT MOVE ====================
+
+        app.MapPost("/api/processes/incorrect-move", async (IncorrectMoveRequest req, WattsOnDbContext db) =>
+        {
+            var gsrn = Gsrn.Create(req.Gsrn);
+            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn);
+            if (mp is null) return Results.BadRequest(new { error = "Metering point not found" });
+
+            var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive);
+            if (identity is null) return Results.BadRequest(new { error = "No active supplier identity" });
+
+            var supplierGln = GlnNumber.Create(identity.Gln.Value);
+            var result = Brs011Handler.InitiateReversal(gsrn, req.MoveDate, supplierGln, req.MoveType, req.Reason ?? "Fejlagtig flytning");
+
+            db.Processes.Add(result.Process);
+            db.OutboxMessages.Add(result.OutboxMessage);
+            await db.SaveChangesAsync();
+
+            return Results.Created($"/api/processes/{result.Process.Id}", new
+            {
+                result.Process.Id,
+                ProcessType = result.Process.ProcessType.ToString(),
+                Status = result.Process.Status.ToString(),
+                result.Process.CurrentState,
+                Gsrn = req.Gsrn,
+                MoveDate = req.MoveDate,
+                MoveType = req.MoveType
+            });
+        }).WithName("InitiateIncorrectMove");
+
+        // ==================== BRS-034: REQUEST PRICES ====================
+
+        app.MapPost("/api/processes/request-prices", async (RequestPricesRequest req, WattsOnDbContext db) =>
+        {
+            var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive);
+            if (identity is null) return Results.BadRequest(new { error = "No active supplier identity" });
+
+            var supplierGln = GlnNumber.Create(identity.Gln.Value);
+
+            var result = req.RequestType == "D48"
+                ? Brs034Handler.RequestPriceSeries(supplierGln, req.StartDate, req.EndDate, req.PriceOwnerGln, req.PriceType, req.ChargeId)
+                : Brs034Handler.RequestPriceInformation(supplierGln, req.StartDate, req.EndDate, req.PriceOwnerGln, req.PriceType, req.ChargeId);
+
+            db.Processes.Add(result.Process);
+            db.OutboxMessages.Add(result.OutboxMessage);
+            await db.SaveChangesAsync();
+
+            return Results.Created($"/api/processes/{result.Process.Id}", new
+            {
+                result.Process.Id,
+                ProcessType = result.Process.ProcessType.ToString(),
+                Status = result.Process.Status.ToString(),
+                result.Process.CurrentState,
+                RequestType = req.RequestType
+            });
+        }).WithName("RequestPrices");
+
+        // ==================== BRS-038: REQUEST CHARGE LINKS ====================
+
+        app.MapPost("/api/processes/request-charge-links", async (RequestChargeLinksRequest req, WattsOnDbContext db) =>
+        {
+            var gsrn = Gsrn.Create(req.Gsrn);
+            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn);
+            if (mp is null) return Results.BadRequest(new { error = "Metering point not found" });
+
+            var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive);
+            if (identity is null) return Results.BadRequest(new { error = "No active supplier identity" });
+
+            var supplierGln = GlnNumber.Create(identity.Gln.Value);
+            var result = Brs038Handler.RequestChargeLinks(gsrn, supplierGln, req.StartDate, req.EndDate);
+
+            db.Processes.Add(result.Process);
+            db.OutboxMessages.Add(result.OutboxMessage);
+            await db.SaveChangesAsync();
+
+            return Results.Created($"/api/processes/{result.Process.Id}", new
+            {
+                result.Process.Id,
+                ProcessType = result.Process.ProcessType.ToString(),
+                Status = result.Process.Status.ToString(),
+                result.Process.CurrentState,
+                Gsrn = req.Gsrn
+            });
+        }).WithName("RequestChargeLinks");
+
         return app;
     }
 }
