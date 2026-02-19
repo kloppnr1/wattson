@@ -23,7 +23,7 @@ public static class SupplyEndpoints
                     l.MeteringPointId,
                     Gsrn = l.MeteringPoint.Gsrn.Value,
                     l.CustomerId,
-                    CustomerNavn = l.Customer.Name,
+                    CustomerName = l.Customer.Name,
                     SupplyStart = l.SupplyPeriod.Start,
                     SupplyEnd = l.SupplyPeriod.End,
                     l.IsActive,

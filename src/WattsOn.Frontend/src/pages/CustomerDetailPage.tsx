@@ -8,10 +8,15 @@ import {
 import {
   ArrowLeftOutlined, UserOutlined, ThunderboltOutlined,
   CalculatorOutlined, MailOutlined, PhoneOutlined, HomeOutlined,
-  EditOutlined,
+  EditOutlined, StopOutlined, LogoutOutlined, SwapOutlined, 
+  ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import type { CustomerDetail, SettlementDocument } from '../api/client';
-import { getCustomer, getSettlementDocuments, sendCustomerUpdate } from '../api/client';
+import { 
+  getCustomer, getSettlementDocuments, sendCustomerUpdate,
+  initiateEndOfSupply, initiateMoveOut, initiateIncorrectSwitch, 
+  initiateIncorrectMove,
+} from '../api/client';
 
 const { Text, Title } = Typography;
 
@@ -23,6 +28,8 @@ const statusColors: Record<string, string> = {
   Calculated: 'green', Invoiced: 'blue', Adjusted: 'orange',
 };
 
+type SupplyModalType = 'endOfSupply' | 'moveOut' | 'incorrectSwitch' | 'incorrectMove' | null;
+
 export default function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [customer, setCustomer] = useState<CustomerDetail | null>(null);
@@ -32,6 +39,9 @@ export default function CustomerDetailPage() {
   const [updateOpen, setUpdateOpen] = useState(false);
   const [updateLoading, setUpdateLoading] = useState(false);
   const [updateForm] = Form.useForm();
+  const [supplyModal, setSupplyModal] = useState<SupplyModalType>(null);
+  const [supplySubmitting, setSupplySubmitting] = useState(false);
+  const [supplyForm] = Form.useForm();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -89,6 +99,62 @@ export default function CustomerDetailPage() {
       message.error(err.response?.data?.error || 'Der opstod en fejl');
     } finally {
       setUpdateLoading(false);
+    }
+  };
+
+  const openSupplyModal = (type: SupplyModalType) => {
+    supplyForm.resetFields();
+    // Pre-fill GSRN from the customer's active supply
+    if (activeLev.length > 0) {
+      supplyForm.setFieldsValue({ gsrn: activeLev[0].gsrn });
+    }
+    setSupplyModal(type);
+  };
+
+  const handleSupplySubmit = async () => {
+    try {
+      const values = await supplyForm.validateFields();
+      setSupplySubmitting(true);
+
+      switch (supplyModal) {
+        case 'endOfSupply':
+          await initiateEndOfSupply({
+            gsrn: values.gsrn,
+            desiredEndDate: values.desiredEndDate.format('YYYY-MM-DD'),
+            reason: values.reason || undefined,
+          });
+          break;
+        case 'moveOut':
+          await initiateMoveOut({
+            gsrn: values.gsrn,
+            effectiveDate: values.effectiveDate.format('YYYY-MM-DD'),
+          });
+          break;
+        case 'incorrectSwitch':
+          await initiateIncorrectSwitch({
+            gsrn: values.gsrn,
+            switchDate: values.switchDate.format('YYYY-MM-DD'),
+            reason: values.reason || undefined,
+          });
+          break;
+        case 'incorrectMove':
+          await initiateIncorrectMove({
+            gsrn: values.gsrn,
+            moveDate: values.moveDate.format('YYYY-MM-DD'),
+            moveType: values.moveType,
+            reason: values.reason || undefined,
+          });
+          break;
+      }
+
+      message.success('Process oprettet');
+      setSupplyModal(null);
+      // Optionally reload data if needed
+    } catch (err: any) {
+      if (err.errorFields) return; // validation error
+      message.error(err.response?.data?.error || 'Der opstod en fejl');
+    } finally {
+      setSupplySubmitting(false);
     }
   };
 
@@ -273,81 +339,106 @@ export default function CustomerDetailPage() {
         ))}
       </Row>
 
+      {/* Three info cards in a row */}
+      <Row gutter={16}>
+        <Col xs={24} md={8}>
+          <Card title="Kontaktoplysninger" size="small" style={{ borderRadius: 12, height: '100%' }}>
+            <Space direction="vertical" size={10} style={{ width: '100%' }}>
+              {customer.email && (
+                <Space><MailOutlined style={{ color: '#7593a9' }} /><Text>{customer.email}</Text></Space>
+              )}
+              {customer.phone && (
+                <Space><PhoneOutlined style={{ color: '#7593a9' }} /><Text>{customer.phone}</Text></Space>
+              )}
+              {!customer.email && !customer.phone && <Text type="secondary">Ingen kontaktoplysninger</Text>}
+              <div style={{ marginTop: 8 }}>
+                <div className="micro-label">TYPE</div>
+                <Tag color={customer.isPrivate ? 'blue' : 'green'}>
+                  {customer.isPrivate ? 'Private' : 'Business'}
+                </Tag>
+              </div>
+              <div>
+                <div className="micro-label">{customer.isPrivate ? 'CPR' : 'CVR'}</div>
+                <Text className="mono">{customer.cpr || customer.cvr || '—'}</Text>
+              </div>
+            </Space>
+          </Card>
+        </Col>
+        <Col xs={24} md={8}>
+          <Card title="Adresse" size="small" style={{ borderRadius: 12, height: '100%' }}>
+            {customer.address ? (
+              <Space><HomeOutlined style={{ color: '#7593a9' }} />
+                <Text>
+                  {customer.address.streetName} {customer.address.buildingNumber}
+                  {customer.address.floor ? `, ${customer.address.floor}.` : ''}
+                  {customer.address.suite ? ` ${customer.address.suite}` : ''}
+                  <br />{customer.address.postCode} {customer.address.cityName}
+                </Text>
+              </Space>
+            ) : (
+              <Text type="secondary">Ingen adresse registreret</Text>
+            )}
+          </Card>
+        </Col>
+        <Col xs={24} md={8}>
+          <Card title="Leverandør" size="small" style={{ borderRadius: 12, height: '100%' }}>
+            <Space direction="vertical" size={8}>
+              <div>
+                <Text strong>{customer.supplierName}</Text>
+              </div>
+              <div>
+                <div className="micro-label">GLN</div>
+                <Text type="secondary" className="mono" style={{ fontSize: 12 }}>{customer.supplierGln}</Text>
+              </div>
+              <div>
+                <div className="micro-label">OPRETTET</div>
+                <Text className="tnum" style={{ fontSize: 12 }}>
+                  {new Date(customer.createdAt).toLocaleString('da-DK')}
+                </Text>
+              </div>
+            </Space>
+          </Card>
+        </Col>
+      </Row>
+
       {/* Tabs */}
       <Card style={{ borderRadius: 12 }}>
         <Tabs
-          defaultActiveKey="overview"
+          defaultActiveKey="supplies"
           items={[
-            {
-              key: 'overview',
-              label: 'Oversigt',
-              children: (
-                <Row gutter={[24, 16]}>
-                  <Col xs={24} md={12}>
-                    <Card size="small" title="Kontaktoplysninger" style={{ borderRadius: 10 }}>
-                      <Space direction="vertical" size={10} style={{ width: '100%' }}>
-                        {customer.email && (
-                          <Space><MailOutlined style={{ color: '#7593a9' }} /><Text>{customer.email}</Text></Space>
-                        )}
-                        {customer.phone && (
-                          <Space><PhoneOutlined style={{ color: '#7593a9' }} /><Text>{customer.phone}</Text></Space>
-                        )}
-                        {!customer.email && !customer.phone && <Text type="secondary">Ingen kontaktoplysninger</Text>}
-                      </Space>
-                    </Card>
-                  </Col>
-                  <Col xs={24} md={12}>
-                    <Card size="small" title="Adresse" style={{ borderRadius: 10 }}>
-                      {customer.address ? (
-                        <Space><HomeOutlined style={{ color: '#7593a9' }} />
-                          <Text>
-                            {customer.address.streetName} {customer.address.buildingNumber}
-                            {customer.address.floor ? `, ${customer.address.floor}.` : ''}
-                            {customer.address.suite ? ` ${customer.address.suite}` : ''}
-                            <br />{customer.address.postCode} {customer.address.cityName}
-                          </Text>
-                        </Space>
-                      ) : <Text type="secondary">Ingen adresse registreret</Text>}
-                    </Card>
-                  </Col>
-                  <Col xs={24}>
-                    <Descriptions size="small" column={{ xs: 1, sm: 2 }} bordered>
-                      <Descriptions.Item label="Type">
-                        <Tag color={customer.isPrivate ? 'blue' : 'green'}>{customer.isPrivate ? 'Private' : 'Business'}</Tag>
-                      </Descriptions.Item>
-                      <Descriptions.Item label={customer.isPrivate ? 'CPR' : 'CVR'}>
-                        <Text className="mono">{customer.cpr || customer.cvr || '—'}</Text>
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Supplier">
-                        <Space size={4}>
-                          <Text>{customer.supplierName}</Text>
-                          <Text type="secondary" className="mono" style={{ fontSize: 12 }}>{customer.supplierGln}</Text>
-                        </Space>
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Created">
-                        {new Date(customer.createdAt).toLocaleString('da-DK')}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Afregnet total">
-                        <Text strong className="tnum">{formatDKK(totalSettled)}</Text>
-                      </Descriptions.Item>
-                    </Descriptions>
-                  </Col>
-                </Row>
-              ),
-            },
             {
               key: 'supplies',
               label: `Supplies (${customer.supplies.length})`,
-              children: customer.supplies.length > 0 ? (
-                <Table
-                  dataSource={customer.supplies}
-                  columns={supplyColumns}
-                  rowKey="id"
-                  pagination={false}
-                  size="small"
-                />
-              ) : (
-                <Empty description="Ingen supplies" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              children: (
+                <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                  {activeLev.length > 0 && (
+                    <Space wrap>
+                      <Button icon={<StopOutlined />} onClick={() => openSupplyModal('endOfSupply')}>
+                        Ophør leverance
+                      </Button>
+                      <Button icon={<LogoutOutlined />} onClick={() => openSupplyModal('moveOut')}>
+                        Fraflytning
+                      </Button>
+                      <Button icon={<SwapOutlined />} onClick={() => openSupplyModal('incorrectSwitch')}>
+                        Fejl: Leverandørskift
+                      </Button>
+                      <Button icon={<ExclamationCircleOutlined />} onClick={() => openSupplyModal('incorrectMove')}>
+                        Fejl: Flytning
+                      </Button>
+                    </Space>
+                  )}
+                  {customer.supplies.length > 0 ? (
+                    <Table
+                      dataSource={customer.supplies}
+                      columns={supplyColumns}
+                      rowKey="id"
+                      pagination={false}
+                      size="small"
+                    />
+                  ) : (
+                    <Empty description="Ingen supplies" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  )}
+                </Space>
               ),
             },
             {
@@ -445,6 +536,81 @@ export default function CustomerDetailPage() {
               <Button type="primary" htmlType="submit" loading={updateLoading}>Send til DataHub</Button>
             </Space>
           </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Supply Action Modals */}
+      <Modal
+        open={supplyModal !== null}
+        title={(() => {
+          const modalTitles: Record<string, string> = {
+            endOfSupply: 'Ophør leverance (BRS-002)',
+            moveOut: 'Fraflytning (BRS-010)',
+            incorrectSwitch: 'Fejl: Leverandørskift (BRS-003)',
+            incorrectMove: 'Fejl: Flytning (BRS-011)',
+          };
+          return supplyModal ? modalTitles[supplyModal] : '';
+        })()}
+        onCancel={() => setSupplyModal(null)}
+        onOk={handleSupplySubmit}
+        confirmLoading={supplySubmitting}
+        okText="Opret"
+        cancelText="Annuller"
+      >
+        <Form form={supplyForm} layout="vertical" style={{ marginTop: 16 }}>
+          {/* GSRN — all modals */}
+          <Form.Item name="gsrn" label="GSRN" rules={[{ required: true, message: 'GSRN er påkrævet' }]}>
+            <Input placeholder="571313..." style={{ fontFamily: 'monospace' }} />
+          </Form.Item>
+
+          {/* End of Supply */}
+          {supplyModal === 'endOfSupply' && (
+            <>
+              <Form.Item name="desiredEndDate" label="Ønsket slutdato" rules={[{ required: true, message: 'Dato er påkrævet' }]}>
+                <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="reason" label="Årsag">
+                <Input placeholder="Valgfrit" />
+              </Form.Item>
+            </>
+          )}
+
+          {/* Move-Out */}
+          {supplyModal === 'moveOut' && (
+            <Form.Item name="effectiveDate" label="Effektiv dato" rules={[{ required: true, message: 'Dato er påkrævet' }]}>
+              <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} />
+            </Form.Item>
+          )}
+
+          {/* Incorrect Switch */}
+          {supplyModal === 'incorrectSwitch' && (
+            <>
+              <Form.Item name="switchDate" label="Skiftedato" rules={[{ required: true, message: 'Dato er påkrævet' }]}>
+                <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="reason" label="Årsag">
+                <Input placeholder="Valgfrit" />
+              </Form.Item>
+            </>
+          )}
+
+          {/* Incorrect Move */}
+          {supplyModal === 'incorrectMove' && (
+            <>
+              <Form.Item name="moveDate" label="Flytningsdato" rules={[{ required: true, message: 'Dato er påkrævet' }]}>
+                <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="moveType" label="Flytningstype" rules={[{ required: true, message: 'Type er påkrævet' }]}>
+                <Select placeholder="Vælg type" options={[
+                  { value: 'MoveIn', label: 'Tilflytning' },
+                  { value: 'MoveOut', label: 'Fraflytning' },
+                ]} />
+              </Form.Item>
+              <Form.Item name="reason" label="Årsag">
+                <Input placeholder="Valgfrit" />
+              </Form.Item>
+            </>
+          )}
         </Form>
       </Modal>
     </Space>

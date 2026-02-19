@@ -60,6 +60,9 @@ public static class SimulationEndpoints
         /// </summary>
         app.MapPost("/api/simulation/supplier-change", async (SimulateSupplierChangeRequest req, WattsOnDbContext db) =>
         {
+            // Normalize effective date to midnight UTC (avoids timezone offset drift between entities)
+            req = req with { EffectiveDate = new DateTimeOffset(req.EffectiveDate.UtcDateTime.Date, TimeSpan.Zero) };
+
             var identity = await db.SupplierIdentities.FirstOrDefaultAsync(a => a.IsActive);
             if (identity is null) return Results.Problem("No supplier identity configured");
 
@@ -179,10 +182,7 @@ public static class SimulationEndpoints
             if (req.GenerateConsumption)
             {
                 var periodStart = req.EffectiveDate;
-                // Generate one month of data from effective date
-                var periodEnd = new DateTimeOffset(
-                    periodStart.Year, periodStart.Month, 1, 0, 0, 0, periodStart.Offset)
-                    .AddMonths(1);
+                var periodEnd = periodStart.AddMonths(1);
 
                 time_series = TimeSeries.Create(mp.Id, Period.Create(periodStart, periodEnd),
                     Resolution.PT1H, 1, $"SIM-{transactionId}");
@@ -244,6 +244,7 @@ public static class SimulationEndpoints
         /// </summary>
         app.MapPost("/api/simulation/supplier-change-outgoing", async (SimulateOutgoingSupplierChangeRequest req, WattsOnDbContext db) =>
         {
+            req = req with { EffectiveDate = new DateTimeOffset(req.EffectiveDate.UtcDateTime.Date, TimeSpan.Zero) };
             // Find the supply
             var supply = await db.Supplies
                 .Include(l => l.Customer)
@@ -310,6 +311,7 @@ public static class SimulationEndpoints
         /// </summary>
         app.MapPost("/api/simulation/move-in", async (SimulateMoveInRequest req, WattsOnDbContext db) =>
         {
+            req = req with { EffectiveDate = new DateTimeOffset(req.EffectiveDate.UtcDateTime.Date, TimeSpan.Zero) };
             var identity = await db.SupplierIdentities.FirstOrDefaultAsync(a => a.IsActive);
             if (identity is null) return Results.Problem("No supplier identity configured");
 
@@ -379,8 +381,7 @@ public static class SimulationEndpoints
             if (req.GenerateConsumption)
             {
                 var periodStart = req.EffectiveDate;
-                var periodEnd = new DateTimeOffset(
-                    periodStart.Year, periodStart.Month, 1, 0, 0, 0, periodStart.Offset).AddMonths(1);
+                var periodEnd = periodStart.AddMonths(1);
 
                 time_series = TimeSeries.Create(mp.Id, Period.Create(periodStart, periodEnd),
                     Resolution.PT1H, 1, $"SIM-{result.Process.TransactionId}");
@@ -459,6 +460,7 @@ public static class SimulationEndpoints
         /// </summary>
         app.MapPost("/api/simulation/move-out", async (SimulateMoveOutRequest req, WattsOnDbContext db) =>
         {
+            req = req with { EffectiveDate = new DateTimeOffset(req.EffectiveDate.UtcDateTime.Date, TimeSpan.Zero) };
             var supply = await db.Supplies
                 .Include(l => l.Customer)
                 .Include(l => l.MeteringPoint)

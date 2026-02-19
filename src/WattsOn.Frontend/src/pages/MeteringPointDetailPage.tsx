@@ -2,13 +2,16 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card, Descriptions, Table, Tag, Spin, Alert, Space, Typography, Button,
-  Modal, Form, DatePicker, Select, Input, message,
+  Modal, Form, DatePicker, Select, Input, message, Row, Col, Tabs, Empty,
 } from 'antd';
 import {
   ArrowLeftOutlined, DatabaseOutlined, ToolOutlined, FireOutlined,
-  BarChartOutlined, CalendarOutlined, LinkOutlined,
+  BarChartOutlined, CalendarOutlined, LinkOutlined, ThunderboltOutlined,
+  HomeOutlined,
 } from '@ant-design/icons';
 import type { MeteringPointDetail } from '../api/client';
+
+const { Text, Title } = Typography;
 import {
   getMeteringPoint, requestMasterData, createServiceRequest,
   toggleElectricalHeating, requestMeteredData, requestYearlySum,
@@ -174,43 +177,121 @@ export default function MeteringPointDetailPage() {
     chargeLinks: 'Hent pristilknytninger (BRS-038)',
   };
 
-  return (
-    <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/metering-points')}>Back</Button>
+  const activeSupplies = mp.supplies.filter(s => s.isActive);
 
-      <Card>
-        <Typography.Title level={3} style={{ fontFamily: 'monospace' }}>{mp.gsrn}</Typography.Title>
-        <Descriptions column={2} bordered size="small">
-          <Descriptions.Item label="Type">{mp.type}</Descriptions.Item>
-          <Descriptions.Item label="Art">{mp.art}</Descriptions.Item>
-          <Descriptions.Item label="Settlementsmetode">{mp.settlementMethod}</Descriptions.Item>
-          <Descriptions.Item label="Opløsning">{mp.resolution}</Descriptions.Item>
-          <Descriptions.Item label="Tilstand">
-            <Tag color={connectionStateColors[mp.connectionState] || 'default'}>{mp.connectionState}</Tag>
-          </Descriptions.Item>
-          <Descriptions.Item label="Aktiv forsyning">
-            <Tag color={mp.hasActiveSupply ? 'green' : 'default'}>{mp.hasActiveSupply ? 'Ja' : 'Nej'}</Tag>
-          </Descriptions.Item>
-          <Descriptions.Item label="Netområde">{mp.gridArea}</Descriptions.Item>
-          <Descriptions.Item label="Netvirksomhed GLN">{mp.gridCompanyGln}</Descriptions.Item>
-          {mp.address && (
-            <Descriptions.Item label="Adresse" span={2}>
-              {mp.address.streetName} {mp.address.buildingNumber}
-              {mp.address.floor ? `, ${mp.address.floor}.` : ''}
-              {mp.address.suite ? ` ${mp.address.suite}` : ''}
-              , {mp.address.postCode} {mp.address.cityName}
-            </Descriptions.Item>
-          )}
-          <Descriptions.Item label="Created">
-            {new Date(mp.createdAt).toLocaleString('da-DK')}
-          </Descriptions.Item>
-        </Descriptions>
+  return (
+    <Space direction="vertical" size={20} style={{ width: '100%' }}>
+      <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/metering-points')}
+        style={{ color: '#7593a9', fontWeight: 500, paddingLeft: 0 }}>
+        Målepunkter
+      </Button>
+
+      {/* Hero card */}
+      <Card style={{ borderRadius: 12 }}>
+        <Row gutter={24} align="middle">
+          <Col flex="auto">
+            <Space size={12} align="center">
+              <div style={{
+                width: 48, height: 48, borderRadius: 14,
+                background: 'linear-gradient(135deg, #7c3aed20, #7c3aed10)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <ThunderboltOutlined style={{ fontSize: 20, color: '#7c3aed' }} />
+              </div>
+              <div>
+                <Title level={3} style={{ margin: 0 }} className="mono">{mp.gsrn}</Title>
+                <Space size={8} style={{ marginTop: 4 }}>
+                  <Tag color={connectionStateColors[mp.connectionState] || 'default'}>{mp.connectionState}</Tag>
+                  <Tag color={mp.hasActiveSupply ? 'green' : 'default'}>
+                    {mp.hasActiveSupply ? 'Aktiv forsyning' : 'Ingen forsyning'}
+                  </Tag>
+                  <Text type="secondary">{mp.gridArea}</Text>
+                </Space>
+              </div>
+            </Space>
+          </Col>
+          <Col>
+            <div style={{ textAlign: 'right' }}>
+              <div className="micro-label">Aktive forsyninger</div>
+              <div className="amount-large" style={{
+                marginTop: 4,
+                color: activeSupplies.length > 0 ? '#059669' : '#99afc2',
+              }}>
+                {activeSupplies.length}
+              </div>
+            </div>
+          </Col>
+        </Row>
       </Card>
+
+      {/* Three info cards in a row */}
+      <Row gutter={16}>
+        <Col xs={24} md={8}>
+          <Card title="Teknisk info" size="small" style={{ borderRadius: 12, height: '100%' }}>
+            <Descriptions size="small" column={1} colon={false}>
+              <Descriptions.Item label={<span className="micro-label">TYPE</span>}>{mp.type}</Descriptions.Item>
+              <Descriptions.Item label={<span className="micro-label">ART</span>}>{mp.art}</Descriptions.Item>
+              <Descriptions.Item label={<span className="micro-label">OPLØSNING</span>}>{mp.resolution}</Descriptions.Item>
+              <Descriptions.Item label={<span className="micro-label">AFREGNINGSMETODE</span>}>{mp.settlementMethod}</Descriptions.Item>
+            </Descriptions>
+          </Card>
+        </Col>
+        <Col xs={24} md={8}>
+          <Card title="Lokation" size="small" style={{ borderRadius: 12, height: '100%' }}>
+            <Space direction="vertical" size={4}>
+              {mp.address ? (
+                <Space>
+                  <HomeOutlined style={{ color: '#7593a9' }} />
+                  <div>
+                    <Text>{mp.address.streetName} {mp.address.buildingNumber}</Text>
+                    {mp.address.floor && <Text>, {mp.address.floor}.</Text>}
+                    {mp.address.suite && <Text> {mp.address.suite}</Text>}
+                    <br />
+                    <Text>{mp.address.postCode} {mp.address.cityName}</Text>
+                  </div>
+                </Space>
+              ) : (
+                <Text type="secondary">Ingen adresse registreret</Text>
+              )}
+              <div style={{ marginTop: 8 }}>
+                <div className="micro-label">NETOMRÅDE</div>
+                <Text>{mp.gridArea}</Text>
+              </div>
+              <div>
+                <div className="micro-label">NETVIRKSOMHED GLN</div>
+                <Text className="mono">{mp.gridCompanyGln}</Text>
+              </div>
+            </Space>
+          </Card>
+        </Col>
+        <Col xs={24} md={8}>
+          <Card title="Status" size="small" style={{ borderRadius: 12, height: '100%' }}>
+            <Space direction="vertical" size={8}>
+              <div>
+                <div className="micro-label">TILSLUTNINGSSTATUS</div>
+                <Tag color={connectionStateColors[mp.connectionState] || 'default'}>{mp.connectionState}</Tag>
+              </div>
+              <div>
+                <div className="micro-label">AKTIV FORSYNING</div>
+                <Tag color={mp.hasActiveSupply ? 'green' : 'default'}>
+                  {mp.hasActiveSupply ? 'Ja' : 'Nej'}
+                </Tag>
+              </div>
+              <div>
+                <div className="micro-label">OPRETTET</div>
+                <Text className="tnum" style={{ fontSize: 12 }}>
+                  {new Date(mp.createdAt).toLocaleString('da-DK')}
+                </Text>
+              </div>
+            </Space>
+          </Card>
+        </Col>
+      </Row>
 
       {/* Actions card */}
       <Card title="Handlinger" style={{ borderRadius: 12 }}>
         <Space wrap>
-          <Button icon={<DatabaseOutlined />} onClick={handleRequestMasterData}>
+          <Button type="primary" icon={<DatabaseOutlined />} onClick={handleRequestMasterData}>
             Hent stamdata
           </Button>
           <Button icon={<ToolOutlined />} onClick={() => openModal('service')}>
@@ -231,12 +312,43 @@ export default function MeteringPointDetailPage() {
         </Space>
       </Card>
 
-      <Card title={`Supplies (${mp.supplies.length})`}>
-        <Table dataSource={mp.supplies} columns={supplyColumns} rowKey="id" pagination={false} size="small" />
-      </Card>
-
-      <Card title={`TimeSeriesCollection (${mp.time_series.length})`}>
-        <Table dataSource={mp.time_series} columns={time_seriesColumns} rowKey="id" pagination={false} size="small" />
+      {/* Tabs for Supplies and TimeSeries */}
+      <Card style={{ borderRadius: 12 }}>
+        <Tabs
+          defaultActiveKey="supplies"
+          items={[
+            {
+              key: 'supplies',
+              label: `Supplies (${mp.supplies.length})`,
+              children: mp.supplies.length > 0 ? (
+                <Table 
+                  dataSource={mp.supplies} 
+                  columns={supplyColumns} 
+                  rowKey="id" 
+                  pagination={false} 
+                  size="small" 
+                />
+              ) : (
+                <Empty description="Ingen supplies" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              ),
+            },
+            {
+              key: 'timeseries',
+              label: `TimeSeries (${mp.time_series.length})`,
+              children: mp.time_series.length > 0 ? (
+                <Table 
+                  dataSource={mp.time_series} 
+                  columns={time_seriesColumns} 
+                  rowKey="id" 
+                  pagination={false} 
+                  size="small" 
+                />
+              ) : (
+                <Empty description="Ingen tidsserier" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              ),
+            },
+          ]}
+        />
       </Card>
 
       {/* Modals */}

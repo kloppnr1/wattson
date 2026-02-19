@@ -19,21 +19,17 @@ const { Sider, Content } = Layout;
 
 const menuItems = [
   { key: '/', icon: <DashboardOutlined />, label: 'Dashboard' },
-  { type: 'group' as const, label: 'CUSTOMERS', children: [
-    { key: '/customers', icon: <UserOutlined />, label: 'Customers' },
-    { key: '/supplies', icon: <LinkOutlined />, label: 'Leverancer' },
+  { type: 'group' as const, label: 'KUNDER', children: [
+    { key: '/customers', icon: <UserOutlined />, label: 'Kunder' },
   ]},
-  { type: 'group' as const, label: 'BILLING', children: [
+  { type: 'group' as const, label: 'AFREGNING', children: [
     { key: '/settlements', icon: <CalculatorOutlined />, label: 'Settlements' },
-    { key: '/prices', icon: <DollarOutlined />, label: 'Prices' },
-  ]},
-  { type: 'group' as const, label: 'INFRASTRUKTUR', children: [
-    { key: '/metering-points', icon: <ThunderboltOutlined />, label: 'Målepunkter' },
+    { key: '/prices', icon: <DollarOutlined />, label: 'Priser' },
   ]},
   { type: 'group' as const, label: 'DATAHUB', children: [
-    { key: '/processes', icon: <SyncOutlined />, label: 'Processes' },
-    { key: '/messages', icon: <InboxOutlined />, label: 'Messages' },
-    { key: '/outbox', icon: <SendOutlined />, label: 'Outbox' },
+    { key: '/processes', icon: <SyncOutlined />, label: 'Processer' },
+    { key: '/messages', icon: <InboxOutlined />, label: 'Beskeder' },
+    { key: '/outbox', icon: <SendOutlined />, label: 'Udbakke' },
   ]},
   { type: 'group' as const, label: 'SYSTEM', children: [
     { key: '/admin', icon: <SettingOutlined />, label: 'Administration' },
