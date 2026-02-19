@@ -3,8 +3,8 @@ using WattsOn.Domain.Common;
 namespace WattsOn.Domain.Entities;
 
 /// <summary>
-/// Hourly electricity spot price from Nord Pool (via Energi Data Service).
-/// Stored per price area (DK1, DK2) and hour.
+/// Day-ahead electricity spot price from Nord Pool (via Energi Data Service).
+/// Stored per price area (DK1, DK2) and time interval (15-min since 2025).
 /// Prices are in DKK per MWh from the source — we store both DKK/MWh and convert to DKK/kWh.
 /// </summary>
 public class SpotPrice : Entity

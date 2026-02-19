@@ -7,7 +7,8 @@ using WattsOn.Infrastructure.Persistence;
 namespace WattsOn.Worker;
 
 /// <summary>
-/// Fetches hourly electricity spot prices from Energi Data Service (energidataservice.dk).
+/// Fetches day-ahead electricity spot prices from Energi Data Service (energidataservice.dk).
+/// Dataset: DayAheadPrices (15-minute resolution since 2025, previously hourly via Elspotprices).
 /// Polls every hour for DK1 and DK2 price areas.
 /// Data source: Nord Pool via Energi Data Service (public, no API key required).
 /// </summary>
@@ -18,7 +19,7 @@ public class SpotPriceWorker : BackgroundService
     private readonly HttpClient _httpClient;
     private readonly TimeSpan _pollInterval = TimeSpan.FromHours(1);
 
-    private const string BaseUrl = "https://api.energidataservice.dk/dataset/Elspotprices";
+    private const string BaseUrl = "https://api.energidataservice.dk/dataset/DayAheadPrices";
 
     public SpotPriceWorker(IServiceScopeFactory scopeFactory, ILogger<SpotPriceWorker> logger, IHttpClientFactory httpClientFactory)
     {
@@ -63,14 +64,15 @@ public class SpotPriceWorker : BackgroundService
 
     /// <summary>
     /// Fetch the latest available spot prices (sorted desc) regardless of system date.
-    /// Used for initial backfill when the system date may be ahead of available data.
+    /// Used for initial backfill when the DB is empty.
+    /// DayAheadPrices uses 15-min intervals = 96 per area per day.
     /// </summary>
     private async Task FetchLatestSpotPrices(int days, CancellationToken ct)
     {
-        var hoursToFetch = days * 24 * 2; // ×2 for DK1+DK2
-        var url = $"{BaseUrl}?filter={{\"PriceArea\":[\"DK1\",\"DK2\"]}}&sort=HourUTC%20desc&limit={hoursToFetch}";
+        var intervalsToFetch = days * 96 * 2; // 96 quarter-hours per day × 2 areas
+        var url = $"{BaseUrl}?filter={{\"PriceArea\":[\"DK1\",\"DK2\"]}}&sort=TimeUTC%20desc&limit={intervalsToFetch}";
 
-        _logger.LogInformation("Fetching latest {Hours} spot price records (backfill)", hoursToFetch);
+        _logger.LogInformation("Fetching latest {Count} spot price records (backfill)", intervalsToFetch);
 
         try
         {
@@ -82,7 +84,7 @@ public class SpotPriceWorker : BackgroundService
             }
 
             _logger.LogInformation("Received {Count} spot price records (latest: {Latest})",
-                response.Records.Count, response.Records.First().HourUTC);
+                response.Records.Count, response.Records.First().TimeUTC);
 
             await UpsertSpotPrices(response.Records, ct);
         }
@@ -95,7 +97,7 @@ public class SpotPriceWorker : BackgroundService
     private async Task FetchSpotPrices(int days, CancellationToken ct)
     {
         var start = DateTimeOffset.UtcNow.AddDays(-days).ToString("yyyy-MM-dd");
-        var url = $"{BaseUrl}?start={start}&filter={{\"PriceArea\":[\"DK1\",\"DK2\"]}}&sort=HourUTC%20asc&limit=10000";
+        var url = $"{BaseUrl}?start={start}&filter={{\"PriceArea\":[\"DK1\",\"DK2\"]}}&sort=TimeUTC%20asc&limit=20000";
 
         _logger.LogInformation("Fetching spot prices from {Start} for DK1/DK2", start);
 
@@ -125,22 +127,22 @@ public class SpotPriceWorker : BackgroundService
         var inserted = 0;
         foreach (var record in records)
         {
-            if (record.SpotPriceDKK == null) continue;
+            if (record.DayAheadPriceDKK == null) continue;
 
-            var hourUtc = record.HourUTC;
+            var timeUtc = record.TimeUTC;
             var area = record.PriceArea;
 
             var exists = await db.SpotPrices
-                .AnyAsync(sp => sp.HourUtc == hourUtc && sp.PriceArea == area, ct);
+                .AnyAsync(sp => sp.HourUtc == timeUtc && sp.PriceArea == area, ct);
 
             if (exists) continue;
 
             var spotPrice = SpotPrice.Create(
-                hourUtc: hourUtc,
-                hourDk: record.HourDK,
+                hourUtc: timeUtc,
+                hourDk: record.TimeDK,
                 priceArea: area,
-                spotPriceDkkPerMwh: record.SpotPriceDKK.Value,
-                spotPriceEurPerMwh: record.SpotPriceEUR ?? 0);
+                spotPriceDkkPerMwh: record.DayAheadPriceDKK.Value,
+                spotPriceEurPerMwh: record.DayAheadPriceEUR ?? 0);
 
             db.SpotPrices.Add(spotPrice);
             inserted++;
@@ -157,7 +159,7 @@ public class SpotPriceWorker : BackgroundService
         }
     }
 
-    // DTOs for Energi Data Service API response
+    // DTOs for Energi Data Service DayAheadPrices API response
     private class EdsResponse
     {
         [JsonPropertyName("total")]
@@ -169,19 +171,19 @@ public class SpotPriceWorker : BackgroundService
 
     private class EdsRecord
     {
-        [JsonPropertyName("HourUTC")]
-        public DateTimeOffset HourUTC { get; set; }
+        [JsonPropertyName("TimeUTC")]
+        public DateTimeOffset TimeUTC { get; set; }
 
-        [JsonPropertyName("HourDK")]
-        public DateTimeOffset HourDK { get; set; }
+        [JsonPropertyName("TimeDK")]
+        public DateTimeOffset TimeDK { get; set; }
 
         [JsonPropertyName("PriceArea")]
         public string PriceArea { get; set; } = null!;
 
-        [JsonPropertyName("SpotPriceDKK")]
-        public decimal? SpotPriceDKK { get; set; }
+        [JsonPropertyName("DayAheadPriceDKK")]
+        public decimal? DayAheadPriceDKK { get; set; }
 
-        [JsonPropertyName("SpotPriceEUR")]
-        public decimal? SpotPriceEUR { get; set; }
+        [JsonPropertyName("DayAheadPriceEUR")]
+        public decimal? DayAheadPriceEUR { get; set; }
     }
 }
