@@ -45,10 +45,19 @@ export default function AppLayout() {
     'children' in item ? item.children || [] : [item]
   );
 
+  // Map orphaned routes (removed from sidebar) to their logical parent
+  const routeParents: Record<string, string> = {
+    '/metering-points': '/customers',
+    '/supplies': '/customers',
+  };
+  const effectivePath = Object.entries(routeParents).find(
+    ([prefix]) => location.pathname.startsWith(prefix)
+  )?.[1] || location.pathname;
+
   const selectedKey = allItems.find(item =>
     'key' in item && (
-      location.pathname === item.key ||
-      (item.key !== '/' && location.pathname.startsWith(item.key as string))
+      effectivePath === item.key ||
+      (item.key !== '/' && effectivePath.startsWith(item.key as string))
     )
   )?.key as string || '/';
 
