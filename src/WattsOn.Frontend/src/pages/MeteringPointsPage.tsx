@@ -28,7 +28,7 @@ export default function MeteringPointsPage() {
       dataIndex: 'gsrn',
       key: 'gsrn',
       render: (gsrn: string, record: MeteringPoint) => (
-        <a onClick={() => navigate(`/metering_points/${record.id}`)} style={{ fontFamily: 'monospace' }}>
+        <a onClick={() => navigate(`/metering-points/${record.id}`)} style={{ fontFamily: 'monospace' }}>
           {gsrn}
         </a>
       ),

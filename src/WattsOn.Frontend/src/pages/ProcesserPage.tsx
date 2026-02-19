@@ -1,10 +1,15 @@
 import { useEffect, useState } from 'react';
 import {
-  Card, Table, Typography, Space, Row, Col, Statistic, 
-  Spin, Input, Select, Modal, Steps, Descriptions,
+  Card, Table, Typography, Space, Row, Col, Statistic,
+  Spin, Input, Select, Modal, Steps, Descriptions, Button,
+  Dropdown, Form, DatePicker, message,
 } from 'antd';
+import { PlusOutlined, DownOutlined } from '@ant-design/icons';
 import type { BrsProcess } from '../api/client';
-import { getProcesser, getProcess } from '../api/client';
+import {
+  getProcesser, getProcess, requestAggregatedData,
+  requestWholesaleSettlement, requestPrices,
+} from '../api/client';
 
 const { Text } = Typography;
 
@@ -23,6 +28,8 @@ const statusMap: Record<string, { dot: string; label: string }> = {
 const formatDateTime = (d: string) => new Date(d).toLocaleString('da-DK');
 const formatDate = (d: string) => new Date(d).toLocaleDateString('da-DK');
 
+type RequestModal = 'aggregated' | 'wholesale' | 'prices' | null;
+
 export default function ProcesserPage() {
   const [data, setData] = useState<BrsProcess[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,12 +38,18 @@ export default function ProcesserPage() {
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [detail, setDetail] = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [activeModal, setActiveModal] = useState<RequestModal>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [form] = Form.useForm();
 
-  useEffect(() => {
+  const loadData = () => {
+    setLoading(true);
     getProcesser()
       .then(res => setData(res.data))
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { loadData(); }, []);
 
   const filtered = data.filter(p => {
     if (search && !p.meteringPointGsrn?.includes(search)) return false;
@@ -58,6 +71,55 @@ export default function ProcesserPage() {
       setDetail(record);
     } finally {
       setDetailLoading(false);
+    }
+  };
+
+  const openModal = (type: RequestModal) => {
+    form.resetFields();
+    setActiveModal(type);
+  };
+
+  const handleSubmit = async () => {
+    try {
+      const values = await form.validateFields();
+      setSubmitting(true);
+
+      switch (activeModal) {
+        case 'aggregated':
+          await requestAggregatedData({
+            gridArea: values.gridArea,
+            startDate: values.startDate.format('YYYY-MM-DD'),
+            endDate: values.endDate.format('YYYY-MM-DD'),
+            meteringPointType: values.meteringPointType || undefined,
+            processType: values.processType || undefined,
+          });
+          break;
+        case 'wholesale':
+          await requestWholesaleSettlement({
+            gridArea: values.gridArea,
+            startDate: values.startDate.format('YYYY-MM-DD'),
+            endDate: values.endDate.format('YYYY-MM-DD'),
+            energySupplierGln: values.energySupplierGln || undefined,
+          });
+          break;
+        case 'prices':
+          await requestPrices({
+            startDate: values.startDate.format('YYYY-MM-DD'),
+            endDate: values.endDate ? values.endDate.format('YYYY-MM-DD') : undefined,
+            priceOwnerGln: values.priceOwnerGln || undefined,
+            requestType: values.requestType || undefined,
+          });
+          break;
+      }
+
+      message.success('Process oprettet');
+      setActiveModal(null);
+      loadData();
+    } catch (err: any) {
+      if (err.errorFields) return;
+      message.error(err.response?.data?.error || 'Der opstod en fejl');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -125,13 +187,37 @@ export default function ProcesserPage() {
     },
   ];
 
+  const modalTitles: Record<string, string> = {
+    aggregated: 'Hent aggregerede data (BRS-023)',
+    wholesale: 'Hent engrosafregning (BRS-027)',
+    prices: 'Hent priser (BRS-034)',
+  };
+
   if (loading) return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
 
   return (
     <Space direction="vertical" size={24} style={{ width: '100%' }}>
       <div className="page-header">
-        <h2>Processer</h2>
-        <div className="page-subtitle">BRS processes with DataHub</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h2>Processer</h2>
+            <div className="page-subtitle">BRS processes with DataHub</div>
+          </div>
+          <Dropdown
+            menu={{
+              items: [
+                { key: 'aggregated', label: 'Hent aggregerede data (BRS-023)' },
+                { key: 'wholesale', label: 'Hent engrosafregning (BRS-027)' },
+                { key: 'prices', label: 'Hent priser (BRS-034)' },
+              ],
+              onClick: ({ key }) => openModal(key as RequestModal),
+            }}
+          >
+            <Button type="primary" icon={<PlusOutlined />}>
+              Ny anmodning <DownOutlined />
+            </Button>
+          </Dropdown>
+        </div>
       </div>
 
       {/* Filters */}
@@ -201,7 +287,7 @@ export default function ProcesserPage() {
         />
       </Card>
 
-      {/* Detail modal */}
+      {/* Process Detail modal */}
       <Modal
         open={!!detail || detailLoading}
         onCancel={() => setDetail(null)}
@@ -263,6 +349,86 @@ export default function ProcesserPage() {
             )}
           </Space>
         ) : null}
+      </Modal>
+
+      {/* Request modals */}
+      <Modal
+        open={activeModal !== null}
+        title={activeModal ? modalTitles[activeModal] : ''}
+        onCancel={() => setActiveModal(null)}
+        onOk={handleSubmit}
+        confirmLoading={submitting}
+        okText="Opret"
+        cancelText="Annuller"
+      >
+        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+          {/* Aggregated Data (BRS-023) */}
+          {activeModal === 'aggregated' && (
+            <>
+              <Form.Item name="gridArea" label="Netområde" rules={[{ required: true, message: 'Netområde er påkrævet' }]}>
+                <Input placeholder="f.eks. DK1" />
+              </Form.Item>
+              <Form.Item name="startDate" label="Startdato" rules={[{ required: true, message: 'Startdato er påkrævet' }]}>
+                <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="endDate" label="Slutdato" rules={[{ required: true, message: 'Slutdato er påkrævet' }]}>
+                <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="meteringPointType" label="Målepunkttype">
+                <Select allowClear placeholder="Valgfrit" options={[
+                  { value: 'E17', label: 'E17 — Forbrug' },
+                  { value: 'E18', label: 'E18 — Produktion' },
+                ]} />
+              </Form.Item>
+              <Form.Item name="processType" label="Processtype">
+                <Select allowClear placeholder="Valgfrit" options={[
+                  { value: 'D04', label: 'D04' },
+                  { value: 'D05', label: 'D05' },
+                  { value: 'D32', label: 'D32' },
+                ]} />
+              </Form.Item>
+            </>
+          )}
+
+          {/* Wholesale Settlement (BRS-027) */}
+          {activeModal === 'wholesale' && (
+            <>
+              <Form.Item name="gridArea" label="Netområde" rules={[{ required: true, message: 'Netområde er påkrævet' }]}>
+                <Input placeholder="f.eks. DK1" />
+              </Form.Item>
+              <Form.Item name="startDate" label="Startdato" rules={[{ required: true, message: 'Startdato er påkrævet' }]}>
+                <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="endDate" label="Slutdato" rules={[{ required: true, message: 'Slutdato er påkrævet' }]}>
+                <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="energySupplierGln" label="Elleverandør GLN">
+                <Input placeholder="Valgfrit" />
+              </Form.Item>
+            </>
+          )}
+
+          {/* Prices (BRS-034) */}
+          {activeModal === 'prices' && (
+            <>
+              <Form.Item name="startDate" label="Startdato" rules={[{ required: true, message: 'Startdato er påkrævet' }]}>
+                <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="endDate" label="Slutdato">
+                <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} placeholder="Valgfrit" />
+              </Form.Item>
+              <Form.Item name="priceOwnerGln" label="Prisejer GLN">
+                <Input placeholder="Valgfrit" />
+              </Form.Item>
+              <Form.Item name="requestType" label="Anmodningstype">
+                <Select allowClear placeholder="Valgfrit" options={[
+                  { value: 'E0G', label: 'E0G' },
+                  { value: 'D48', label: 'D48' },
+                ]} />
+              </Form.Item>
+            </>
+          )}
+        </Form>
       </Modal>
     </Space>
   );

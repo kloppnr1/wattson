@@ -299,4 +299,65 @@ export const retryOutboxMessage = (id: string) => api.post(`/outbox/${id}/retry`
 export const getPrices = () => api.get<PriceSummary[]>('/prices');
 export const getPrice = (id: string) => api.get<PriceDetail>(`/prices/${id}`);
 
+// ==================== BRS Process Actions ====================
+
+// BRS-002: End of Supply
+export const initiateEndOfSupply = (data: { gsrn: string; desiredEndDate: string; reason?: string }) =>
+  api.post('/processes/end-of-supply', data);
+
+// BRS-010: Move-Out
+export const initiateMoveOut = (data: { gsrn: string; effectiveDate: string }) =>
+  api.post('/processes/move-out', data);
+
+// BRS-015: Customer Update
+export const sendCustomerUpdate = (data: {
+  gsrn: string; effectiveDate: string; customerName: string;
+  cpr?: string; cvr?: string; email?: string; phone?: string;
+  address?: AddressDto;
+}) => api.post('/processes/customer-update', data);
+
+// BRS-003: Incorrect Supplier Switch
+export const initiateIncorrectSwitch = (data: { gsrn: string; switchDate: string; reason?: string }) =>
+  api.post('/processes/incorrect-switch', data);
+
+// BRS-011: Incorrect Move
+export const initiateIncorrectMove = (data: { gsrn: string; moveDate: string; moveType: string; reason?: string }) =>
+  api.post('/processes/incorrect-move', data);
+
+// BRS-005: Request Master Data
+export const requestMasterData = (data: { gsrn: string }) =>
+  api.post('/processes/request-master-data', data);
+
+// BRS-039: Service Request
+export const createServiceRequest = (data: { gsrn: string; serviceType: string; requestedDate: string; reason?: string }) =>
+  api.post('/processes/service-request', data);
+
+// BRS-041: Electrical Heating
+export const toggleElectricalHeating = (data: { gsrn: string; action: string; effectiveDate: string }) =>
+  api.post('/processes/electrical-heating', data);
+
+// BRS-024: Request Yearly Sum
+export const requestYearlySum = (data: { gsrn: string }) =>
+  api.post('/processes/request-yearly-sum', data);
+
+// BRS-025: Request Metered Data
+export const requestMeteredData = (data: { gsrn: string; startDate: string; endDate: string }) =>
+  api.post('/processes/request-metered-data', data);
+
+// BRS-034: Request Prices
+export const requestPrices = (data: { startDate: string; endDate?: string; priceOwnerGln?: string; priceType?: string; requestType?: string }) =>
+  api.post('/processes/request-prices', data);
+
+// BRS-038: Request Charge Links
+export const requestChargeLinks = (data: { gsrn: string; startDate: string; endDate?: string }) =>
+  api.post('/processes/request-charge-links', data);
+
+// BRS-023: Request Aggregated Data
+export const requestAggregatedData = (data: { gridArea: string; startDate: string; endDate: string; meteringPointType?: string; processType?: string }) =>
+  api.post('/processes/request-aggregated-data', data);
+
+// BRS-027: Request Wholesale Settlement
+export const requestWholesaleSettlement = (data: { gridArea: string; startDate: string; endDate: string; energySupplierGln?: string }) =>
+  api.post('/processes/request-wholesale-settlement', data);
+
 export default api;

@@ -2,14 +2,16 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card, Descriptions, Table, Tag, Spin, Alert, Space, Typography,
-  Button, Tabs, Row, Col, Statistic, Divider, Empty,
+  Button, Tabs, Row, Col, Statistic, Empty, Modal, Form, Input,
+  Select, DatePicker, message,
 } from 'antd';
 import {
   ArrowLeftOutlined, UserOutlined, ThunderboltOutlined,
   CalculatorOutlined, MailOutlined, PhoneOutlined, HomeOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import type { CustomerDetail, SettlementDocument } from '../api/client';
-import { getCustomer, getSettlementDocuments } from '../api/client';
+import { getCustomer, getSettlementDocuments, sendCustomerUpdate } from '../api/client';
 
 const { Text, Title } = Typography;
 
@@ -27,6 +29,9 @@ export default function CustomerDetailPage() {
   const [settlements, setSettlements] = useState<SettlementDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [updateOpen, setUpdateOpen] = useState(false);
+  const [updateLoading, setUpdateLoading] = useState(false);
+  const [updateForm] = Form.useForm();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -40,6 +45,52 @@ export default function CustomerDetailPage() {
       .catch(err => setError(err.response?.status === 404 ? 'Customer ikke fundet' : err.message))
       .finally(() => setLoading(false));
   }, [id]);
+
+  const openUpdateModal = () => {
+    updateForm.setFieldsValue({
+      gsrn: activeLev.length > 0 ? activeLev[0].gsrn : undefined,
+      customerName: customer?.name,
+      cpr: customer?.cpr || undefined,
+      cvr: customer?.cvr || undefined,
+      email: customer?.email || undefined,
+      phone: customer?.phone || undefined,
+      streetName: customer?.address?.streetName || undefined,
+      buildingNumber: customer?.address?.buildingNumber || undefined,
+      postCode: customer?.address?.postCode || undefined,
+      cityName: customer?.address?.cityName || undefined,
+    });
+    setUpdateOpen(true);
+  };
+
+  const handleCustomerUpdate = async (values: any) => {
+    setUpdateLoading(true);
+    try {
+      await sendCustomerUpdate({
+        gsrn: values.gsrn,
+        effectiveDate: values.effectiveDate.toISOString(),
+        customerName: values.customerName,
+        cpr: values.cpr || undefined,
+        cvr: values.cvr || undefined,
+        email: values.email || undefined,
+        phone: values.phone || undefined,
+        address: values.streetName ? {
+          streetName: values.streetName,
+          buildingNumber: values.buildingNumber || '',
+          postCode: values.postCode || '',
+          cityName: values.cityName || '',
+          floor: null,
+          suite: null,
+        } : undefined,
+      });
+      message.success('Kundedata opdatering sendt til DataHub');
+      setUpdateOpen(false);
+      updateForm.resetFields();
+    } catch (err: any) {
+      message.error(err.response?.data?.error || 'Der opstod en fejl');
+    } finally {
+      setUpdateLoading(false);
+    }
+  };
 
   if (loading) return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
   if (error) return <Alert type="error" message={error} />;
@@ -60,7 +111,7 @@ export default function CustomerDetailPage() {
       key: 'gsrn',
       render: (gsrn: string, record: any) => (
         <Text className="mono" style={{ cursor: 'pointer' }}
-          onClick={(e) => { e.stopPropagation(); navigate(`/metering_points/${record.meteringPointId}`); }}>
+          onClick={(e) => { e.stopPropagation(); navigate(`/metering-points/${record.meteringPointId}`); }}>
           {gsrn}
         </Text>
       ),
@@ -186,12 +237,18 @@ export default function CustomerDetailPage() {
             </Space>
           </Col>
           <Col>
-            <div style={{ textAlign: 'right' }}>
-              <div className="micro-label">Afregnet total</div>
-              <div className="amount amount-large" style={{ marginTop: 4 }}>
-                {formatDKK(totalSettled)}
+            <Space direction="vertical" align="end" size={8}>
+              <div style={{ textAlign: 'right' }}>
+                <div className="micro-label">Afregnet total</div>
+                <div className="amount amount-large" style={{ marginTop: 4 }}>
+                  {formatDKK(totalSettled)}
+                </div>
               </div>
-            </div>
+              <Button icon={<EditOutlined />} onClick={openUpdateModal}
+                disabled={activeLev.length === 0}>
+                Opdater kundedata
+              </Button>
+            </Space>
           </Col>
         </Row>
       </Card>
@@ -311,6 +368,85 @@ export default function CustomerDetailPage() {
           ]}
         />
       </Card>
+
+      {/* BRS-015: Customer Update Modal */}
+      <Modal
+        title="Opdater kundedata (BRS-015)"
+        open={updateOpen}
+        onCancel={() => { setUpdateOpen(false); updateForm.resetFields(); }}
+        footer={null}
+        width={560}
+      >
+        <Form form={updateForm} layout="vertical" onFinish={handleCustomerUpdate}>
+          <Form.Item name="gsrn" label="Målepunkt (GSRN)" rules={[{ required: true }]}>
+            <Select placeholder="Vælg målepunkt">
+              {activeLev.map(s => (
+                <Select.Option key={s.gsrn} value={s.gsrn}>{s.gsrn}</Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+          <Form.Item name="effectiveDate" label="Effektiv dato" rules={[{ required: true }]}>
+            <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="customerName" label="Kundenavn" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="cpr" label="CPR">
+                <Input placeholder="0101901234" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="cvr" label="CVR">
+                <Input placeholder="12345678" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="email" label="Email">
+                <Input />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="phone" label="Telefon">
+                <Input />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={16}>
+              <Form.Item name="streetName" label="Vejnavn">
+                <Input />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="buildingNumber" label="Nr.">
+                <Input />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item name="postCode" label="Postnr.">
+                <Input />
+              </Form.Item>
+            </Col>
+            <Col span={16}>
+              <Form.Item name="cityName" label="By">
+                <Input />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+            <Space>
+              <Button onClick={() => { setUpdateOpen(false); updateForm.resetFields(); }}>Annuller</Button>
+              <Button type="primary" htmlType="submit" loading={updateLoading}>Send til DataHub</Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
     </Space>
   );
 }

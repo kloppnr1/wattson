@@ -8,6 +8,9 @@ import {
   ExperimentOutlined,
   SettingOutlined,
   DollarOutlined,
+  ThunderboltOutlined,
+  LinkOutlined,
+  SendOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import WattsOnIcon from './WattsOnIcon';
@@ -18,14 +21,19 @@ const menuItems = [
   { key: '/', icon: <DashboardOutlined />, label: 'Dashboard' },
   { type: 'group' as const, label: 'CUSTOMERS', children: [
     { key: '/customers', icon: <UserOutlined />, label: 'Customers' },
+    { key: '/supplies', icon: <LinkOutlined />, label: 'Leverancer' },
   ]},
   { type: 'group' as const, label: 'BILLING', children: [
     { key: '/settlements', icon: <CalculatorOutlined />, label: 'Settlements' },
     { key: '/prices', icon: <DollarOutlined />, label: 'Prices' },
   ]},
+  { type: 'group' as const, label: 'INFRASTRUKTUR', children: [
+    { key: '/metering-points', icon: <ThunderboltOutlined />, label: 'Målepunkter' },
+  ]},
   { type: 'group' as const, label: 'DATAHUB', children: [
     { key: '/processes', icon: <SyncOutlined />, label: 'Processes' },
     { key: '/messages', icon: <InboxOutlined />, label: 'Messages' },
+    { key: '/outbox', icon: <SendOutlined />, label: 'Outbox' },
   ]},
   { type: 'group' as const, label: 'SYSTEM', children: [
     { key: '/admin', icon: <SettingOutlined />, label: 'Administration' },

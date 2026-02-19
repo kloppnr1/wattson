@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Card, Table, Tag, Typography, Space, Switch, Row, Col, Statistic, Spin, Empty, Button, message, Tooltip } from 'antd';
 import {
-  SendOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
   ExclamationCircleOutlined,

@@ -6,7 +6,7 @@ import {
 } from 'antd';
 import {
   ArrowLeftOutlined, FileTextOutlined, SwapOutlined,
-  CheckCircleOutlined, MailOutlined, HomeOutlined,
+  CheckCircleOutlined, HomeOutlined,
 } from '@ant-design/icons';
 import type { SettlementDocument, SettlementDocumentLine } from '../api/client';
 import { getSettlementDocument, confirmSettlement } from '../api/client';

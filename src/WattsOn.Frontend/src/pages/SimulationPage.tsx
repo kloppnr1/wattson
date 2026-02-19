@@ -5,9 +5,9 @@ import {
   Segmented, Select, Empty,
 } from 'antd';
 import {
-  SwapOutlined, PlayCircleOutlined, CheckCircleOutlined,
-  LoadingOutlined, ThunderboltOutlined,
-  UserOutlined, CalculatorOutlined, FileTextOutlined,
+  SwapOutlined, PlayCircleOutlined,
+  LoadingOutlined,
+  UserOutlined, CalculatorOutlined,
   ReloadOutlined, ExperimentOutlined, LoginOutlined,
   LogoutOutlined, UserDeleteOutlined,
 } from '@ant-design/icons';
@@ -479,8 +479,7 @@ export default function SimulationPage() {
   const currentStepIndex = steps.findIndex(s => s.status === 'running');
   const allDone = steps.length > 0 && steps.every(s => s.status === 'done');
 
-  const formatDKK = (amount: number) =>
-    new Intl.NumberFormat('da-DK', { style: 'currency', currency: 'DKK' }).format(amount);
+  void 0; // formatDKK removed — was unused
 
   const canRun = config.needsExistingSupply
     ? !!selectedSupplyId && effectiveDate
