@@ -293,6 +293,7 @@ export const confirmSettlement = (id: string, externalInvoiceReference: string) 
 // Inbox / Outbox
 export const getInbox = (unprocessed?: boolean) => api.get<InboxMessage[]>('/inbox', { params: { unprocessed } });
 export const getOutbox = (unsent?: boolean) => api.get<any[]>('/outbox', { params: { unsent } });
+export const retryOutboxMessage = (id: string) => api.post(`/outbox/${id}/retry`);
 
 // Prices
 export const getPrices = () => api.get<PriceSummary[]>('/prices');

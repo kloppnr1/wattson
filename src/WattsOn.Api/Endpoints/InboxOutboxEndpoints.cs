@@ -50,16 +50,34 @@ public static class InboxOutboxEndpoints
                     m.BusinessProcess,
                     m.SenderGln,
                     m.ReceiverGln,
+                    m.Payload,
+                    m.Response,
                     m.IsSent,
                     m.SentAt,
                     m.SendError,
                     m.SendAttempts,
                     m.ScheduledFor,
-                    m.CreatedAt
+                    m.CreatedAt,
+                    m.UpdatedAt
                 })
                 .ToListAsync();
             return Results.Ok(messages);
         }).WithName("GetOutbox");
+
+        app.MapPost("/api/outbox/{id:guid}/retry", async (Guid id, WattsOnDbContext db) =>
+        {
+            var message = await db.OutboxMessages.FindAsync(id);
+            if (message is null)
+                return Results.NotFound(new { error = "Outbox message not found" });
+
+            if (message.IsSent)
+                return Results.BadRequest(new { error = "Message already sent" });
+
+            message.ResetForRetry();
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new { message = "Message queued for retry", id = message.Id });
+        }).WithName("RetryOutboxMessage");
 
         return app;
     }

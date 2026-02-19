@@ -83,4 +83,14 @@ public class OutboxMessage : Entity
         SendError = error;
         MarkUpdated();
     }
+
+    /// <summary>
+    /// Reset a dead-lettered message for retry (clears error, resets attempts).
+    /// </summary>
+    public void ResetForRetry()
+    {
+        SendAttempts = 0;
+        SendError = null;
+        MarkUpdated();
+    }
 }
