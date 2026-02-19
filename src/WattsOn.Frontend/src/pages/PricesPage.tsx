@@ -8,7 +8,7 @@ import {
   AreaChartOutlined,
 } from '@ant-design/icons';
 import type { PriceSummary, PriceDetail } from '../api/client';
-import { getPrices, getPrice } from '../api/client';
+import { getPrices, getPrice, getSupplierIdentities } from '../api/client';
 import { formatDate } from '../utils/format';
 import api from '../api/client';
 
@@ -24,10 +24,6 @@ const typeColors: Record<string, string> = {
   Gebyr: 'orange',
   Abonnement: 'purple',
 };
-
-// Supplier charges are margin + subscription — the rest are regulated
-const isSupplierPrice = (p: PriceSummary) =>
-  p.chargeId.startsWith('MARGIN') || p.type === 'Abonnement';
 
 interface SpotPriceRecord {
   hourUtc: string;
@@ -46,6 +42,7 @@ interface SpotLatest {
 
 export default function PricesPage() {
   const [prices, setPrices] = useState<PriceSummary[]>([]);
+  const [ourGlns, setOurGlns] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedDetails, setExpandedDetails] = useState<Record<string, PriceDetail>>({});
@@ -60,11 +57,13 @@ export default function PricesPage() {
   useEffect(() => {
     Promise.all([
       getPrices(),
+      getSupplierIdentities(),
       api.get<SpotLatest>('/spot-prices/latest'),
       api.get<SpotPriceRecord[]>('/spot-prices?days=7'),
     ])
-      .then(([pricesRes, latestRes, spotRes]) => {
+      .then(([pricesRes, identitiesRes, latestRes, spotRes]) => {
         setPrices(pricesRes.data);
+        setOurGlns(new Set(identitiesRes.data.map(si => si.gln)));
         setSpotLatest(latestRes.data);
         setSpotPrices(spotRes.data);
       })
@@ -75,8 +74,9 @@ export default function PricesPage() {
   if (loading) return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
   if (error) return <Alert type="error" message="Kunne ikke hente priser" description={error} />;
 
-  const supplierPrices = prices.filter(isSupplierPrice);
-  const regulatedPrices = prices.filter(p => !isSupplierPrice(p));
+  // Supplier prices = owned by our GLN(s); DataHub prices = owned by external parties
+  const supplierPrices = prices.filter(p => ourGlns.has(p.ownerGln));
+  const datahubPrices = prices.filter(p => !ourGlns.has(p.ownerGln));
   const filteredSpot = spotPrices.filter(s => s.priceArea === spotArea);
 
   const handleExpand = async (expanded: boolean, record: PriceSummary) => {
@@ -221,7 +221,7 @@ export default function PricesPage() {
       <Row gutter={16}>
         {[
           { title: 'Leverandørpriser', value: supplierPrices.length, icon: <BankOutlined />, color: '#7c3aed' },
-          { title: 'DataHub-priser', value: regulatedPrices.length, icon: <ThunderboltOutlined />, color: '#0d9488' },
+          { title: 'DataHub-priser', value: datahubPrices.length, icon: <ThunderboltOutlined />, color: '#0d9488' },
           { title: 'Spotpriser', value: spotLatest?.totalRecords ?? 0, icon: <AreaChartOutlined />, color: '#f59e0b' },
           { title: 'Priser i alt', value: prices.length, icon: <DollarOutlined />, color: '#5d7a91' },
         ].map(s => (
@@ -268,12 +268,12 @@ export default function PricesPage() {
               label: (
                 <Space size={6}>
                   <ThunderboltOutlined />
-                  <span>DataHub-priser ({regulatedPrices.length})</span>
+                  <span>DataHub-priser ({datahubPrices.length})</span>
                 </Space>
               ),
-              children: regulatedPrices.length > 0 ? (
+              children: datahubPrices.length > 0 ? (
                 <Table
-                  dataSource={regulatedPrices}
+                  dataSource={datahubPrices}
                   columns={[
                     ...priceColumns.slice(0, 3),
                     {

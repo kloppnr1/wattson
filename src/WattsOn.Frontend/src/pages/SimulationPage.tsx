@@ -18,7 +18,7 @@ import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import api from '../api/client';
 import type { Supply, InvoicedSettlement, CorrectedMeteredDataResult, PriceSummary } from '../api/client';
-import { getSupplies, getInvoicedSettlements, simulateCorrectedMeteredData, getPrices, simulatePriceUpdate } from '../api/client';
+import { getSupplies, getInvoicedSettlements, simulateCorrectedMeteredData, getPrices, simulatePriceUpdate, getSupplierIdentities } from '../api/client';
 
 const { Text, Title, Paragraph } = Typography;
 
@@ -184,14 +184,17 @@ export default function SimulationPage() {
   const [pricesLoading, setPricesLoading] = useState(true);
   const [pricesCreating, setPricesCreating] = useState(false);
 
+  // Our supplier GLNs (for distinguishing our prices from DataHub prices)
+  const [ourGlns, setOurGlns] = useState<Set<string>>(new Set());
+
   // Load prerequisites
   useEffect(() => {
-    getPrices()
-      .then(res => {
-        // DataHub prices = everything that's NOT a supplier margin/subscription
-        const regulated = res.data.filter((p: PriceSummary) =>
-          !p.chargeId.startsWith('MARGIN') && p.type !== 'Abonnement' || p.chargeId.startsWith('NET-ABO'));
-        setDatahubPrices(regulated);
+    Promise.all([getPrices(), getSupplierIdentities()])
+      .then(([pricesRes, identitiesRes]) => {
+        const glns = new Set(identitiesRes.data.map(si => si.gln));
+        setOurGlns(glns);
+        // DataHub prices = owned by external parties (not our GLN)
+        setDatahubPrices(pricesRes.data.filter((p: PriceSummary) => !glns.has(p.ownerGln)));
       })
       .finally(() => setPricesLoading(false));
   }, []);
@@ -204,9 +207,7 @@ export default function SimulationPage() {
       });
       // Reload prices
       const res = await getPrices();
-      const regulated = res.data.filter((p: PriceSummary) =>
-        !p.chargeId.startsWith('MARGIN') && p.type !== 'Abonnement' || p.chargeId.startsWith('NET-ABO'));
-      setDatahubPrices(regulated);
+      setDatahubPrices(res.data.filter((p: PriceSummary) => !ourGlns.has(p.ownerGln)));
     } finally {
       setPricesCreating(false);
     }
