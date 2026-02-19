@@ -122,9 +122,13 @@ public class SettlementWorker : BackgroundService
         if (missingElements.Count > 0)
         {
             _logger.LogWarning(
-                "Skipping settlement for metering_point {MpId}, period {Start}: missing price elements: {Missing}",
+                "Settlement blocked for metering_point {MpId}, period {Start}: missing price elements: {Missing}",
                 timeSeries.MeteringPointId, timeSeries.Period.Start,
                 string.Join(", ", missingElements));
+
+            await PersistIssue(db, timeSeries, SettlementIssue.CreateMissingPrices(
+                timeSeries.MeteringPointId, timeSeries.Id, timeSeries.Version,
+                timeSeries.Period, missingElements), ct);
             return;
         }
 
@@ -134,11 +138,25 @@ public class SettlementWorker : BackgroundService
         if (coverageIssues.Count > 0)
         {
             _logger.LogWarning(
-                "Skipping settlement for metering_point {MpId}, period {Start}: price point coverage issues: {Issues}",
+                "Settlement blocked for metering_point {MpId}, period {Start}: price point coverage issues: {Issues}",
                 timeSeries.MeteringPointId, timeSeries.Period.Start,
                 string.Join("; ", coverageIssues));
+
+            await PersistIssue(db, timeSeries, SettlementIssue.CreatePriceCoverageGap(
+                timeSeries.MeteringPointId, timeSeries.Id, timeSeries.Version,
+                timeSeries.Period, coverageIssues), ct);
             return;
         }
+
+        // Resolve any prior open issues for this metering point + time series
+        // (prices were fixed since last attempt)
+        var priorIssues = await db.SettlementIssues
+            .Where(i => i.MeteringPointId == timeSeries.MeteringPointId
+                && i.TimeSeriesId == timeSeries.Id
+                && i.Status == SettlementIssueStatus.Open)
+            .ToListAsync(ct);
+        foreach (var issue in priorIssues)
+            issue.Resolve();
 
         // Check if there's already an invoiced settlement for this period
         var existingInvoicedSettlement = await db.Settlements
@@ -191,5 +209,27 @@ public class SettlementWorker : BackgroundService
                 settlement.TotalAmount.Amount,
                 settlement.TotalEnergy.Value);
         }
+    }
+
+    /// <summary>
+    /// Persist a settlement issue, avoiding duplicates for the same metering point + time series + version.
+    /// </summary>
+    private async Task PersistIssue(WattsOnDbContext db, TimeSeries timeSeries, SettlementIssue issue, CancellationToken ct)
+    {
+        var existing = await db.SettlementIssues
+            .FirstOrDefaultAsync(i =>
+                i.MeteringPointId == timeSeries.MeteringPointId
+                && i.TimeSeriesId == timeSeries.Id
+                && i.TimeSeriesVersion == timeSeries.Version
+                && i.Status == SettlementIssueStatus.Open, ct);
+
+        if (existing is not null)
+        {
+            // Update existing issue (details might have changed)
+            return;
+        }
+
+        db.SettlementIssues.Add(issue);
+        await db.SaveChangesAsync(ct);
     }
 }

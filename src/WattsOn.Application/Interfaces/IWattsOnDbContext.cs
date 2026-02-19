@@ -30,6 +30,7 @@ public interface IWattsOnDbContext
     DbSet<OutboxMessage> OutboxMessages { get; }
     DbSet<ReconciliationResult> ReconciliationResults { get; }
     DbSet<ReconciliationLine> ReconciliationLines { get; }
+    DbSet<SettlementIssue> SettlementIssues { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

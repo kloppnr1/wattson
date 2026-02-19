@@ -15,9 +15,7 @@ namespace WattsOn.Domain.Services;
 /// 4. Transmissionstarif (TRANS-T-*) — TSO transmission tariff
 /// 5. Elafgift (ELAFG-*) — electricity tax
 /// 6. Balancetarif (BAL-T-*) — TSO balance tariff
-///
-/// Supplier margin (MARGIN-*) is optional — some suppliers include it,
-/// others handle it outside the settlement engine.
+/// 7. Leverandørtillæg (MARGIN-*) — supplier margin
 /// </summary>
 public static class SettlementValidator
 {
@@ -33,6 +31,7 @@ public static class SettlementValidator
         ("TRANS-T-", "Transmissionstarif"),
         ("ELAFG-", "Elafgift"),
         ("BAL-T-", "Balancetarif"),
+        ("MARGIN-", "Leverandørtillæg"),
     ];
 
     /// <summary>

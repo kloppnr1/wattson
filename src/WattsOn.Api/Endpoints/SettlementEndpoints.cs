@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using WattsOn.Api.Models;
+using WattsOn.Domain.Entities;
 using WattsOn.Domain.Enums;
 using WattsOn.Infrastructure.Persistence;
 
@@ -166,6 +167,60 @@ public static class SettlementEndpoints
                 return Results.Conflict(new { error = ex.Message });
             }
         }).WithName("MarkSettlementInvoiced");
+
+        // ==================== SETTLEMENT ISSUES ====================
+
+        app.MapGet("/api/settlement-issues", async (string? status, Guid? meteringPointId, WattsOnDbContext db) =>
+        {
+            var query = db.SettlementIssues.AsNoTracking().AsQueryable();
+
+            if (!string.IsNullOrEmpty(status) && Enum.TryParse<SettlementIssueStatus>(status, true, out var parsedStatus))
+                query = query.Where(i => i.Status == parsedStatus);
+            else
+                query = query.Where(i => i.Status == SettlementIssueStatus.Open); // Default: open only
+
+            if (meteringPointId.HasValue)
+                query = query.Where(i => i.MeteringPointId == meteringPointId.Value);
+
+            var issues = await query
+                .OrderByDescending(i => i.CreatedAt)
+                .Take(200)
+                .Select(i => new
+                {
+                    i.Id,
+                    i.MeteringPointId,
+                    i.TimeSeriesId,
+                    i.TimeSeriesVersion,
+                    PeriodStart = i.Period.Start,
+                    PeriodEnd = i.Period.End,
+                    IssueType = i.IssueType.ToString(),
+                    i.Message,
+                    i.Details,
+                    Status = i.Status.ToString(),
+                    i.ResolvedAt,
+                    i.CreatedAt,
+                })
+                .ToListAsync();
+
+            return Results.Ok(issues);
+        }).WithName("GetSettlementIssues");
+
+        app.MapGet("/api/settlement-issues/count", async (WattsOnDbContext db) =>
+        {
+            var openCount = await db.SettlementIssues.CountAsync(i => i.Status == SettlementIssueStatus.Open);
+            return Results.Ok(new { open = openCount });
+        }).WithName("GetSettlementIssueCount");
+
+        app.MapPost("/api/settlement-issues/{id:guid}/dismiss", async (Guid id, WattsOnDbContext db) =>
+        {
+            var issue = await db.SettlementIssues.FindAsync(id);
+            if (issue is null) return Results.NotFound();
+
+            issue.Dismiss();
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new { issue.Id, Status = issue.Status.ToString(), issue.ResolvedAt });
+        }).WithName("DismissSettlementIssue");
 
         return app;
     }

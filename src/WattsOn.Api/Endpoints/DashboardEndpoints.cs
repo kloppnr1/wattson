@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using WattsOn.Domain.Entities;
 using WattsOn.Domain.Enums;
 using WattsOn.Infrastructure.Persistence;
 
@@ -26,6 +27,9 @@ public static class DashboardEndpoints
                 .Where(a => !a.IsCorrection)
                 .SumAsync(a => a.TotalAmount.Amount);
 
+            // Settlement issues
+            var openIssues = await db.SettlementIssues.CountAsync(i => i.Status == SettlementIssueStatus.Open);
+
             return Results.Ok(new
             {
                 customers = customerCount,
@@ -41,6 +45,7 @@ public static class DashboardEndpoints
                     adjusted = justerede,
                     corrections = korrektioner,
                     totalAmount = totalSettlementAmount,
+                    blockedIssues = openIssues,
                 }
             });
         }).WithName("GetDashboard");

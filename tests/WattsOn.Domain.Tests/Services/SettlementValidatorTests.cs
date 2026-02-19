@@ -67,16 +67,16 @@ public class SettlementValidatorTests
     public void ValidatePriceCompleteness_Empty_ReturnsAllRequired()
     {
         var missing = SettlementValidator.ValidatePriceCompleteness(Array.Empty<PriceWithPoints>());
-        Assert.Equal(6, missing.Count);
+        Assert.Equal(7, missing.Count); // 6 DataHub + 1 supplier margin
     }
 
     [Fact]
-    public void ValidatePriceCompleteness_SupplierMarginNotRequired()
+    public void ValidatePriceCompleteness_MissingMargin_ReturnsLeverandørtillæg()
     {
-        // All mandatory elements present, no supplier margin — should still be valid
         var prices = AllRequiredPrices().Where(p => !p.Price.ChargeId.StartsWith("MARGIN-")).ToList();
         var missing = SettlementValidator.ValidatePriceCompleteness(prices);
-        Assert.Empty(missing);
+        Assert.Single(missing);
+        Assert.Contains("Leverandørtillæg", missing);
     }
 
     [Fact]
