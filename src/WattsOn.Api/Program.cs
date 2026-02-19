@@ -469,6 +469,120 @@ app.MapGet("/api/processer/{id:guid}", async (Guid id, WattsOnDbContext db) =>
     });
 }).WithName("GetProcess");
 
+// ==================== BRS-002: END OF SUPPLY ====================
+
+app.MapPost("/api/processes/end-of-supply", async (EndOfSupplyRequest req, WattsOnDbContext db) =>
+{
+    var gsrn = Gsrn.Create(req.Gsrn);
+    var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn);
+    if (mp is null) return Results.BadRequest(new { error = "Metering point not found" });
+
+    var supply = await db.Supplies
+        .Where(s => s.MeteringPointId == mp.Id)
+        .Where(s => s.SupplyPeriod.End == null || s.SupplyPeriod.End > DateTimeOffset.UtcNow)
+        .FirstOrDefaultAsync();
+    if (supply is null) return Results.BadRequest(new { error = "No active supply for this metering point" });
+
+    var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive);
+    if (identity is null) return Results.BadRequest(new { error = "No active supplier identity" });
+
+    var supplierGln = GlnNumber.Create(identity.Gln.Value);
+    var result = Brs002Handler.InitiateEndOfSupply(gsrn, req.DesiredEndDate, supplierGln, req.Reason ?? "Contract ended");
+
+    db.Processes.Add(result.Process);
+    db.OutboxMessages.Add(result.OutboxMessage);
+    await db.SaveChangesAsync();
+
+    return Results.Created($"/api/processes/{result.Process.Id}", new
+    {
+        result.Process.Id,
+        ProcessType = result.Process.ProcessType.ToString(),
+        Status = result.Process.Status.ToString(),
+        result.Process.CurrentState,
+        Gsrn = req.Gsrn,
+        DesiredEndDate = req.DesiredEndDate
+    });
+}).WithName("InitiateEndOfSupply");
+
+// ==================== BRS-010: MOVE-OUT ====================
+
+app.MapPost("/api/processes/move-out", async (MoveOutRequest req, WattsOnDbContext db) =>
+{
+    var gsrn = Gsrn.Create(req.Gsrn);
+    var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn);
+    if (mp is null) return Results.BadRequest(new { error = "Metering point not found" });
+
+    var supply = await db.Supplies
+        .Where(s => s.MeteringPointId == mp.Id)
+        .Where(s => s.SupplyPeriod.End == null || s.SupplyPeriod.End > DateTimeOffset.UtcNow)
+        .FirstOrDefaultAsync();
+    if (supply is null) return Results.BadRequest(new { error = "No active supply for this metering point" });
+
+    var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive);
+    if (identity is null) return Results.BadRequest(new { error = "No active supplier identity" });
+
+    var supplierGln = GlnNumber.Create(identity.Gln.Value);
+    var result = Brs010Handler.ExecuteMoveOut(gsrn, req.EffectiveDate, supply, supplierGln);
+
+    db.Processes.Add(result.Process);
+    db.OutboxMessages.Add(result.OutboxMessage);
+    await db.SaveChangesAsync();
+
+    return Results.Created($"/api/processes/{result.Process.Id}", new
+    {
+        result.Process.Id,
+        ProcessType = result.Process.ProcessType.ToString(),
+        Status = result.Process.Status.ToString(),
+        result.Process.CurrentState,
+        Gsrn = req.Gsrn,
+        EffectiveDate = req.EffectiveDate
+    });
+}).WithName("InitiateMoveOut");
+
+// ==================== BRS-015: CUSTOMER DATA UPDATE ====================
+
+app.MapPost("/api/processes/customer-update", async (CustomerUpdateRequest req, WattsOnDbContext db) =>
+{
+    var gsrn = Gsrn.Create(req.Gsrn);
+    var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn);
+    if (mp is null) return Results.BadRequest(new { error = "Metering point not found" });
+
+    var supply = await db.Supplies
+        .Where(s => s.MeteringPointId == mp.Id)
+        .Where(s => s.SupplyPeriod.End == null || s.SupplyPeriod.End > DateTimeOffset.UtcNow)
+        .FirstOrDefaultAsync();
+    if (supply is null) return Results.BadRequest(new { error = "No active supply — cannot update customer data" });
+
+    var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive);
+    if (identity is null) return Results.BadRequest(new { error = "No active supplier identity" });
+
+    var supplierGln = GlnNumber.Create(identity.Gln.Value);
+
+    Address? address = null;
+    if (req.Address is not null)
+    {
+        address = Address.Create(req.Address.StreetName, req.Address.BuildingNumber,
+            req.Address.PostCode, req.Address.CityName, req.Address.Floor, req.Address.Suite);
+    }
+
+    var data = new Brs015Handler.CustomerUpdateData(
+        req.CustomerName, req.Cpr, req.Cvr, req.Email, req.Phone, address);
+
+    var result = Brs015Handler.SendCustomerUpdate(gsrn, req.EffectiveDate, supplierGln, data);
+
+    db.Processes.Add(result.Process);
+    db.OutboxMessages.Add(result.OutboxMessage);
+    await db.SaveChangesAsync();
+
+    return Results.Created($"/api/processes/{result.Process.Id}", new
+    {
+        result.Process.Id,
+        ProcessType = result.Process.ProcessType.ToString(),
+        Status = result.Process.Status.ToString(),
+        result.Process.CurrentState
+    });
+}).WithName("SendCustomerUpdate");
+
 // ==================== INBOX / OUTBOX ====================
 
 app.MapGet("/api/inbox", async (WattsOnDbContext db, bool? unprocessed) =>
@@ -1879,3 +1993,17 @@ record CreateTimeSeriesRequest(
     List<ObservationDto> Observations);
 
 record ObservationDto(DateTimeOffset Timestamp, decimal KWh, string? Quality);
+
+record EndOfSupplyRequest(string Gsrn, DateTimeOffset DesiredEndDate, string? Reason);
+
+record MoveOutRequest(string Gsrn, DateTimeOffset EffectiveDate);
+
+record CustomerUpdateRequest(
+    string Gsrn,
+    DateTimeOffset EffectiveDate,
+    string CustomerName,
+    string? Cpr,
+    string? Cvr,
+    string? Email,
+    string? Phone,
+    AddressDto? Address);

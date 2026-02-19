@@ -11,8 +11,9 @@ namespace WattsOn.Worker;
 
 /// <summary>
 /// Polls for unprocessed inbox messages and routes them to the appropriate BRS handler.
-/// Supports BRS-001 (Leverandørskift), BRS-006 (Stamdata), BRS-009 (Tilflytning/Fraflytning),
-/// BRS-021 (Måledata), BRS-023 (Beregnede tidsserier), BRS-027 (Engrosydelser),
+/// Supports BRS-001 (Leverandørskift), BRS-002 (Leveranceophør), BRS-006 (Stamdata),
+/// BRS-009 (Tilflytning/Fraflytning), BRS-015 (Kundestamdata), BRS-021 (Måledata),
+/// BRS-023 (Beregnede tidsserier), BRS-027 (Engrosydelser),
 /// BRS-031 (Prisoplysninger) and BRS-037 (Pristilknytninger) messages.
 /// </summary>
 public class InboxPollingWorker : BackgroundService
@@ -94,12 +95,20 @@ public class InboxPollingWorker : BackgroundService
                 await HandleBrs001Message(db, message, payload, ct);
                 break;
 
+            case "BRS-002":
+                await HandleBrs002Message(db, message, payload, ct);
+                break;
+
             case "BRS-006":
                 await HandleBrs006Message(db, message, payload, ct);
                 break;
 
             case "BRS-009":
                 await HandleBrs009Message(db, message, payload, ct);
+                break;
+
+            case "BRS-015":
+                await HandleBrs015Message(db, message, payload, ct);
                 break;
 
             case "BRS-021":
@@ -643,6 +652,104 @@ public class InboxPollingWorker : BackgroundService
             lines.Count, result.Settlement.TotalEnergyKwh, result.Settlement.TotalAmountDkk);
 
         return Task.CompletedTask;
+    }
+
+    private async Task HandleBrs002Message(WattsOnDbContext db, InboxMessage message, JsonElement payload, CancellationToken ct)
+    {
+        var gsrnStr = GetPayloadString(payload, "gsrn");
+        if (string.IsNullOrEmpty(gsrnStr))
+        {
+            _logger.LogWarning("BRS-002: Missing GSRN — skipping message {MessageId}", message.MessageId);
+            return;
+        }
+
+        // Find the active BRS-002 process for this GSRN
+        var process = await db.Processes
+            .Where(p => p.ProcessType == ProcessType.Supplyophør)
+            .Where(p => p.MeteringPointGsrn != null && p.MeteringPointGsrn.Value == gsrnStr)
+            .Where(p => p.Status != ProcessStatus.Completed && p.Status != ProcessStatus.Rejected)
+            .OrderByDescending(p => p.StartedAt)
+            .FirstOrDefaultAsync(ct);
+
+        if (process is null)
+        {
+            _logger.LogWarning("BRS-002: No active process found for GSRN {Gsrn}", gsrnStr);
+            return;
+        }
+
+        var isRejection = payload.TryGetProperty("rejected", out var rej) && rej.GetBoolean();
+
+        if (isRejection)
+        {
+            var reason = GetPayloadString(payload, "reason") ?? "Rejected by DataHub";
+            Brs002Handler.HandleRejection(process, reason);
+            _logger.LogInformation("BRS-002: Rejected for GSRN {Gsrn}: {Reason}", gsrnStr, reason);
+            return;
+        }
+
+        // Confirmation — find active supply and end it
+        var gsrn = Gsrn.Create(gsrnStr);
+        var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn, ct);
+        if (mp is null) return;
+
+        var supply = await db.Supplies
+            .Where(s => s.MeteringPointId == mp.Id)
+            .Where(s => s.SupplyPeriod.End == null || s.SupplyPeriod.End > DateTimeOffset.UtcNow)
+            .OrderByDescending(s => s.SupplyPeriod.Start)
+            .FirstOrDefaultAsync(ct);
+
+        if (supply is null)
+        {
+            _logger.LogWarning("BRS-002: No active supply for GSRN {Gsrn}", gsrnStr);
+            process.TransitionTo("Completed", "No supply to end");
+            process.MarkCompleted();
+            return;
+        }
+
+        var actualEndDateStr = GetPayloadString(payload, "actualEndDate");
+        var actualEndDate = actualEndDateStr != null
+            ? DateTimeOffset.Parse(actualEndDateStr)
+            : process.EffectiveDate ?? DateTimeOffset.UtcNow;
+
+        Brs002Handler.HandleConfirmation(process, supply, actualEndDate);
+        _logger.LogInformation("BRS-002: Supply ended for GSRN {Gsrn} at {EndDate}", gsrnStr, actualEndDate.ToString("yyyy-MM-dd"));
+    }
+
+    private async Task HandleBrs015Message(WattsOnDbContext db, InboxMessage message, JsonElement payload, CancellationToken ct)
+    {
+        var gsrnStr = GetPayloadString(payload, "gsrn");
+        if (string.IsNullOrEmpty(gsrnStr))
+        {
+            _logger.LogWarning("BRS-015: Missing GSRN — skipping message {MessageId}", message.MessageId);
+            return;
+        }
+
+        var process = await db.Processes
+            .Where(p => p.ProcessType == ProcessType.CustomerStamdataOpdatering)
+            .Where(p => p.MeteringPointGsrn != null && p.MeteringPointGsrn.Value == gsrnStr)
+            .Where(p => p.Status != ProcessStatus.Completed && p.Status != ProcessStatus.Rejected)
+            .OrderByDescending(p => p.StartedAt)
+            .FirstOrDefaultAsync(ct);
+
+        if (process is null)
+        {
+            _logger.LogWarning("BRS-015: No active process found for GSRN {Gsrn}", gsrnStr);
+            return;
+        }
+
+        var isRejection = payload.TryGetProperty("rejected", out var rej) && rej.GetBoolean();
+
+        if (isRejection)
+        {
+            var reason = GetPayloadString(payload, "reason") ?? "Rejected by DataHub";
+            Brs015Handler.HandleRejection(process, reason);
+            _logger.LogInformation("BRS-015: Rejected for GSRN {Gsrn}: {Reason}", gsrnStr, reason);
+        }
+        else
+        {
+            Brs015Handler.HandleConfirmation(process);
+            _logger.LogInformation("BRS-015: Customer data update confirmed for GSRN {Gsrn}", gsrnStr);
+        }
     }
 
     private static string? GetPayloadString(JsonElement payload, string property)
