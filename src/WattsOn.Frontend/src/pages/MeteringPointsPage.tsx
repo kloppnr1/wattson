@@ -57,7 +57,7 @@ export default function MeteringPointsPage() {
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <Typography.Title level={3}>MeteringPoints</Typography.Title>
+      <Typography.Title level={3}>Målepunkter</Typography.Title>
       <Table
         dataSource={data}
         columns={columns}

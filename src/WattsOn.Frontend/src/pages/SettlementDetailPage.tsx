@@ -17,7 +17,7 @@ const { Title, Text } = Typography;
 import { formatDate, formatDateTime, formatPeriodEnd, formatDKK } from '../utils/format';
 
 const docTypeConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-  settlement: { label: 'Settlement', color: '#5d7a91', icon: <FileTextOutlined /> },
+  settlement: { label: 'Afregning', color: '#5d7a91', icon: <FileTextOutlined /> },
   debitNote: { label: 'Debitnota', color: '#d97706', icon: <SwapOutlined /> },
   creditNote: { label: 'Kreditnota', color: '#059669', icon: <SwapOutlined /> },
 };
@@ -112,7 +112,7 @@ export default function SettlementDetailPage() {
     <Space direction="vertical" size={20} style={{ width: '100%' }}>
       <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/settlements')}
         style={{ color: '#7593a9', fontWeight: 500, paddingLeft: 0 }}>
-        Settlements
+        ← Afregninger
       </Button>
 
       {/* Document header */}
@@ -131,7 +131,11 @@ export default function SettlementDetailPage() {
                 <Title level={3} style={{ margin: 0 }}>{doc.documentId}</Title>
                 <Space size={8} style={{ marginTop: 4 }}>
                   <Tag color={config.color} style={{ color: '#fff' }}>{config.label}</Tag>
-                  <Tag color={statusColors[doc.status] || 'default'}>{doc.status}</Tag>
+                  <Tag color={statusColors[doc.status] || 'default'}>
+                    {doc.status === 'Calculated' ? 'Beregnet' 
+                      : doc.status === 'Invoiced' ? 'Faktureret' 
+                      : doc.status === 'Adjusted' ? 'Justeret' : doc.status}
+                  </Tag>
                   {doc.originalDocumentId && (
                     <Text type="secondary">Korrigerer: {doc.originalDocumentId}</Text>
                   )}
@@ -171,7 +175,7 @@ export default function SettlementDetailPage() {
             <Divider style={{ margin: '20px 0 16px' }} />
             <Space>
               <CheckCircleOutlined style={{ color: '#059669' }} />
-              <Text>Invoiced som <Text strong>{doc.externalInvoiceReference}</Text></Text>
+              <Text>Faktureret som <Text strong>{doc.externalInvoiceReference}</Text></Text>
               {doc.invoicedAt && <Text type="secondary">({formatDateTime(doc.invoicedAt)})</Text>}
             </Space>
           </>
@@ -189,7 +193,7 @@ export default function SettlementDetailPage() {
                   onClick={() => navigate(`/settlements/${doc.previousSettlementId}`)}
                   style={{ padding: 0, height: 'auto', color: '#5d7a91' }}
                 >
-                  Original settlement: <Text strong style={{ color: '#5d7a91' }}>{doc.originalDocumentId}</Text>
+                  Original afregning: <Text strong style={{ color: '#5d7a91' }}>{doc.originalDocumentId}</Text>
                 </Button>
               )}
               {doc.adjustmentSettlementId && doc.adjustmentDocumentId && (
@@ -241,11 +245,11 @@ export default function SettlementDetailPage() {
                   {formatDate(doc.period.start)} — {doc.period.end ? formatPeriodEnd(doc.period.end) : '→'}
                 </Text>
               </Descriptions.Item>
-              <Descriptions.Item label="MeteringPoint">
+              <Descriptions.Item label="Målepunkt">
                 <Text className="mono">{doc.meteringPoint.gsrn}</Text>
               </Descriptions.Item>
               <Descriptions.Item label="Prisområde">{doc.meteringPoint.gridArea}</Descriptions.Item>
-              <Descriptions.Item label="Calculated">
+              <Descriptions.Item label="Beregnet">
                 <Text className="tnum" style={{ fontSize: 12 }}>{formatDateTime(doc.calculatedAt)}</Text>
               </Descriptions.Item>
             </Descriptions>

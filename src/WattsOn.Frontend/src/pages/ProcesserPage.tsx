@@ -14,15 +14,15 @@ import {
 const { Text } = Typography;
 
 const statusMap: Record<string, { dot: string; label: string }> = {
-  Created: { dot: 'blue', label: 'created' },
-  Submitted: { dot: 'blue', label: 'submitted' },
-  Received: { dot: 'blue', label: 'received' },
-  Confirmed: { dot: 'green', label: 'confirmed' },
-  InProgress: { dot: 'blue', label: 'in progress' },
-  Completed: { dot: 'green', label: 'completed' },
-  Rejected: { dot: 'red', label: 'rejected' },
-  Cancelled: { dot: 'gray', label: 'cancelled' },
-  Failed: { dot: 'red', label: 'failed' },
+  Created: { dot: 'blue', label: 'oprettet' },
+  Submitted: { dot: 'blue', label: 'indsendt' },
+  Received: { dot: 'blue', label: 'modtaget' },
+  Confirmed: { dot: 'green', label: 'bekræftet' },
+  InProgress: { dot: 'blue', label: 'i gang' },
+  Completed: { dot: 'green', label: 'afsluttet' },
+  Rejected: { dot: 'red', label: 'afvist' },
+  Cancelled: { dot: 'gray', label: 'annulleret' },
+  Failed: { dot: 'red', label: 'fejlet' },
 };
 
 const formatDateTime = (d: string) => new Date(d).toLocaleString('da-DK');
@@ -183,7 +183,7 @@ export default function ProcesserPage() {
       title: '',
       key: 'action',
       width: 60,
-      render: () => <span style={{ color: '#6b7280', cursor: 'pointer' }}>View</span>,
+      render: () => <span style={{ color: '#6b7280', cursor: 'pointer' }}>Se</span>,
     },
   ];
 
@@ -201,7 +201,7 @@ export default function ProcesserPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <h2>Processer</h2>
-            <div className="page-subtitle">BRS processes with DataHub</div>
+            <div className="page-subtitle">BRS processer med DataHub</div>
           </div>
           <Dropdown
             menu={{
@@ -224,7 +224,7 @@ export default function ProcesserPage() {
       <Card style={{ borderRadius: 8, padding: 0 }} styles={{ body: { padding: 0 } }}>
         <div className="filter-bar">
           <Input
-            placeholder="Search by GSRN..."
+            placeholder="Søg efter GSRN..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             allowClear
@@ -235,10 +235,10 @@ export default function ProcesserPage() {
             onChange={setStatusFilter}
             style={{ flex: 1 }}
             options={[
-              { value: 'all', label: 'All statuses' },
-              { value: 'Completed', label: 'Completed' },
-              { value: 'Rejected', label: 'Rejected' },
-              { value: 'Failed', label: 'Failed' },
+              { value: 'all', label: 'Alle statusser' },
+              { value: 'Completed', label: 'Afsluttet' },
+              { value: 'Rejected', label: 'Afvist' },
+              { value: 'Failed', label: 'Fejlet' },
             ]}
           />
           <Select
@@ -246,7 +246,7 @@ export default function ProcesserPage() {
             onChange={setTypeFilter}
             style={{ flex: 1 }}
             options={[
-              { value: 'all', label: 'All types' },
+              { value: 'all', label: 'Alle typer' },
               ...processTypes.map(t => ({ value: t, label: t })),
             ]}
           />
@@ -256,10 +256,10 @@ export default function ProcesserPage() {
       {/* Stats — 4 cards */}
       <Row gutter={16}>
         {[
-          { title: 'Total Processes', value: data.length },
-          { title: 'Completed', value: completed, color: '#10b981' },
-          { title: 'In Progress', value: data.filter(p => !['Completed', 'Rejected', 'Cancelled', 'Failed'].includes(p.status)).length },
-          { title: 'Rejected', value: data.filter(p => p.status === 'Rejected').length, color: data.filter(p => p.status === 'Rejected').length > 0 ? '#dc2626' : undefined },
+          { title: 'Processer i alt', value: data.length },
+          { title: 'Afsluttet', value: completed, color: '#10b981' },
+          { title: 'I gang', value: data.filter(p => !['Completed', 'Rejected', 'Cancelled', 'Failed'].includes(p.status)).length },
+          { title: 'Afvist', value: data.filter(p => p.status === 'Rejected').length, color: data.filter(p => p.status === 'Rejected').length > 0 ? '#dc2626' : undefined },
         ].map(s => (
           <Col xs={12} sm={6} key={s.title}>
             <Card style={{ borderRadius: 8 }}>
@@ -300,7 +300,7 @@ export default function ProcesserPage() {
         ) : detail ? (
           <Space direction="vertical" size={20} style={{ width: '100%' }}>
             <Descriptions size="small" column={2} bordered>
-              <Descriptions.Item label="Transaction ID">
+              <Descriptions.Item label="Transaktions ID">
                 <span className="mono">{detail.transactionId || '—'}</span>
               </Descriptions.Item>
               <Descriptions.Item label="Rolle">

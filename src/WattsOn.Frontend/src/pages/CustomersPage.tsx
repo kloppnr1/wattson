@@ -42,7 +42,7 @@ export default function CustomersPage() {
       width: 100,
       render: (_: any, record: Customer) => (
         <span className={`pill-badge ${record.isPrivate ? 'blue' : 'green'}`}>
-          {record.isPrivate ? 'private' : 'business'}
+          {record.isPrivate ? 'privat' : 'erhverv'}
         </span>
       ),
     },
@@ -83,17 +83,17 @@ export default function CustomersPage() {
   return (
     <Space direction="vertical" size={24} style={{ width: '100%' }}>
       <div className="page-header">
-        <h2>Customers</h2>
-        <div className="page-subtitle">Administrer dine elcustomers</div>
+        <h2>Kunder</h2>
+        <div className="page-subtitle">Administrer dine elkunder</div>
       </div>
 
       {/* Stats — 4 in a row */}
       <Row gutter={16}>
         {[
-          { title: 'Total Customers', value: customers.length },
-          { title: 'Private', value: privateCount },
-          { title: 'Business', value: businessCount },
-          { title: 'Active', value: customers.length },
+          { title: 'Kunder i alt', value: customers.length },
+          { title: 'Privat', value: privateCount },
+          { title: 'Erhverv', value: businessCount },
+          { title: 'Aktive', value: customers.length },
         ].map(s => (
           <Col xs={12} sm={6} key={s.title}>
             <Card style={{ borderRadius: 8 }}>
@@ -111,7 +111,7 @@ export default function CustomersPage() {
       <Card style={{ borderRadius: 8, padding: 0 }} styles={{ body: { padding: 0 } }}>
         <div className="filter-bar">
           <Input
-            placeholder="Search by name, email, CPR/CVR..."
+            placeholder="Søg efter navn, email, CPR/CVR..."
             prefix={<SearchOutlined style={{ color: '#9ca3af' }} />}
             value={search}
             onChange={e => setSearch(e.target.value)}

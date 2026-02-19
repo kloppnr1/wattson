@@ -45,11 +45,14 @@ export default function SettlementsPage() {
         const color = status === 'Calculated' ? 'green'
           : status === 'Invoiced' ? 'blue'
           : status === 'Adjusted' ? 'orange' : 'gray';
+        const danishStatus = status === 'Calculated' ? 'beregnet'
+          : status === 'Invoiced' ? 'faktureret'
+          : status === 'Adjusted' ? 'justeret' : status.toLowerCase();
         return (
           <Space size={6}>
             <span className="status-badge">
               <span className={`status-dot ${color}`} />
-              <span className={`status-text ${color}`}>{status.toLowerCase()}</span>
+              <span className={`status-text ${color}`}>{danishStatus}</span>
             </span>
             {record.documentType === 'creditNote' && (
               <Tag color="green" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
@@ -107,8 +110,8 @@ export default function SettlementsPage() {
   return (
     <Space direction="vertical" size={24} style={{ width: '100%' }}>
       <div className="page-header">
-        <h2>Settlements</h2>
-        <div className="page-subtitle">Settlementsruns og korrektioner</div>
+        <h2>Afregninger</h2>
+        <div className="page-subtitle">Afregningskørsler og korrektioner</div>
       </div>
 
       {/* Tabs */}
@@ -116,8 +119,8 @@ export default function SettlementsPage() {
         value={tab}
         onChange={v => setTab(v as string)}
         options={[
-          { label: 'Runs', value: 'runs' },
-          { label: 'Corrections', value: 'corrections' },
+          { label: 'Kørsler', value: 'runs' },
+          { label: 'Korrektioner', value: 'corrections' },
         ]}
       />
 
@@ -129,14 +132,14 @@ export default function SettlementsPage() {
             onChange={setStatusFilter}
             style={{ flex: 1 }}
             options={[
-              { value: 'all', label: 'All statuses' },
-              { value: 'Calculated', label: 'Calculated' },
-              { value: 'Invoiced', label: 'Invoiced' },
-              { value: 'Adjusted', label: 'Adjusted' },
+              { value: 'all', label: 'Alle statusser' },
+              { value: 'Calculated', label: 'Beregnet' },
+              { value: 'Invoiced', label: 'Faktureret' },
+              { value: 'Adjusted', label: 'Justeret' },
             ]}
           />
           <Input
-            placeholder="MeteringPoint..."
+            placeholder="Målepunkt..."
             style={{ flex: 1 }}
           />
           <Input
@@ -151,10 +154,10 @@ export default function SettlementsPage() {
       {/* Stats — 4 cards */}
       <Row gutter={16}>
         {[
-          { title: 'Total runs', value: allDocs.length },
-          { title: 'Ready to Invoice', value: allDocs.filter(d => d.status === 'Calculated').length, color: '#10b981' },
-          { title: 'Corrections', value: corrections.length, color: corrections.length > 0 ? '#dc2626' : undefined },
-          { title: 'On This Page', value: statusFiltered.length },
+          { title: 'Kørsler i alt', value: allDocs.length },
+          { title: 'Klar til fakturering', value: allDocs.filter(d => d.status === 'Calculated').length, color: '#10b981' },
+          { title: 'Korrektioner', value: corrections.length, color: corrections.length > 0 ? '#dc2626' : undefined },
+          { title: 'På denne side', value: statusFiltered.length },
         ].map(s => (
           <Col xs={12} sm={6} key={s.title}>
             <Card style={{ borderRadius: 8 }}>

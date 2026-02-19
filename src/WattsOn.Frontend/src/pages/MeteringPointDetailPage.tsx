@@ -120,7 +120,7 @@ export default function MeteringPointDetailPage() {
 
   const supplyColumns = [
     {
-      title: 'Customer',
+      title: 'Kunde',
       dataIndex: 'customerName',
       key: 'customerName',
       render: (name: string, record: any) => (
@@ -163,13 +163,13 @@ export default function MeteringPointDetailPage() {
     { title: 'Opløsning', dataIndex: 'resolution', key: 'resolution' },
     { title: 'Version', dataIndex: 'version', key: 'version' },
     {
-      title: 'Latest',
+      title: 'Seneste',
       dataIndex: 'isLatest',
       key: 'isLatest',
       render: (v: boolean) => <Tag color={v ? 'green' : 'default'}>{v ? 'Ja' : 'Nej'}</Tag>,
     },
     {
-      title: 'Received',
+      title: 'Modtaget',
       dataIndex: 'receivedAt',
       key: 'receivedAt',
       render: (d: string) => new Date(d).toLocaleString('da-DK'),
@@ -325,7 +325,7 @@ export default function MeteringPointDetailPage() {
           items={[
             {
               key: 'supplies',
-              label: `Supplies (${mp.supplies.length})`,
+              label: `Forsyninger (${mp.supplies.length})`,
               children: mp.supplies.length > 0 ? (
                 <Table 
                   dataSource={mp.supplies} 
@@ -335,12 +335,12 @@ export default function MeteringPointDetailPage() {
                   size="small" 
                 />
               ) : (
-                <Empty description="Ingen supplies" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                <Empty description="Ingen forsyninger" image={Empty.PRESENTED_IMAGE_SIMPLE} />
               ),
             },
             {
               key: 'timeseries',
-              label: `TimeSeries (${mp.time_series.length})`,
+              label: `Tidsserier (${mp.time_series.length})`,
               children: mp.time_series.length > 0 ? (
                 <Table 
                   dataSource={mp.time_series} 

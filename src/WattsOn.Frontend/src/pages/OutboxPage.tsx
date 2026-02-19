@@ -164,7 +164,7 @@ export default function OutboxPage() {
         <Row gutter={24}>
           <Col span={12}>
             <Text strong style={{ fontSize: 12, textTransform: 'uppercase', color: '#8899a6' }}>
-              Payload
+              Data
             </Text>
             <Paragraph
               code
@@ -232,7 +232,7 @@ export default function OutboxPage() {
       <div className="page-header">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <h2>Outbox</h2>
+            <h2>Udbakke</h2>
             <div className="page-subtitle">Beskeder sendt til DataHub</div>
           </div>
           <Button

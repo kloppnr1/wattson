@@ -55,13 +55,13 @@ export default function AdminPage() {
           isActive: values.isActive ?? false,
         }),
       });
-      message.success('Supplier identity created');
+      message.success('Leverandøridentitet oprettet');
       setModalOpen(false);
       form.resetFields();
       load();
     } catch (err: any) {
       if (err && typeof err === 'object' && 'errorFields' in err) return;
-      message.error(err?.message || 'Failed to create identity');
+      message.error(err?.message || 'Kunne ikke oprette identitet');
     } finally {
       setSubmitting(false);
     }
@@ -79,12 +79,12 @@ export default function AdminPage() {
           isActive: values.isActive,
         }),
       });
-      message.success('Identity updated');
+      message.success('Identitet opdateret');
       setEditModal(null);
       load();
     } catch (err: any) {
       if (err && typeof err === 'object' && 'errorFields' in err) return;
-      message.error(err?.message || 'Failed to update');
+      message.error(err?.message || 'Kunne ikke opdatere');
     } finally {
       setSubmitting(false);
     }
@@ -102,20 +102,20 @@ export default function AdminPage() {
   const handleArchive = async (id: string) => {
     try {
       await apiFetch(`/supplier-identities/${id}/archive`, { method: 'POST' });
-      message.success('Identity archived');
+      message.success('Identitet arkiveret');
       load();
     } catch {
-      message.error('Failed to archive');
+      message.error('Kunne ikke arkivere');
     }
   };
 
   const handleUnarchive = async (id: string) => {
     try {
       await apiFetch(`/supplier-identities/${id}/unarchive`, { method: 'POST' });
-      message.success('Identity restored');
+      message.success('Identitet gendannet');
       load();
     } catch {
-      message.error('Failed to restore');
+      message.error('Kunne ikke gendanne');
     }
   };
 
@@ -124,7 +124,7 @@ export default function AdminPage() {
 
   const columns = [
     {
-      title: 'NAME',
+      title: 'NAVN',
       dataIndex: 'name',
       key: 'name',
       width: '30%',
@@ -156,12 +156,12 @@ export default function AdminPage() {
       key: 'status',
       width: 110,
       render: (_: unknown, record: SupplierIdentity) => {
-        if (record.isArchived) return <Tag color="red">Archived</Tag>;
-        return record.isActive ? <Tag color="green">Active</Tag> : <Tag color="default">Legacy</Tag>;
+        if (record.isArchived) return <Tag color="red">Arkiveret</Tag>;
+        return record.isActive ? <Tag color="green">Aktiv</Tag> : <Tag color="default">Arv</Tag>;
       },
     },
     {
-      title: 'CREATED',
+      title: 'OPRETTET',
       dataIndex: 'createdAt',
       key: 'createdAt',
       width: 130,
@@ -176,29 +176,29 @@ export default function AdminPage() {
         if (record.isArchived) {
           return (
             <Popconfirm
-              title="Restore this identity from archive?"
+              title="Gendan denne identitet fra arkiv?"
               onConfirm={() => handleUnarchive(record.id)}
-              okText="Restore"
-              cancelText="Cancel"
+              okText="Gendan"
+              cancelText="Annuller"
             >
-              <Button size="small" type="link" icon={<UndoOutlined />}>Restore</Button>
+              <Button size="small" type="link" icon={<UndoOutlined />}>Gendan</Button>
             </Popconfirm>
           );
         }
         return (
           <Space size={4}>
             <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(record)}>
-              Edit
+              Rediger
             </Button>
             <Popconfirm
-              title="Archive this identity?"
-              description="No more corrections expected for any metering points on this GLN."
+              title="Arkiver denne identitet?"
+              description="Ingen flere korrektioner forventet for målepunkter på dette GLN."
               onConfirm={() => handleArchive(record.id)}
-              okText="Archive"
+              okText="Arkiver"
               okButtonProps={{ danger: true }}
-              cancelText="Cancel"
+              cancelText="Annuller"
             >
-              <Button size="small" type="link" danger icon={<DeleteOutlined />}>Archive</Button>
+              <Button size="small" type="link" danger icon={<DeleteOutlined />}>Arkiver</Button>
             </Popconfirm>
           </Space>
         );
@@ -209,15 +209,15 @@ export default function AdminPage() {
   return (
     <Space direction="vertical" size={24} style={{ width: '100%' }}>
       <div className="page-header">
-        <h2>Supplier Identities</h2>
-        <div className="page-subtitle">GLN identities that WattsOn operates as</div>
+        <h2>Leverandøridentiteter</h2>
+        <div className="page-subtitle">GLN identiteter som WattsOn opererer som</div>
       </div>
 
       <Row gutter={12}>
         <Col span={6}>
           <Card style={{ borderRadius: 8 }}>
             <Statistic 
-              title="TOTAL"
+              title="I ALT"
               value={identities.length} 
               styles={{ content: { color: '#3d5a6e' } }}
             />
@@ -226,7 +226,7 @@ export default function AdminPage() {
         <Col span={6}>
           <Card style={{ borderRadius: 8 }}>
             <Statistic 
-              title="ACTIVE"
+              title="AKTIVE"
               value={active.length}
               styles={{ content: { color: '#10b981' } }}
             />
@@ -235,7 +235,7 @@ export default function AdminPage() {
         <Col span={6}>
           <Card style={{ borderRadius: 8 }}>
             <Statistic 
-              title="LEGACY"
+              title="ARV"
               value={legacy.length}
               styles={{ content: { color: '#6b7280' } }}
             />
@@ -244,7 +244,7 @@ export default function AdminPage() {
         <Col span={6}>
           <Card style={{ borderRadius: 8 }}>
             <Statistic 
-              title="UNIQUE GLNs"
+              title="UNIKKE GLN'ER"
               value={identities.map(i => i.gln).filter((v, i, a) => a.indexOf(v) === i).length}
               styles={{ content: { color: '#3d5a6e' } }}
             />
@@ -260,11 +260,11 @@ export default function AdminPage() {
             <Switch
               checked={showArchived}
               onChange={setShowArchived}
-              checkedChildren="Show archived"
-              unCheckedChildren="Hide archived"
+              checkedChildren="Vis arkiverede"
+              unCheckedChildren="Skjul arkiverede"
             />
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>
-              Add Identity
+              Tilføj identitet
             </Button>
           </Space>
         }
@@ -282,74 +282,74 @@ export default function AdminPage() {
 
       {/* Create modal */}
       <Modal
-        title="Add Supplier Identity"
+        title="Tilføj leverandøridentitet"
         open={modalOpen}
         onCancel={() => { setModalOpen(false); form.resetFields(); }}
         onOk={handleCreate}
         confirmLoading={submitting}
-        okText="Create"
+        okText="Opret"
       >
         <Form form={form} layout="vertical" initialValues={{ isActive: false }}>
           <Form.Item
             name="gln"
-            label="GLN Number"
+            label="GLN nummer"
             rules={[
-              { required: true, message: 'GLN is required' },
-              { len: 13, message: 'GLN must be exactly 13 digits' },
+              { required: true, message: 'GLN er påkrævet' },
+              { len: 13, message: 'GLN skal være præcis 13 cifre' },
             ]}
           >
             <Input placeholder="5790001330552" maxLength={13} />
           </Form.Item>
           <Form.Item
             name="name"
-            label="Company Name"
-            rules={[{ required: true, message: 'Name is required' }]}
+            label="Firmanavn"
+            rules={[{ required: true, message: 'Navn er påkrævet' }]}
           >
             <Input placeholder="Acquired Energy A/S" />
           </Form.Item>
-          <Form.Item name="cvr" label="CVR Number">
+          <Form.Item name="cvr" label="CVR nummer">
             <Input placeholder="12345678" maxLength={8} />
           </Form.Item>
           <Form.Item name="isActive" label="Status" valuePropName="checked">
-            <Switch checkedChildren="Active" unCheckedChildren="Legacy" />
+            <Switch checkedChildren="Aktiv" unCheckedChildren="Arv" />
           </Form.Item>
           <div style={{ color: '#888', fontSize: 12, marginTop: -12 }}>
-            Legacy = acquired competitor, only processes corrections for historical periods.
+            Arv = opkøbt konkurrent, behandler kun korrektioner for historiske perioder.
           </div>
         </Form>
       </Modal>
 
       {/* Edit modal */}
       <Modal
-        title={editModal ? `Edit — ${editModal.gln}` : 'Edit'}
+        title={editModal ? `Rediger — ${editModal.gln}` : 'Rediger'}
         open={!!editModal}
         onCancel={() => setEditModal(null)}
         onOk={handleEdit}
         confirmLoading={submitting}
-        okText="Save"
+        okText="Gem"
       >
         <Form form={editForm} layout="vertical">
-          <Form.Item label="GLN Number">
+          <Form.Item label="GLN nummer">
             <Input value={editModal?.gln} disabled />
           </Form.Item>
           <Form.Item
             name="name"
-            label="Company Name"
-            rules={[{ required: true, message: 'Name is required' }]}
+            label="Firmanavn"
+            rules={[{ required: true, message: 'Navn er påkrævet' }]}
           >
             <Input />
           </Form.Item>
           <Form.Item 
             name="cvr" 
-            label="CVR Number"
+            label="CVR nummer"
             rules={[
-              { len: 8, message: 'CVR must be exactly 8 digits' }
+              { len: 8, message: 'CVR skal være præcis 8 cifre' }
             ]}
           >
             <Input placeholder="12345678" maxLength={8} />
           </Form.Item>
           <Form.Item name="isActive" label="Status" valuePropName="checked">
-            <Switch checkedChildren="Active" unCheckedChildren="Legacy" />
+            <Switch checkedChildren="Aktiv" unCheckedChildren="Arv" />
           </Form.Item>
         </Form>
       </Modal>

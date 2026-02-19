@@ -60,10 +60,13 @@ export default function DashboardPage() {
         const color = status === 'Calculated' ? 'green'
           : status === 'Invoiced' ? 'blue'
           : status === 'Adjusted' ? 'orange' : 'gray';
+        const danishStatus = status === 'Calculated' ? 'beregnet'
+          : status === 'Invoiced' ? 'faktureret'
+          : status === 'Adjusted' ? 'justeret' : status.toLowerCase();
         return (
           <span className="status-badge">
             <span className={`status-dot ${color}`} />
-            <span className={`status-text ${color}`}>{status.toLowerCase()}</span>
+            <span className={`status-text ${color}`}>{danishStatus}</span>
           </span>
         );
       },
@@ -88,17 +91,17 @@ export default function DashboardPage() {
   return (
     <Space direction="vertical" size={24} style={{ width: '100%' }}>
       <div className="page-header">
-        <h2>Dashboard</h2>
-        <div className="page-subtitle">Overview of your electricity supplier operations</div>
+        <h2>Overblik</h2>
+        <div className="page-subtitle">Oversigt over din elforsyningsvirksomhed</div>
       </div>
 
       {/* 4 stat cards in a row — flat, no icons, just label + number */}
       <Row gutter={16}>
         {[
-          { title: 'Active Customers', value: stats.customers, color: undefined },
-          { title: 'Ready to Invoice', value: stats.settlements.calculated, color: '#10b981' },
-          { title: 'Corrections', value: stats.settlements.corrections, color: stats.settlements.corrections > 0 ? '#dc2626' : undefined },
-          { title: 'Metering Points', value: stats.meteringPoints, color: undefined },
+          { title: 'Aktive kunder', value: stats.customers, color: undefined },
+          { title: 'Klar til fakturering', value: stats.settlements.calculated, color: '#10b981' },
+          { title: 'Korrektioner', value: stats.settlements.corrections, color: stats.settlements.corrections > 0 ? '#dc2626' : undefined },
+          { title: 'Målepunkter', value: stats.meteringPoints, color: undefined },
         ].map(card => (
           <Col xs={12} sm={6} key={card.title}>
             <Card style={{ borderRadius: 8 }}>
@@ -121,10 +124,10 @@ export default function DashboardPage() {
         <div className="section-header">
           <div className="section-title">
             <div className="accent-bar" />
-            <span>Recent Settlements</span>
+            <span>Seneste afregninger</span>
           </div>
           <span className="view-all" onClick={() => navigate('/settlements')}>
-            View all &gt;
+            Se alle &gt;
           </span>
         </div>
         <Table

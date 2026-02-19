@@ -219,7 +219,7 @@ export default function CustomerDetailPage() {
       width: 110,
       render: (type: string) => {
         const map: Record<string, { label: string; color: string }> = {
-          settlement: { label: 'Settlement', color: '#5d7a91' },
+          settlement: { label: 'Afregning', color: '#5d7a91' },
           debitNote: { label: 'Debitnota', color: '#d97706' },
           creditNote: { label: 'Kreditnota', color: '#059669' },
         };
@@ -263,7 +263,12 @@ export default function CustomerDetailPage() {
       dataIndex: 'status',
       key: 'status',
       width: 100,
-      render: (s: string) => <Tag color={statusColors[s] || 'default'}>{s}</Tag>,
+      render: (s: string) => {
+        const danishStatus = s === 'Calculated' ? 'Beregnet' 
+          : s === 'Invoiced' ? 'Faktureret' 
+          : s === 'Adjusted' ? 'Justeret' : s;
+        return <Tag color={statusColors[s] || 'default'}>{danishStatus}</Tag>;
+      },
     },
   ];
 
@@ -271,7 +276,7 @@ export default function CustomerDetailPage() {
     <Space direction="vertical" size={20} style={{ width: '100%' }}>
       <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/customers')}
         style={{ color: '#7593a9', fontWeight: 500, paddingLeft: 0 }}>
-        Customers
+        ← Kunder
       </Button>
 
       {/* Hero card */}
@@ -290,7 +295,7 @@ export default function CustomerDetailPage() {
                 <Title level={3} style={{ margin: 0 }}>{customer.name}</Title>
                 <Space size={8} style={{ marginTop: 6 }}>
                   <Tag color={customer.isPrivate ? 'blue' : 'green'}>
-                    {customer.isPrivate ? 'Private' : 'Business'}
+                    {customer.isPrivate ? 'Privat' : 'Erhverv'}
                   </Tag>
                   <Text type="secondary" className="mono">{customer.cpr || customer.cvr}</Text>
                   {activeLev.length > 0 && (
@@ -320,10 +325,10 @@ export default function CustomerDetailPage() {
       {/* Quick stats */}
       <Row gutter={16}>
         {[
-          { title: 'Supplies', value: customer.supplies.length, icon: <ThunderboltOutlined />, color: '#7c3aed' },
-          { title: 'Active', value: activeLev.length, icon: <ThunderboltOutlined />, color: '#059669' },
-          { title: 'Settlements', value: settlements.length, icon: <CalculatorOutlined />, color: '#5d7a91' },
-          { title: 'Corrections', value: corrections.length, icon: <CalculatorOutlined />, color: corrections.length > 0 ? '#d97706' : '#99afc2' },
+          { title: 'Forsyninger', value: customer.supplies.length, icon: <ThunderboltOutlined />, color: '#7c3aed' },
+          { title: 'Aktive', value: activeLev.length, icon: <ThunderboltOutlined />, color: '#059669' },
+          { title: 'Afregninger', value: settlements.length, icon: <CalculatorOutlined />, color: '#5d7a91' },
+          { title: 'Korrektioner', value: corrections.length, icon: <CalculatorOutlined />, color: corrections.length > 0 ? '#d97706' : '#99afc2' },
         ].map(s => (
           <Col xs={12} sm={6} key={s.title}>
             <Card size="small" style={{ borderRadius: 10, textAlign: 'center' }}>
@@ -352,7 +357,7 @@ export default function CustomerDetailPage() {
               <div style={{ marginTop: 8 }}>
                 <div className="micro-label">TYPE</div>
                 <Tag color={customer.isPrivate ? 'blue' : 'green'}>
-                  {customer.isPrivate ? 'Private' : 'Business'}
+                  {customer.isPrivate ? 'Privat' : 'Erhverv'}
                 </Tag>
               </div>
               <div>
@@ -406,7 +411,7 @@ export default function CustomerDetailPage() {
           items={[
             {
               key: 'supplies',
-              label: `Supplies (${customer.supplies.length})`,
+              label: `Forsyninger (${customer.supplies.length})`,
               children: (
                 <Space direction="vertical" size={16} style={{ width: '100%' }}>
                   {activeLev.length > 0 && (
@@ -434,14 +439,14 @@ export default function CustomerDetailPage() {
                       size="small"
                     />
                   ) : (
-                    <Empty description="Ingen supplies" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                    <Empty description="Ingen forsyninger" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                   )}
                 </Space>
               ),
             },
             {
               key: 'settlements',
-              label: `Settlements (${settlements.length})`,
+              label: `Afregninger (${settlements.length})`,
               children: settlements.length > 0 ? (
                 <Table
                   dataSource={settlements}
@@ -451,7 +456,7 @@ export default function CustomerDetailPage() {
                   size="small"
                 />
               ) : (
-                <Empty description="Ingen settlements endnu" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                <Empty description="Ingen afregninger endnu" image={Empty.PRESENTED_IMAGE_SIMPLE} />
               ),
             },
           ]}

@@ -78,7 +78,7 @@ export default function PricesPage() {
       render: (v: string) => <Text style={{ fontFamily: 'monospace' }}>{v}</Text>,
     },
     {
-      title: 'DESCRIPTION',
+      title: 'BESKRIVELSE',
       dataIndex: 'description',
       key: 'description',
       width: 220,
@@ -91,7 +91,7 @@ export default function PricesPage() {
       render: (v: string) => <Text style={{ fontFamily: 'monospace' }}>{v}</Text>,
     },
     {
-      title: 'VALIDITY',
+      title: 'GYLDIGHED',
       key: 'validity',
       render: (_: unknown, record: PriceSummary) => (
         <Text className="tnum">
@@ -100,27 +100,27 @@ export default function PricesPage() {
       ),
     },
     {
-      title: 'PRICE POINTS',
+      title: 'PRISPUNKTER',
       dataIndex: 'pricePointCount',
       key: 'pricePointCount',
       align: 'right' as const,
       render: (v: number) => <Text className="tnum">{v}</Text>,
     },
     {
-      title: 'LINKED MPs',
+      title: 'TILKNYTTEDE MP',
       dataIndex: 'linkedMeteringPoints',
       key: 'linkedMeteringPoints',
       align: 'right' as const,
       render: (v: number) => <Text className="tnum">{v}</Text>,
     },
     {
-      title: 'FLAGS',
+      title: 'FLAG',
       key: 'flags',
       render: (_: unknown, record: PriceSummary) => (
         <Space size={4}>
-          {record.isTax && <Tag color="red">Tax</Tag>}
-          {record.vatExempt && <Tag color="gold">VAT-exempt</Tag>}
-          {record.isPassThrough && <Tag color="blue">Pass-through</Tag>}
+          {record.isTax && <Tag color="red">Moms</Tag>}
+          {record.vatExempt && <Tag color="gold">Momsfri</Tag>}
+          {record.isPassThrough && <Tag color="blue">Viderefakturering</Tag>}
         </Space>
       ),
     },
@@ -129,17 +129,17 @@ export default function PricesPage() {
   const expandedRowRender = (record: PriceSummary) => {
     const detail = expandedDetails[record.id];
     if (expandLoading[record.id]) return <Spin size="small" style={{ margin: 16 }} />;
-    if (!detail) return <Text type="secondary">No detail data</Text>;
+    if (!detail) return <Text type="secondary">Ingen detaildata</Text>;
 
     const pricePointCols = [
       {
-        title: 'Timestamp',
+        title: 'Tidspunkt',
         dataIndex: 'timestamp',
         key: 'timestamp',
         render: (v: string) => new Date(v).toLocaleString('da-DK'),
       },
       {
-        title: 'Price (DKK/kWh)',
+        title: 'Pris (DKK/kWh)',
         dataIndex: 'price',
         key: 'price',
         align: 'right' as const,
@@ -155,7 +155,7 @@ export default function PricesPage() {
         render: (v: string) => <span className="gsrn-badge">{v}</span>,
       },
       {
-        title: 'Link Period',
+        title: 'Tilknytningsperiode',
         key: 'period',
         render: (_: unknown, link: { linkFrom: string; linkTo: string | null }) => (
           <Text className="tnum">
@@ -169,7 +169,7 @@ export default function PricesPage() {
       <Space direction="vertical" size={16} style={{ width: '100%', padding: '8px 0' }}>
         <div>
           <Text strong style={{ marginBottom: 8, display: 'block' }}>
-            Recent Price Points ({detail.totalPricePoints} total)
+            Seneste prispunkter ({detail.totalPricePoints} i alt)
           </Text>
           <Table
             dataSource={detail.pricePoints.slice(0, 20)}
@@ -181,7 +181,7 @@ export default function PricesPage() {
         </div>
         <div>
           <Text strong style={{ marginBottom: 8, display: 'block' }}>
-            Linked Metering Points ({detail.linkedMeteringPoints.length})
+            Tilknyttede målepunkter ({detail.linkedMeteringPoints.length})
           </Text>
           {detail.linkedMeteringPoints.length > 0 ? (
             <Table
@@ -192,7 +192,7 @@ export default function PricesPage() {
               pagination={false}
             />
           ) : (
-            <Text type="secondary">No linked metering points</Text>
+            <Text type="secondary">Ingen tilknyttede målepunkter</Text>
           )}
         </div>
       </Space>
@@ -211,10 +211,10 @@ export default function PricesPage() {
       {/* Stats — 4 cards */}
       <Row gutter={16}>
         {[
-          { title: 'Total Prices', value: prices.length },
-          { title: 'Tariffs', value: tariffs, color: '#0d9488' },
-          { title: 'Active', value: active, color: '#10b981' },
-          { title: 'Tax Charges', value: taxCount, color: '#dc2626' },
+          { title: 'Priser i alt', value: prices.length },
+          { title: 'Tariffer', value: tariffs, color: '#0d9488' },
+          { title: 'Aktive', value: active, color: '#10b981' },
+          { title: 'Momsafgifter', value: taxCount, color: '#dc2626' },
         ].map(s => (
           <Col xs={12} sm={6} key={s.title}>
             <Card style={{ borderRadius: 8 }}>
@@ -236,14 +236,14 @@ export default function PricesPage() {
             onChange={setTypeFilter}
             style={{ flex: 1 }}
             options={[
-              { value: 'all', label: 'All types' },
+              { value: 'all', label: 'Alle typer' },
               { value: 'Tarif', label: 'Tarif' },
               { value: 'Gebyr', label: 'Gebyr' },
               { value: 'Abonnement', label: 'Abonnement' },
             ]}
           />
           <Input
-            placeholder="Search ChargeId or description..."
+            placeholder="Søg efter ChargeId eller beskrivelse..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             allowClear

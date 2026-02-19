@@ -18,12 +18,12 @@ import WattsOnIcon from './WattsOnIcon';
 const { Sider, Content } = Layout;
 
 const menuItems = [
-  { key: '/', icon: <DashboardOutlined />, label: 'Dashboard' },
+  { key: '/', icon: <DashboardOutlined />, label: 'Overblik' },
   { type: 'group' as const, label: 'KUNDER', children: [
     { key: '/customers', icon: <UserOutlined />, label: 'Kunder' },
   ]},
   { type: 'group' as const, label: 'AFREGNING', children: [
-    { key: '/settlements', icon: <CalculatorOutlined />, label: 'Settlements' },
+    { key: '/settlements', icon: <CalculatorOutlined />, label: 'Afregninger' },
     { key: '/prices', icon: <DollarOutlined />, label: 'Priser' },
   ]},
   { type: 'group' as const, label: 'DATAHUB', children: [
@@ -103,7 +103,7 @@ export default function AppLayout() {
         <div className="sidebar-footer" style={{ flexShrink: 0 }}>
           <div className="env-badge">
             <span className="env-dot" />
-            <span>Development</span>
+            <span>Udvikling</span>
           </div>
           <div className="lang-toggle">
             <span className="lang-option">EN</span>
