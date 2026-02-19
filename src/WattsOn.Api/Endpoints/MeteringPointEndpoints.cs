@@ -71,12 +71,12 @@ public static class MeteringPointEndpoints
                 {
                     l.Id,
                     l.CustomerId,
-                    CustomerNavn = l.Customer.Name,
+                    CustomerName = l.Customer.Name,
                     SupplyStart = l.SupplyPeriod.Start,
                     SupplyEnd = l.SupplyPeriod.End,
                     l.IsActive
                 }),
-                TimeSeriesCollection = mp.TimeSeriesCollection.OrderByDescending(t => t.ReceivedAt).Select(t => new
+                Time_series = mp.TimeSeriesCollection.OrderByDescending(t => t.ReceivedAt).Select(t => new
                 {
                     t.Id,
                     PeriodStart = t.Period.Start,
