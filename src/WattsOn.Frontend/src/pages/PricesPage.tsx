@@ -1,12 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   Card, Table, Spin, Alert, Space, Typography, Row, Col, Statistic, Tag,
-  Tabs, Empty, Descriptions,
+  Tabs, Empty, Descriptions, DatePicker,
 } from 'antd';
 import {
   DollarOutlined, ThunderboltOutlined, BankOutlined,
-  AreaChartOutlined,
+  AreaChartOutlined, CalendarOutlined,
 } from '@ant-design/icons';
+import dayjs from 'dayjs';
+import type { Dayjs } from 'dayjs';
 import type { PriceSummary, PriceDetail } from '../api/client';
 import { getPrices, getPrice, getSupplierIdentities } from '../api/client';
 import { formatDate } from '../utils/format';
@@ -16,13 +18,21 @@ const { Text, Title } = Typography;
 
 const formatPrice4 = (v: number) =>
   new Intl.NumberFormat('da-DK', { minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(v);
-const formatPrice2 = (v: number) =>
-  new Intl.NumberFormat('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
 
 const typeColors: Record<string, string> = {
   Tarif: 'teal',
   Gebyr: 'orange',
   Abonnement: 'purple',
+};
+
+const formatTimeUtc = (v: string) => {
+  const d = new Date(v);
+  return d.toISOString().slice(11, 16); // HH:mm UTC
+};
+
+const formatTimeDk = (v: string) => {
+  const d = new Date(v);
+  return d.toLocaleString('da-DK', { hour: '2-digit', minute: '2-digit' });
 };
 
 interface SpotPriceRecord {
@@ -40,6 +50,28 @@ interface SpotLatest {
   dk2: { hourUtc: string; hourDk: string; spotPriceDkkPerMwh: number; spotPriceDkkPerKwh: number } | null;
 }
 
+// Pivot spot prices: merge DK1+DK2 rows by time into one row
+interface SpotRow {
+  hourUtc: string;
+  hourDk: string;
+  dk1: number | null;
+  dk2: number | null;
+}
+
+function pivotSpotPrices(records: SpotPriceRecord[]): SpotRow[] {
+  const map = new Map<string, SpotRow>();
+  for (const r of records) {
+    const key = r.hourUtc;
+    if (!map.has(key)) {
+      map.set(key, { hourUtc: r.hourUtc, hourDk: r.hourDk, dk1: null, dk2: null });
+    }
+    const row = map.get(key)!;
+    if (r.priceArea === 'DK1') row.dk1 = r.spotPriceDkkPerKwh;
+    if (r.priceArea === 'DK2') row.dk2 = r.spotPriceDkkPerKwh;
+  }
+  return Array.from(map.values()).sort((a, b) => a.hourUtc.localeCompare(b.hourUtc));
+}
+
 export default function PricesPage() {
   const [prices, setPrices] = useState<PriceSummary[]>([]);
   const [ourGlns, setOurGlns] = useState<Set<string>>(new Set());
@@ -48,28 +80,41 @@ export default function PricesPage() {
   const [expandedDetails, setExpandedDetails] = useState<Record<string, PriceDetail>>({});
   const [expandLoading, setExpandLoading] = useState<Record<string, boolean>>({});
 
+  // Shared date selector
+  const [selectedDate, setSelectedDate] = useState<Dayjs>(dayjs());
+
   // Spot prices
   const [spotLatest, setSpotLatest] = useState<SpotLatest | null>(null);
   const [spotPrices, setSpotPrices] = useState<SpotPriceRecord[]>([]);
-  const [spotLoading, setSpotLoading] = useState(true);
-  const [spotArea, setSpotArea] = useState<string>('DK1');
+  const [spotLoading, setSpotLoading] = useState(false);
 
+  // Initial load
   useEffect(() => {
     Promise.all([
       getPrices(),
       getSupplierIdentities(),
       api.get<SpotLatest>('/spot-prices/latest'),
-      api.get<SpotPriceRecord[]>('/spot-prices?days=7'),
     ])
-      .then(([pricesRes, identitiesRes, latestRes, spotRes]) => {
+      .then(([pricesRes, identitiesRes, latestRes]) => {
         setPrices(pricesRes.data);
         setOurGlns(new Set(identitiesRes.data.map(si => si.gln)));
         setSpotLatest(latestRes.data);
-        setSpotPrices(spotRes.data);
       })
       .catch(err => setError(err.message))
-      .finally(() => { setLoading(false); setSpotLoading(false); });
+      .finally(() => setLoading(false));
   }, []);
+
+  // Fetch spot prices when date changes
+  const fetchSpotForDate = useCallback(async (date: Dayjs) => {
+    setSpotLoading(true);
+    try {
+      const res = await api.get<SpotPriceRecord[]>(`/spot-prices?date=${date.format('YYYY-MM-DD')}`);
+      setSpotPrices(res.data);
+    } catch { setSpotPrices([]); }
+    finally { setSpotLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchSpotForDate(selectedDate); }, [selectedDate, fetchSpotForDate]);
 
   if (loading) return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
   if (error) return <Alert type="error" message="Kunne ikke hente priser" description={error} />;
@@ -77,7 +122,7 @@ export default function PricesPage() {
   // Supplier prices = owned by our GLN(s); DataHub prices = owned by external parties
   const supplierPrices = prices.filter(p => ourGlns.has(p.ownerGln));
   const datahubPrices = prices.filter(p => !ourGlns.has(p.ownerGln));
-  const filteredSpot = spotPrices.filter(s => s.priceArea === spotArea);
+  const spotRows = pivotSpotPrices(spotPrices);
 
   const handleExpand = async (expanded: boolean, record: PriceSummary) => {
     if (!expanded || expandedDetails[record.id]) return;
@@ -138,15 +183,30 @@ export default function PricesPage() {
     },
   ];
 
+  // Expanded row: filter price points by selected date
   const expandedRowRender = (record: PriceSummary) => {
     const detail = expandedDetails[record.id];
     if (expandLoading[record.id]) return <Spin size="small" style={{ margin: 16 }} />;
     if (!detail) return <Text type="secondary">Ingen detaildata</Text>;
 
+    // Filter price points to the selected date
+    const dateStr = selectedDate.format('YYYY-MM-DD');
+    const filtered = detail.pricePoints.filter(pp => {
+      const ppDate = new Date(pp.timestamp);
+      // Compare Danish date (add 1h for CET approximation)
+      const dk = new Date(ppDate.getTime() + 3600000);
+      return dk.toISOString().slice(0, 10) === dateStr;
+    });
+
+    const displayPoints = filtered.length > 0 ? filtered : detail.pricePoints.slice(0, 48);
+    const isFiltered = filtered.length > 0;
+
     return (
       <div style={{ padding: '8px 0' }}>
         <Text strong style={{ marginBottom: 8, display: 'block' }}>
-          Seneste prispunkter ({detail.totalPricePoints} i alt)
+          {isFiltered
+            ? `Prispunkter for ${selectedDate.format('D. MMM YYYY')} (${filtered.length} af ${detail.totalPricePoints})`
+            : `Seneste prispunkter (${detail.totalPricePoints} i alt)`}
           {detail.priceResolution && (
             <Tag color="geekblue" style={{ marginLeft: 8 }}>
               {detail.priceResolution === 'PT15M' ? '15 min' : detail.priceResolution === 'PT1H' ? 'Time' : detail.priceResolution}
@@ -154,12 +214,14 @@ export default function PricesPage() {
           )}
         </Text>
         <Table
-          dataSource={detail.pricePoints.slice(0, 48)}
+          dataSource={displayPoints}
           columns={[
-            { title: 'Tidspunkt', dataIndex: 'timestamp', key: 'timestamp',
-              render: (v: string) => new Date(v).toLocaleString('da-DK') },
-            { title: 'Pris (DKK/kWh)', dataIndex: 'price', key: 'price', align: 'right' as const,
-              render: (v: number) => <Text className="tnum">{formatPrice4(v)}</Text> },
+            { title: 'UTC', dataIndex: 'timestamp', key: 'utc', width: 70,
+              render: (v: string) => <Text className="tnum" type="secondary">{formatTimeUtc(v)}</Text> },
+            { title: 'DK', dataIndex: 'timestamp', key: 'dk', width: 70,
+              render: (v: string) => <Text className="tnum">{formatTimeDk(v)}</Text> },
+            { title: 'DKK/kWh', dataIndex: 'price', key: 'price', align: 'right' as const,
+              render: (v: number) => <Text className="tnum" strong>{formatPrice4(v)}</Text> },
           ]}
           rowKey="timestamp"
           size="small"
@@ -169,37 +231,39 @@ export default function PricesPage() {
     );
   };
 
+  // Spot price columns: DK1 + DK2 side by side
   const spotColumns = [
     {
-      title: 'TIME (DK)',
+      title: 'UTC',
+      dataIndex: 'hourUtc',
+      key: 'utc',
+      width: 60,
+      render: (v: string) => <Text className="tnum" type="secondary" style={{ fontSize: 12 }}>{formatTimeUtc(v)}</Text>,
+    },
+    {
+      title: 'DK-TID',
       dataIndex: 'hourDk',
-      key: 'hourDk',
-      render: (v: string) => <Text className="tnum">{new Date(v).toLocaleString('da-DK', {
-        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-      })}</Text>,
+      key: 'dk',
+      width: 60,
+      render: (v: string) => <Text className="tnum" style={{ fontSize: 12 }}>{formatTimeDk(v)}</Text>,
     },
     {
-      title: 'DKK/MWH',
-      dataIndex: 'spotPriceDkkPerMwh',
-      key: 'spotPriceDkkPerMwh',
+      title: <><Tag color="orange" style={{ marginRight: 0 }}>DK1</Tag> <Text type="secondary" style={{ fontSize: 11 }}>DKK/kWh</Text></>,
+      dataIndex: 'dk1',
+      key: 'dk1',
       align: 'right' as const,
-      render: (v: number) => <Text className="tnum">{formatPrice2(v)}</Text>,
+      render: (v: number | null) => v !== null
+        ? <Text className="tnum" strong>{formatPrice4(v)}</Text>
+        : <Text type="secondary">—</Text>,
     },
     {
-      title: 'DKK/KWH',
-      dataIndex: 'spotPriceDkkPerKwh',
-      key: 'spotPriceDkkPerKwh',
+      title: <><Tag color="blue" style={{ marginRight: 0 }}>DK2</Tag> <Text type="secondary" style={{ fontSize: 11 }}>DKK/kWh</Text></>,
+      dataIndex: 'dk2',
+      key: 'dk2',
       align: 'right' as const,
-      render: (v: number) => (
-        <Text className="tnum" strong>{formatPrice4(v)}</Text>
-      ),
-    },
-    {
-      title: 'EUR/MWH',
-      dataIndex: 'spotPriceEurPerMwh',
-      key: 'spotPriceEurPerMwh',
-      align: 'right' as const,
-      render: (v: number) => <Text className="tnum" type="secondary">{formatPrice2(v)}</Text>,
+      render: (v: number | null) => v !== null
+        ? <Text className="tnum" strong>{formatPrice4(v)}</Text>
+        : <Text type="secondary">—</Text>,
     },
   ];
 
@@ -213,6 +277,18 @@ export default function PricesPage() {
               <Title level={3} style={{ margin: 0 }}>Priser</Title>
               <Text type="secondary">Leverandørpriser, DataHub-priser og spotpriser</Text>
             </div>
+          </Space>
+        </Col>
+        <Col>
+          <Space align="center" size={8}>
+            <CalendarOutlined style={{ color: '#0d9488' }} />
+            <DatePicker
+              value={selectedDate}
+              onChange={(d) => d && setSelectedDate(d)}
+              format="D. MMM YYYY"
+              allowClear={false}
+              style={{ width: 180 }}
+            />
           </Space>
         </Col>
       </Row>
@@ -237,34 +313,96 @@ export default function PricesPage() {
         ))}
       </Row>
 
-      {/* Tabs: Leverandør | Regulerede | Spotpriser */}
+      {/* Tabs */}
       <Card style={{ borderRadius: 12 }}>
         <Tabs
-          defaultActiveKey="supplier"
+          defaultActiveKey="spot"
           items={[
             {
-              key: 'supplier',
+              key: 'spot',
               label: (
                 <Space size={6}>
-                  <BankOutlined />
-                  <span>Leverandørpriser ({supplierPrices.length})</span>
+                  <AreaChartOutlined />
+                  <span>Spotpriser</span>
                 </Space>
               ),
-              children: supplierPrices.length > 0 ? (
-                <Table
-                  dataSource={supplierPrices}
-                  columns={priceColumns}
-                  rowKey="id"
-                  pagination={false}
-                  size="small"
-                  expandable={{ expandedRowRender, onExpand: handleExpand }}
-                />
-              ) : (
-                <Empty description="Ingen leverandørpriser oprettet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              children: (
+                <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                  {/* Latest spot summary */}
+                  {spotLatest && (spotLatest.dk1 || spotLatest.dk2) && (
+                    <Row gutter={16}>
+                      {spotLatest.dk1 && (
+                        <Col xs={24} sm={12}>
+                          <Card size="small" style={{
+                            borderRadius: 10,
+                            background: 'linear-gradient(135deg, #fefce8, #fef9c3)',
+                            border: '1px solid #fde68a',
+                          }}>
+                            <Descriptions size="small" column={1} colon={false}
+                              title={<Space><Tag color="orange">DK1</Tag><Text type="secondary">Vestdanmark</Text></Space>}>
+                              <Descriptions.Item label="Seneste pris">
+                                <Text strong className="tnum" style={{ fontSize: 16 }}>
+                                  {formatPrice4(spotLatest.dk1.spotPriceDkkPerKwh)} DKK/kWh
+                                </Text>
+                              </Descriptions.Item>
+                              <Descriptions.Item label="Tidspunkt">
+                                <Text className="tnum" style={{ fontSize: 12 }}>
+                                  {new Date(spotLatest.dk1.hourDk).toLocaleString('da-DK')}
+                                </Text>
+                              </Descriptions.Item>
+                            </Descriptions>
+                          </Card>
+                        </Col>
+                      )}
+                      {spotLatest.dk2 && (
+                        <Col xs={24} sm={12}>
+                          <Card size="small" style={{
+                            borderRadius: 10,
+                            background: 'linear-gradient(135deg, #eff6ff, #dbeafe)',
+                            border: '1px solid #bfdbfe',
+                          }}>
+                            <Descriptions size="small" column={1} colon={false}
+                              title={<Space><Tag color="blue">DK2</Tag><Text type="secondary">Østdanmark</Text></Space>}>
+                              <Descriptions.Item label="Seneste pris">
+                                <Text strong className="tnum" style={{ fontSize: 16 }}>
+                                  {formatPrice4(spotLatest.dk2.spotPriceDkkPerKwh)} DKK/kWh
+                                </Text>
+                              </Descriptions.Item>
+                              <Descriptions.Item label="Tidspunkt">
+                                <Text className="tnum" style={{ fontSize: 12 }}>
+                                  {new Date(spotLatest.dk2.hourDk).toLocaleString('da-DK')}
+                                </Text>
+                              </Descriptions.Item>
+                            </Descriptions>
+                          </Card>
+                        </Col>
+                      )}
+                    </Row>
+                  )}
+
+                  {/* Spot price table — DK1 + DK2 side by side */}
+                  {spotLoading ? (
+                    <Spin size="small" style={{ display: 'block', margin: '24px auto' }} />
+                  ) : spotRows.length > 0 ? (
+                    <Table
+                      dataSource={spotRows}
+                      columns={spotColumns}
+                      rowKey="hourUtc"
+                      size="small"
+                      pagination={false}
+                      scroll={{ y: 600 }}
+                    />
+                  ) : (
+                    <Empty
+                      description={`Ingen spotpriser for ${selectedDate.format('D. MMM YYYY')}`}
+                      image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    />
+                  )}
+                </Space>
               ),
             },
             {
-              key: 'regulated',
+              key: 'datahub',
               label: (
                 <Space size={6}>
                   <ThunderboltOutlined />
@@ -303,108 +441,24 @@ export default function PricesPage() {
               ),
             },
             {
-              key: 'spot',
+              key: 'supplier',
               label: (
                 <Space size={6}>
-                  <AreaChartOutlined />
-                  <span>Spotpriser ({spotLatest?.totalRecords ?? 0})</span>
+                  <BankOutlined />
+                  <span>Leverandørpriser ({supplierPrices.length})</span>
                 </Space>
               ),
-              children: (
-                <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                  {/* Latest spot summary */}
-                  {spotLatest && (spotLatest.dk1 || spotLatest.dk2) ? (
-                    <Row gutter={16}>
-                      {spotLatest.dk1 && (
-                        <Col xs={24} sm={12}>
-                          <Card size="small" style={{
-                            borderRadius: 10,
-                            background: 'linear-gradient(135deg, #fefce8, #fef9c3)',
-                            border: '1px solid #fde68a',
-                          }}>
-                            <Descriptions size="small" column={1} colon={false}
-                              title={<Space><Tag color="orange">DK1</Tag><Text type="secondary">Vestdanmark</Text></Space>}>
-                              <Descriptions.Item label="Seneste pris">
-                                <Text strong className="tnum" style={{ fontSize: 16 }}>
-                                  {formatPrice4(spotLatest.dk1.spotPriceDkkPerKwh)} DKK/kWh
-                                </Text>
-                              </Descriptions.Item>
-                              <Descriptions.Item label="MWh-pris">
-                                <Text className="tnum">{formatPrice2(spotLatest.dk1.spotPriceDkkPerMwh)} DKK/MWh</Text>
-                              </Descriptions.Item>
-                              <Descriptions.Item label="Tidspunkt">
-                                <Text className="tnum" style={{ fontSize: 12 }}>
-                                  {new Date(spotLatest.dk1.hourDk).toLocaleString('da-DK')}
-                                </Text>
-                              </Descriptions.Item>
-                            </Descriptions>
-                          </Card>
-                        </Col>
-                      )}
-                      {spotLatest.dk2 && (
-                        <Col xs={24} sm={12}>
-                          <Card size="small" style={{
-                            borderRadius: 10,
-                            background: 'linear-gradient(135deg, #eff6ff, #dbeafe)',
-                            border: '1px solid #bfdbfe',
-                          }}>
-                            <Descriptions size="small" column={1} colon={false}
-                              title={<Space><Tag color="blue">DK2</Tag><Text type="secondary">Østdanmark</Text></Space>}>
-                              <Descriptions.Item label="Seneste pris">
-                                <Text strong className="tnum" style={{ fontSize: 16 }}>
-                                  {formatPrice4(spotLatest.dk2.spotPriceDkkPerKwh)} DKK/kWh
-                                </Text>
-                              </Descriptions.Item>
-                              <Descriptions.Item label="MWh-pris">
-                                <Text className="tnum">{formatPrice2(spotLatest.dk2.spotPriceDkkPerMwh)} DKK/MWh</Text>
-                              </Descriptions.Item>
-                              <Descriptions.Item label="Tidspunkt">
-                                <Text className="tnum" style={{ fontSize: 12 }}>
-                                  {new Date(spotLatest.dk2.hourDk).toLocaleString('da-DK')}
-                                </Text>
-                              </Descriptions.Item>
-                            </Descriptions>
-                          </Card>
-                        </Col>
-                      )}
-                    </Row>
-                  ) : (
-                    <Alert
-                      type="info"
-                      showIcon
-                      message="Ingen spotpriser tilgængelige"
-                      description="SpotPriceWorker henter automatisk priser fra Energi Data Service (energidataservice.dk). Priser vises her når de er tilgængelige."
-                    />
-                  )}
-
-                  {/* Spot price table */}
-                  {filteredSpot.length > 0 ? (
-                    <>
-                      <Space>
-                        <Text type="secondary">Prisområde:</Text>
-                        <Tag
-                          color={spotArea === 'DK1' ? 'orange' : 'default'}
-                          style={{ cursor: 'pointer' }}
-                          onClick={() => setSpotArea('DK1')}
-                        >DK1</Tag>
-                        <Tag
-                          color={spotArea === 'DK2' ? 'blue' : 'default'}
-                          style={{ cursor: 'pointer' }}
-                          onClick={() => setSpotArea('DK2')}
-                        >DK2</Tag>
-                      </Space>
-                      <Table
-                        dataSource={filteredSpot}
-                        columns={spotColumns}
-                        rowKey="hourUtc"
-                        size="small"
-                        pagination={filteredSpot.length > 48 ? { pageSize: 48 } : false}
-                      />
-                    </>
-                  ) : !spotLoading && (spotLatest?.totalRecords ?? 0) === 0 ? null : (
-                    <Empty description="Ingen spotpriser for valgt område" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-                  )}
-                </Space>
+              children: supplierPrices.length > 0 ? (
+                <Table
+                  dataSource={supplierPrices}
+                  columns={priceColumns}
+                  rowKey="id"
+                  pagination={false}
+                  size="small"
+                  expandable={{ expandedRowRender, onExpand: handleExpand }}
+                />
+              ) : (
+                <Empty description="Ingen leverandørpriser oprettet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
               ),
             },
           ]}

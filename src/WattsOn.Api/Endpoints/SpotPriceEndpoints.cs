@@ -7,26 +7,39 @@ public static class SpotPriceEndpoints
 {
     public static WebApplication MapSpotPriceEndpoints(this WebApplication app)
     {
-        app.MapGet("/api/spot-prices", async (string? area, int? days, WattsOnDbContext db) =>
+        app.MapGet("/api/spot-prices", async (string? area, int? days, string? date, WattsOnDbContext db) =>
         {
-            var since = DateTimeOffset.UtcNow.AddDays(-(days ?? 7));
-            var query = db.SpotPrices
-                .Where(sp => sp.HourUtc >= since)
-                .OrderByDescending(sp => sp.HourUtc)
-                .AsQueryable();
+            IQueryable<Domain.Entities.SpotPrice> query = db.SpotPrices;
+
+            if (!string.IsNullOrEmpty(date) && DateTimeOffset.TryParse(date, out var parsedDate))
+            {
+                // Filter to a specific date (in Danish time — date string like "2026-02-19")
+                // Convert to UTC range: date 00:00 CET = date-1 23:00 UTC
+                var startUtc = new DateTimeOffset(parsedDate.Year, parsedDate.Month, parsedDate.Day, 0, 0, 0, TimeSpan.FromHours(1)).ToUniversalTime();
+                var endUtc = startUtc.AddDays(1);
+                query = query.Where(sp => sp.HourUtc >= startUtc && sp.HourUtc < endUtc);
+            }
+            else
+            {
+                var since = DateTimeOffset.UtcNow.AddDays(-(days ?? 7));
+                query = query.Where(sp => sp.HourUtc >= since);
+            }
 
             if (!string.IsNullOrEmpty(area))
                 query = query.Where(sp => sp.PriceArea == area);
 
-            var prices = await query.Take(1000).Select(sp => new
-            {
-                sp.HourUtc,
-                sp.HourDk,
-                sp.PriceArea,
-                sp.SpotPriceDkkPerMwh,
-                sp.SpotPriceEurPerMwh,
-                spotPriceDkkPerKwh = sp.SpotPriceDkkPerMwh / 1000m
-            }).ToListAsync();
+            var prices = await query
+                .OrderBy(sp => sp.HourUtc)
+                .Take(5000)
+                .Select(sp => new
+                {
+                    sp.HourUtc,
+                    sp.HourDk,
+                    sp.PriceArea,
+                    sp.SpotPriceDkkPerMwh,
+                    sp.SpotPriceEurPerMwh,
+                    spotPriceDkkPerKwh = sp.SpotPriceDkkPerMwh / 1000m
+                }).ToListAsync();
 
             return Results.Ok(prices);
         }).WithName("GetSpotPrices");
