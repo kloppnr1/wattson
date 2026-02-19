@@ -74,7 +74,7 @@ public static class ProcessEndpoints
         app.MapPost("/api/processes/end-of-supply", async (EndOfSupplyRequest req, WattsOnDbContext db) =>
         {
             var gsrn = Gsrn.Create(req.Gsrn);
-            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn);
+            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == gsrn.Value);
             if (mp is null) return Results.BadRequest(new { error = "Metering point not found" });
 
             var supply = await db.Supplies
@@ -109,7 +109,7 @@ public static class ProcessEndpoints
         app.MapPost("/api/processes/move-out", async (MoveOutRequest req, WattsOnDbContext db) =>
         {
             var gsrn = Gsrn.Create(req.Gsrn);
-            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn);
+            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == gsrn.Value);
             if (mp is null) return Results.BadRequest(new { error = "Metering point not found" });
 
             var supply = await db.Supplies
@@ -144,7 +144,7 @@ public static class ProcessEndpoints
         app.MapPost("/api/processes/customer-update", async (CustomerUpdateRequest req, WattsOnDbContext db) =>
         {
             var gsrn = Gsrn.Create(req.Gsrn);
-            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn);
+            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == gsrn.Value);
             if (mp is null) return Results.BadRequest(new { error = "Metering point not found" });
 
             var supply = await db.Supplies
@@ -188,7 +188,7 @@ public static class ProcessEndpoints
         app.MapPost("/api/processes/incorrect-switch", async (IncorrectSwitchRequest req, WattsOnDbContext db) =>
         {
             var gsrn = Gsrn.Create(req.Gsrn);
-            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn);
+            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == gsrn.Value);
             if (mp is null) return Results.BadRequest(new { error = "Metering point not found" });
 
             var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive);
@@ -217,7 +217,7 @@ public static class ProcessEndpoints
         app.MapPost("/api/processes/incorrect-move", async (IncorrectMoveRequest req, WattsOnDbContext db) =>
         {
             var gsrn = Gsrn.Create(req.Gsrn);
-            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn);
+            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == gsrn.Value);
             if (mp is null) return Results.BadRequest(new { error = "Metering point not found" });
 
             var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive);
@@ -274,7 +274,7 @@ public static class ProcessEndpoints
         app.MapPost("/api/processes/request-charge-links", async (RequestChargeLinksRequest req, WattsOnDbContext db) =>
         {
             var gsrn = Gsrn.Create(req.Gsrn);
-            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn);
+            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == gsrn.Value);
             if (mp is null) return Results.BadRequest(new { error = "Metering point not found" });
 
             var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive);
@@ -358,7 +358,7 @@ public static class ProcessEndpoints
         app.MapPost("/api/processes/request-master-data", async (RequestMasterDataRequest req, WattsOnDbContext db) =>
         {
             var gsrn = Gsrn.Create(req.Gsrn);
-            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn);
+            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == gsrn.Value);
             if (mp is null) return Results.BadRequest(new { error = "Metering point not found" });
 
             var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive);
@@ -386,7 +386,7 @@ public static class ProcessEndpoints
         app.MapPost("/api/processes/request-yearly-sum", async (RequestYearlySumRequest req, WattsOnDbContext db) =>
         {
             var gsrn = Gsrn.Create(req.Gsrn);
-            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn);
+            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == gsrn.Value);
             if (mp is null) return Results.BadRequest(new { error = "Metering point not found" });
 
             var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive);
@@ -414,7 +414,7 @@ public static class ProcessEndpoints
         app.MapPost("/api/processes/request-metered-data", async (RequestMeteredDataRequest req, WattsOnDbContext db) =>
         {
             var gsrn = Gsrn.Create(req.Gsrn);
-            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn);
+            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == gsrn.Value);
             if (mp is null) return Results.BadRequest(new { error = "Metering point not found" });
 
             var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive);
@@ -444,7 +444,7 @@ public static class ProcessEndpoints
         app.MapPost("/api/processes/service-request", async (ServiceRequestDto req, WattsOnDbContext db) =>
         {
             var gsrn = Gsrn.Create(req.Gsrn);
-            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn);
+            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == gsrn.Value);
             if (mp is null) return Results.BadRequest(new { error = "Metering point not found" });
 
             var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive);
@@ -473,7 +473,7 @@ public static class ProcessEndpoints
         app.MapPost("/api/processes/electrical-heating", async (ElectricalHeatingRequest req, WattsOnDbContext db) =>
         {
             var gsrn = Gsrn.Create(req.Gsrn);
-            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn);
+            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == gsrn.Value);
             if (mp is null) return Results.BadRequest(new { error = "Metering point not found" });
 
             var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive);
