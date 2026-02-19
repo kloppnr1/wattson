@@ -55,7 +55,7 @@ public class PricePointConfiguration : IEntityTypeConfiguration<PricePoint>
         builder.ToTable("price_points");
 
         builder.HasKey(pp => pp.Id);
-        builder.Property(pp => pp.Id).HasColumnName("id");
+        builder.Property(pp => pp.Id).HasColumnName("id").ValueGeneratedNever();
         builder.Property(pp => pp.CreatedAt).HasColumnName("created_at");
         builder.Property(pp => pp.UpdatedAt).HasColumnName("updated_at");
 

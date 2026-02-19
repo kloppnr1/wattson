@@ -80,7 +80,7 @@ public class InboxPollingWorker : BackgroundService
         await db.SaveChangesAsync(ct);
     }
 
-    private async Task RouteMessage(WattsOnDbContext db, InboxMessage message, CancellationToken ct)
+    internal async Task RouteMessage(WattsOnDbContext db, InboxMessage message, CancellationToken ct)
     {
         _logger.LogInformation("Routing message {MessageId}: {DocumentType}/{BusinessProcess}",
             message.MessageId, message.DocumentType, message.BusinessProcess);
@@ -152,8 +152,9 @@ public class InboxPollingWorker : BackgroundService
                     break;
                 }
 
-                // Find the active BRS-001 process for this GSRN
+                // Find the active BRS-001 process for this GSRN (Include Transitions so EF tracks new children correctly)
                 var process = await db.Processes
+                    .Include(p => p.Transitions)
                     .Where(p => p.ProcessType == ProcessType.Leverandørskift)
                     .Where(p => p.MeteringPointGsrn != null && p.MeteringPointGsrn.Value == gsrn)
                     .Where(p => p.Status != ProcessStatus.Completed && p.Status != ProcessStatus.Rejected)
@@ -169,7 +170,7 @@ public class InboxPollingWorker : BackgroundService
                     var effectiveDate = process.EffectiveDate;
                     if (effectiveDate.HasValue)
                     {
-                        var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == Gsrn.Create(gsrn), ct);
+                        var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == gsrn, ct);
                         if (mp != null)
                         {
                             var supply = await db.Supplies
@@ -210,7 +211,7 @@ public class InboxPollingWorker : BackgroundService
                 if (gsrn == null || effectiveDateStr == null) break;
 
                 var effectiveDate = DateTimeOffset.Parse(effectiveDateStr);
-                var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == Gsrn.Create(gsrn), ct);
+                var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == gsrn, ct);
                 if (mp == null) break;
 
                 var currentSupply = await db.Supplies
@@ -246,8 +247,9 @@ public class InboxPollingWorker : BackgroundService
                 var transactionId = GetPayloadString(payload, "transactionId") ?? message.MessageId;
 
                 _logger.LogInformation("BRS-009 move-in confirmation for GSRN {Gsrn}", gsrn);
-                // Find and update the process
+                // Find and update the process (Include Transitions so EF tracks new children correctly)
                 var process = await db.Processes
+                    .Include(p => p.Transitions)
                     .Where(p => p.ProcessType == ProcessType.Tilflytning)
                     .Where(p => p.MeteringPointGsrn != null && p.MeteringPointGsrn.Value == gsrn)
                     .Where(p => p.Status != ProcessStatus.Completed)
@@ -274,7 +276,7 @@ public class InboxPollingWorker : BackgroundService
                 var effectiveDate = DateTimeOffset.Parse(effectiveDateStr);
                 _logger.LogInformation("BRS-009 move-out for GSRN {Gsrn} effective {Date}", gsrn, effectiveDate);
 
-                var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == Gsrn.Create(gsrn), ct);
+                var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == gsrn, ct);
                 if (mp == null) break;
 
                 var supply = await db.Supplies
@@ -321,7 +323,7 @@ public class InboxPollingWorker : BackgroundService
                 var existingPrice = await db.Prices
                     .Include(p => p.PricePoints)
                     .Where(p => p.ChargeId == chargeId)
-                    .FirstOrDefaultAsync(p => p.OwnerGln == ownerGln, ct);
+                    .FirstOrDefaultAsync(p => p.OwnerGln.Value == ownerGln.Value, ct);
 
                 var result = Brs031Handler.ProcessPriceInformation(
                     chargeId, ownerGln, priceType, description, effectiveDate, stopDate,
@@ -345,7 +347,7 @@ public class InboxPollingWorker : BackgroundService
                 var price = await db.Prices
                     .Include(p => p.PricePoints)
                     .Where(p => p.ChargeId == chargeId)
-                    .FirstOrDefaultAsync(p => p.OwnerGln == ownerGln, ct);
+                    .FirstOrDefaultAsync(p => p.OwnerGln.Value == ownerGln.Value, ct);
 
                 if (price is null)
                 {
@@ -381,7 +383,7 @@ public class InboxPollingWorker : BackgroundService
 
                 // Find metering point by GSRN
                 var gsrn = Gsrn.Create(gsrnStr);
-                var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn, ct);
+                var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == gsrn.Value, ct);
                 if (mp is null)
                 {
                     _logger.LogWarning("{Brs} D17: Metering point not found for GSRN {Gsrn}", brs, gsrnStr);
@@ -391,7 +393,7 @@ public class InboxPollingWorker : BackgroundService
                 // Find price by ChargeId + OwnerGln
                 var price = await db.Prices
                     .Where(p => p.ChargeId == chargeId)
-                    .FirstOrDefaultAsync(p => p.OwnerGln == ownerGln, ct);
+                    .FirstOrDefaultAsync(p => p.OwnerGln.Value == ownerGln.Value, ct);
 
                 if (price is null)
                 {
@@ -430,7 +432,7 @@ public class InboxPollingWorker : BackgroundService
         }
 
         var gsrn = Gsrn.Create(gsrnStr);
-        var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn, ct);
+        var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == gsrn.Value, ct);
         if (mp is null)
         {
             _logger.LogWarning("BRS-021: Metering point not found for GSRN {Gsrn}", gsrnStr);
@@ -504,7 +506,7 @@ public class InboxPollingWorker : BackgroundService
         }
 
         var gsrn = Gsrn.Create(gsrnStr);
-        var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn, ct);
+        var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == gsrn.Value, ct);
         if (mp is null)
         {
             _logger.LogWarning("BRS-006: Metering point not found for GSRN {Gsrn}", gsrnStr);
@@ -663,8 +665,9 @@ public class InboxPollingWorker : BackgroundService
             return;
         }
 
-        // Find the active BRS-002 process for this GSRN
+        // Find the active BRS-002 process for this GSRN (Include Transitions so EF tracks new children correctly)
         var process = await db.Processes
+            .Include(p => p.Transitions)
             .Where(p => p.ProcessType == ProcessType.Supplyophør)
             .Where(p => p.MeteringPointGsrn != null && p.MeteringPointGsrn.Value == gsrnStr)
             .Where(p => p.Status != ProcessStatus.Completed && p.Status != ProcessStatus.Rejected)
@@ -689,7 +692,7 @@ public class InboxPollingWorker : BackgroundService
 
         // Confirmation — find active supply and end it
         var gsrn = Gsrn.Create(gsrnStr);
-        var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn, ct);
+        var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == gsrn.Value, ct);
         if (mp is null) return;
 
         var supply = await db.Supplies
@@ -725,6 +728,7 @@ public class InboxPollingWorker : BackgroundService
         }
 
         var process = await db.Processes
+            .Include(p => p.Transitions)
             .Where(p => p.ProcessType == ProcessType.CustomerStamdataOpdatering)
             .Where(p => p.MeteringPointGsrn != null && p.MeteringPointGsrn.Value == gsrnStr)
             .Where(p => p.Status != ProcessStatus.Completed && p.Status != ProcessStatus.Rejected)

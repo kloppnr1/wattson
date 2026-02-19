@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\WattsOn.Infrastructure\WattsOn.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\WattsOn.Worker\WattsOn.Worker.csproj" />
   </ItemGroup>
 
 </Project>

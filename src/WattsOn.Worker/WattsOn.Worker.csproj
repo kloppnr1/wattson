@@ -16,4 +16,7 @@
   <ItemGroup>
     <ProjectReference Include="..\WattsOn.Infrastructure\WattsOn.Infrastructure.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="WattsOn.Infrastructure.Tests" />
+  </ItemGroup>
 </Project>
