@@ -152,7 +152,13 @@ export default function MeteringPointDetailPage() {
       title: 'Periode',
       key: 'period',
       render: (_: any, record: any) =>
-        `${new Date(record.periodStart).toLocaleDateString('da-DK')} → ${record.periodEnd ? new Date(record.periodEnd).toLocaleDateString('da-DK') : '→'}`,
+        (() => {
+          const start = new Date(record.periodStart).toLocaleDateString('da-DK');
+          if (!record.periodEnd) return `${start} → →`;
+          const end = new Date(record.periodEnd);
+          end.setDate(end.getDate() - 1);
+          return `${start} → ${end.toLocaleDateString('da-DK')}`;
+        })(),
     },
     { title: 'Opløsning', dataIndex: 'resolution', key: 'resolution' },
     { title: 'Version', dataIndex: 'version', key: 'version' },

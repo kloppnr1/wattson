@@ -14,10 +14,7 @@ import { getSettlementDocument, confirmSettlement } from '../api/client';
 
 const { Title, Text } = Typography;
 
-const formatDKK = (amount: number) =>
-  new Intl.NumberFormat('da-DK', { style: 'currency', currency: 'DKK' }).format(amount);
-const formatDate = (d: string) => new Date(d).toLocaleDateString('da-DK');
-const formatDateTime = (d: string) => new Date(d).toLocaleString('da-DK');
+import { formatDate, formatDateTime, formatPeriodEnd, formatDKK } from '../utils/format';
 
 const docTypeConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   settlement: { label: 'Settlement', color: '#5d7a91', icon: <FileTextOutlined /> },
@@ -241,7 +238,7 @@ export default function SettlementDetailPage() {
             <Descriptions size="small" column={1} colon={false}>
               <Descriptions.Item label="Periode">
                 <Text className="tnum" style={{ fontSize: 12 }}>
-                  {formatDate(doc.period.start)} — {doc.period.end ? formatDate(doc.period.end) : '→'}
+                  {formatDate(doc.period.start)} — {doc.period.end ? formatPeriodEnd(doc.period.end) : '→'}
                 </Text>
               </Descriptions.Item>
               <Descriptions.Item label="MeteringPoint">

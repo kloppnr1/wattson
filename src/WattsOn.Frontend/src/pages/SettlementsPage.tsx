@@ -7,9 +7,10 @@ import { getSettlementDocuments } from '../api/client';
 
 const { Text } = Typography;
 
+import { formatDate, formatPeriodEnd } from '../utils/format';
+
 const formatDKK = (amount: number) =>
   new Intl.NumberFormat('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
-const formatDate = (d: string) => new Date(d).toLocaleDateString('da-DK');
 
 export default function SettlementsPage() {
   const [allDocs, setAllDocs] = useState<SettlementDocument[]>([]);
@@ -75,7 +76,7 @@ export default function SettlementsPage() {
       key: 'period',
       render: (_: any, record: SettlementDocument) => (
         <Text className="tnum">
-          {formatDate(record.period.start)} — {record.period.end ? formatDate(record.period.end) : '→'}
+          {formatDate(record.period.start)} — {record.period.end ? formatPeriodEnd(record.period.end) : '→'}
         </Text>
       ),
     },

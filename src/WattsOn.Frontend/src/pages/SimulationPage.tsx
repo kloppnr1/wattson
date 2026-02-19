@@ -875,7 +875,7 @@ export default function SimulationPage() {
                     >
                       <Descriptions size="small" column={{ xs: 1, sm: 3 }} bordered style={{ marginBottom: 12 }}>
                         <Descriptions.Item label="Period">
-                          {dayjs(settlement.periodStart).format('D. MMM YYYY')} — {dayjs(settlement.periodEnd).format('D. MMM YYYY')}
+                          {dayjs(settlement.periodStart).format('D. MMM YYYY')} — {dayjs(settlement.periodEnd).subtract(1, 'day').format('D. MMM YYYY')}
                         </Descriptions.Item>
                         <Descriptions.Item label="Total Energy">
                           <Text strong className="tnum">{settlement.totalEnergyKwh.toFixed(1)} kWh</Text>
@@ -1213,7 +1213,7 @@ function CorrectionSimulation({ navigate, onRunningChange }: { navigate: ReturnT
                       <Text style={{ fontFamily: 'monospace', fontSize: 12 }}>{sel.gsrn}</Text>
                     </Descriptions.Item>
                     <Descriptions.Item label="Periode">
-                      {dayjs(sel.periodStart).format('D. MMM YYYY')} — {sel.periodEnd ? dayjs(sel.periodEnd).format('D. MMM YYYY') : '→'}
+                      {dayjs(sel.periodStart).format('D. MMM YYYY')} — {sel.periodEnd ? dayjs(sel.periodEnd).subtract(1, 'day').format('D. MMM YYYY') : '→'}
                     </Descriptions.Item>
                     <Descriptions.Item label="Forbrug">{sel.totalEnergyKwh.toFixed(1)} kWh</Descriptions.Item>
                     <Descriptions.Item label="Beløb">

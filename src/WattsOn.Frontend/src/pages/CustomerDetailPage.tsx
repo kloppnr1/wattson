@@ -20,9 +20,7 @@ import {
 
 const { Text, Title } = Typography;
 
-const formatDKK = (amount: number) =>
-  new Intl.NumberFormat('da-DK', { style: 'currency', currency: 'DKK' }).format(amount);
-const formatDate = (d: string) => new Date(d).toLocaleDateString('da-DK');
+import { formatDate, formatPeriodEnd, formatDKK } from '../utils/format';
 
 const statusColors: Record<string, string> = {
   Calculated: 'green', Invoiced: 'blue', Adjusted: 'orange',
@@ -234,7 +232,7 @@ export default function CustomerDetailPage() {
       key: 'period',
       render: (_: any, record: SettlementDocument) => (
         <Text className="tnum" style={{ fontSize: 12 }}>
-          {formatDate(record.period.start)} — {record.period.end ? formatDate(record.period.end) : '→'}
+          {formatDate(record.period.start)} — {record.period.end ? formatPeriodEnd(record.period.end) : '→'}
         </Text>
       ),
     },
