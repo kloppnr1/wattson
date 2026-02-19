@@ -11,7 +11,7 @@ import {
   ReloadOutlined, ExperimentOutlined, LoginOutlined,
   LogoutOutlined, UserDeleteOutlined,
 } from '@ant-design/icons';
-import { useNavigate, useBlocker } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import api from '../api/client';
@@ -185,21 +185,7 @@ export default function SimulationPage() {
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef(false);
 
-  // Block navigation while simulation is running
-  const blocker = useBlocker(running);
-  useEffect(() => {
-    if (blocker.state === 'blocked') {
-      const leave = window.confirm('En simulation kører — vil du forlade siden? Data der allerede er oprettet vil ikke blive rullet tilbage.');
-      if (leave) {
-        abortRef.current = true;
-        blocker.proceed();
-      } else {
-        blocker.reset();
-      }
-    }
-  }, [blocker]);
-
-  // Block browser refresh/close while running
+  // Block browser refresh/close/navigation while running
   useEffect(() => {
     if (!running) return;
     const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
@@ -955,19 +941,7 @@ function CorrectionSimulation({ navigate }: { navigate: ReturnType<typeof useNav
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
 
-  // Block navigation while correction simulation is running
-  const blocker = useBlocker(running);
-  useEffect(() => {
-    if (blocker.state === 'blocked') {
-      const leave = window.confirm('En simulation kører — vil du forlade siden? Data der allerede er oprettet vil ikke blive rullet tilbage.');
-      if (leave) {
-        blocker.proceed();
-      } else {
-        blocker.reset();
-      }
-    }
-  }, [blocker]);
-
+  // Block browser refresh/close while running
   useEffect(() => {
     if (!running) return;
     const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
