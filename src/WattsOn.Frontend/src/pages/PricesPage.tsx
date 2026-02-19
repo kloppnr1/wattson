@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Card, Table, Spin, Alert, Space, Typography, Row, Col, Statistic, Tag,
-  Tabs, Empty, Descriptions, DatePicker,
+  Tabs, Empty, DatePicker,
 } from 'antd';
 import {
   DollarOutlined, ThunderboltOutlined, BankOutlined,
@@ -333,58 +333,6 @@ export default function PricesPage() {
               ),
               children: (
                 <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                  {/* Latest spot summary */}
-                  {spotLatest && (spotLatest.dk1 || spotLatest.dk2) && (
-                    <Row gutter={16}>
-                      {spotLatest.dk1 && (
-                        <Col xs={24} sm={12}>
-                          <Card size="small" style={{
-                            borderRadius: 10,
-                            background: 'linear-gradient(135deg, #fefce8, #fef9c3)',
-                            border: '1px solid #fde68a',
-                          }}>
-                            <Descriptions size="small" column={1} colon={false}
-                              title={<Space><Tag color="orange">DK1</Tag><Text type="secondary">Vestdanmark</Text></Space>}>
-                              <Descriptions.Item label="Seneste pris">
-                                <Text strong className="tnum" style={{ fontSize: 16 }}>
-                                  {formatPrice4(spotLatest.dk1.spotPriceDkkPerKwh)} DKK/kWh
-                                </Text>
-                              </Descriptions.Item>
-                              <Descriptions.Item label="Tidspunkt">
-                                <Text className="tnum" style={{ fontSize: 12 }}>
-                                  {new Date(spotLatest.dk1.hourDk).toLocaleString('da-DK')}
-                                </Text>
-                              </Descriptions.Item>
-                            </Descriptions>
-                          </Card>
-                        </Col>
-                      )}
-                      {spotLatest.dk2 && (
-                        <Col xs={24} sm={12}>
-                          <Card size="small" style={{
-                            borderRadius: 10,
-                            background: 'linear-gradient(135deg, #eff6ff, #dbeafe)',
-                            border: '1px solid #bfdbfe',
-                          }}>
-                            <Descriptions size="small" column={1} colon={false}
-                              title={<Space><Tag color="blue">DK2</Tag><Text type="secondary">Østdanmark</Text></Space>}>
-                              <Descriptions.Item label="Seneste pris">
-                                <Text strong className="tnum" style={{ fontSize: 16 }}>
-                                  {formatPrice4(spotLatest.dk2.spotPriceDkkPerKwh)} DKK/kWh
-                                </Text>
-                              </Descriptions.Item>
-                              <Descriptions.Item label="Tidspunkt">
-                                <Text className="tnum" style={{ fontSize: 12 }}>
-                                  {new Date(spotLatest.dk2.hourDk).toLocaleString('da-DK')}
-                                </Text>
-                              </Descriptions.Item>
-                            </Descriptions>
-                          </Card>
-                        </Col>
-                      )}
-                    </Row>
-                  )}
-
                   {/* Spot price table — DK1 + DK2 side by side */}
                   {spotLoading ? (
                     <Spin size="small" style={{ display: 'block', margin: '24px auto' }} />
