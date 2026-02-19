@@ -31,7 +31,19 @@ public class SpotPriceWorker : BackgroundService
     {
         _logger.LogInformation("SpotPriceWorker starting — polling every {Interval}h", _pollInterval.TotalHours);
 
-        // Initial fetch on startup — get last 30 days to backfill
+        // Check if DB is empty — if so, do a backfill
+        using (var scope = _scopeFactory.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<WattsOnDbContext>();
+            var hasAny = await db.SpotPrices.AnyAsync(stoppingToken);
+            if (!hasAny)
+            {
+                _logger.LogInformation("No spot prices in DB — fetching latest 30 days from Energi Data Service");
+                await FetchLatestSpotPrices(days: 30, stoppingToken);
+            }
+        }
+
+        // Also try the normal "recent" fetch
         await FetchSpotPrices(days: 30, stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
@@ -40,13 +52,43 @@ public class SpotPriceWorker : BackgroundService
 
             try
             {
-                // Regular polling — just get last 2 days (catches any gaps)
                 await FetchSpotPrices(days: 2, stoppingToken);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error fetching spot prices");
             }
+        }
+    }
+
+    /// <summary>
+    /// Fetch the latest available spot prices (sorted desc) regardless of system date.
+    /// Used for initial backfill when the system date may be ahead of available data.
+    /// </summary>
+    private async Task FetchLatestSpotPrices(int days, CancellationToken ct)
+    {
+        var hoursToFetch = days * 24 * 2; // ×2 for DK1+DK2
+        var url = $"{BaseUrl}?filter={{\"PriceArea\":[\"DK1\",\"DK2\"]}}&sort=HourUTC%20desc&limit={hoursToFetch}";
+
+        _logger.LogInformation("Fetching latest {Hours} spot price records (backfill)", hoursToFetch);
+
+        try
+        {
+            var response = await _httpClient.GetFromJsonAsync<EdsResponse>(url, ct);
+            if (response?.Records == null || response.Records.Count == 0)
+            {
+                _logger.LogWarning("No spot price records available from Energi Data Service");
+                return;
+            }
+
+            _logger.LogInformation("Received {Count} spot price records (latest: {Latest})",
+                response.Records.Count, response.Records.First().HourUTC);
+
+            await UpsertSpotPrices(response.Records, ct);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "Failed to reach Energi Data Service for backfill");
         }
     }
 
@@ -62,53 +104,56 @@ public class SpotPriceWorker : BackgroundService
             var response = await _httpClient.GetFromJsonAsync<EdsResponse>(url, ct);
             if (response?.Records == null || response.Records.Count == 0)
             {
-                _logger.LogWarning("No spot price records returned from Energi Data Service");
+                _logger.LogInformation("No spot price records for recent period (data source may not have future dates)");
                 return;
             }
 
             _logger.LogInformation("Received {Count} spot price records", response.Records.Count);
-
-            using var scope = _scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<WattsOnDbContext>();
-
-            var inserted = 0;
-            foreach (var record in response.Records)
-            {
-                if (record.SpotPriceDKK == null) continue;
-
-                var hourUtc = record.HourUTC;
-                var area = record.PriceArea;
-
-                // Check if we already have this price
-                var exists = await db.SpotPrices
-                    .AnyAsync(sp => sp.HourUtc == hourUtc && sp.PriceArea == area, ct);
-
-                if (exists) continue;
-
-                var spotPrice = SpotPrice.Create(
-                    hourUtc: hourUtc,
-                    hourDk: record.HourDK,
-                    priceArea: area,
-                    spotPriceDkkPerMwh: record.SpotPriceDKK.Value,
-                    spotPriceEurPerMwh: record.SpotPriceEUR ?? 0);
-
-                db.SpotPrices.Add(spotPrice);
-                inserted++;
-            }
-
-            if (inserted > 0)
-            {
-                await db.SaveChangesAsync(ct);
-                _logger.LogInformation("Inserted {Count} new spot prices", inserted);
-            }
-            else
-            {
-                _logger.LogDebug("No new spot prices to insert — all up to date");
-            }
+            await UpsertSpotPrices(response.Records, ct);
         }
         catch (HttpRequestException ex)
         {
             _logger.LogWarning(ex, "Failed to reach Energi Data Service — will retry next poll");
+        }
+    }
+
+    private async Task UpsertSpotPrices(List<EdsRecord> records, CancellationToken ct)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<WattsOnDbContext>();
+
+        var inserted = 0;
+        foreach (var record in records)
+        {
+            if (record.SpotPriceDKK == null) continue;
+
+            var hourUtc = record.HourUTC;
+            var area = record.PriceArea;
+
+            var exists = await db.SpotPrices
+                .AnyAsync(sp => sp.HourUtc == hourUtc && sp.PriceArea == area, ct);
+
+            if (exists) continue;
+
+            var spotPrice = SpotPrice.Create(
+                hourUtc: hourUtc,
+                hourDk: record.HourDK,
+                priceArea: area,
+                spotPriceDkkPerMwh: record.SpotPriceDKK.Value,
+                spotPriceEurPerMwh: record.SpotPriceEUR ?? 0);
+
+            db.SpotPrices.Add(spotPrice);
+            inserted++;
+        }
+
+        if (inserted > 0)
+        {
+            await db.SaveChangesAsync(ct);
+            _logger.LogInformation("Inserted {Count} new spot prices", inserted);
+        }
+        else
+        {
+            _logger.LogDebug("No new spot prices to insert — all up to date");
         }
     }
 
