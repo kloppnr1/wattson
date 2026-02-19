@@ -303,23 +303,26 @@ export default function PricesPage() {
 
       {/* Date selector + Tabs */}
       <Card style={{ borderRadius: 12 }}>
-        <Space align="center" size={10} style={{
+        <div style={{
           background: 'linear-gradient(135deg, #f0fdfa, #ccfbf1)',
           border: '1px solid #99f6e4',
-          borderRadius: 10,
-          padding: '8px 20px',
-          marginBottom: 16,
+          borderRadius: 12,
+          padding: '16px 24px',
+          marginBottom: 20,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 14,
         }}>
-          <CalendarOutlined style={{ fontSize: 20, color: '#0d9488' }} />
+          <CalendarOutlined style={{ fontSize: 28, color: '#0d9488' }} />
           <DatePicker
             value={selectedDate}
             onChange={(d) => d && setSelectedDate(d)}
             format="D. MMMM YYYY"
             allowClear={false}
             variant="borderless"
-            style={{ width: 220, fontWeight: 700, fontSize: 18, padding: 0 }}
+            style={{ width: 280, fontWeight: 700, fontSize: 24, padding: 0 }}
           />
-        </Space>
+        </div>
         <Tabs
           defaultActiveKey="spot"
           items={[
