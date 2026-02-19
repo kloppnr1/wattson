@@ -27,12 +27,15 @@ const typeColors: Record<string, string> = {
 
 const formatTimeUtc = (v: string) => {
   const d = new Date(v);
-  return d.toISOString().slice(11, 16); // HH:mm UTC
+  const day = d.getUTCDate();
+  const hm = d.toISOString().slice(11, 16);
+  return { day, hm };
 };
 
 const formatTimeDk = (v: string) => {
-  const d = new Date(v);
-  return d.toLocaleString('da-DK', { hour: '2-digit', minute: '2-digit' });
+  // hourDk is stored with +00:00 offset but represents Danish time
+  // Extract time directly from the ISO string
+  return v.slice(11, 16);
 };
 
 interface SpotPriceRecord {
@@ -216,10 +219,10 @@ export default function PricesPage() {
         <Table
           dataSource={displayPoints}
           columns={[
-            { title: 'UTC', dataIndex: 'timestamp', key: 'utc', width: 70,
-              render: (v: string) => <Text className="tnum" type="secondary">{formatTimeUtc(v)}</Text> },
+            { title: 'UTC', dataIndex: 'timestamp', key: 'utc', width: 80,
+              render: (v: string) => { const { day, hm } = formatTimeUtc(v); return <Text className="tnum" type="secondary">{day}. {hm}</Text>; } },
             { title: 'DK', dataIndex: 'timestamp', key: 'dk', width: 70,
-              render: (v: string) => <Text className="tnum">{formatTimeDk(v)}</Text> },
+              render: (v: string) => <Text className="tnum">{v.slice(11, 16)}</Text> },
             { title: 'DKK/kWh', dataIndex: 'price', key: 'price', align: 'right' as const,
               render: (v: number) => <Text className="tnum" strong>{formatPrice4(v)}</Text> },
           ]}
@@ -232,20 +235,29 @@ export default function PricesPage() {
   };
 
   // Spot price columns: DK1 + DK2 side by side
+  const selectedDay = selectedDate.date();
   const spotColumns = [
-    {
-      title: 'UTC',
-      dataIndex: 'hourUtc',
-      key: 'utc',
-      width: 60,
-      render: (v: string) => <Text className="tnum" type="secondary" style={{ fontSize: 12 }}>{formatTimeUtc(v)}</Text>,
-    },
     {
       title: 'DK-TID',
       dataIndex: 'hourDk',
       key: 'dk',
       width: 60,
-      render: (v: string) => <Text className="tnum" style={{ fontSize: 12 }}>{formatTimeDk(v)}</Text>,
+      render: (v: string) => <Text className="tnum" strong style={{ fontSize: 13 }}>{formatTimeDk(v)}</Text>,
+    },
+    {
+      title: 'UTC',
+      dataIndex: 'hourUtc',
+      key: 'utc',
+      width: 80,
+      render: (v: string) => {
+        const { day, hm } = formatTimeUtc(v);
+        const diff = day !== selectedDay;
+        return (
+          <Text className="tnum" type="secondary" style={{ fontSize: 12 }}>
+            {diff ? <span style={{ opacity: 0.5 }}>{day}. </span> : null}{hm}
+          </Text>
+        );
+      },
     },
     {
       title: <><Tag color="orange" style={{ marginRight: 0 }}>DK1</Tag> <Text type="secondary" style={{ fontSize: 11 }}>DKK/kWh</Text></>,
