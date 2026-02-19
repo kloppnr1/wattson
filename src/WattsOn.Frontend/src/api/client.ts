@@ -185,6 +185,9 @@ export interface SettlementDocument {
   documentType: string;
   documentId: string;
   originalDocumentId: string | null;
+  previousSettlementId: string | null;
+  adjustmentSettlementId: string | null;
+  adjustmentDocumentId: string | null;
   settlementId: string;
   status: string;
   period: { start: string; end: string | null };
@@ -203,6 +206,38 @@ export interface SettlementDocument {
   calculatedAt: string;
   externalInvoiceReference: string | null;
   invoicedAt: string | null;
+}
+
+export interface InvoicedSettlement {
+  id: string;
+  gsrn: string;
+  customerName: string;
+  periodStart: string;
+  periodEnd: string | null;
+  totalEnergyKwh: number;
+  totalAmount: number;
+  currency: string;
+  externalInvoiceReference: string | null;
+  invoicedAt: string | null;
+  documentNumber: number;
+  calculatedAt: string;
+}
+
+export interface CorrectedMeteredDataResult {
+  originalSettlementId: string;
+  originalTimeSeriesVersion: number;
+  correctedTimeSeriesId: string;
+  correctedTimeSeriesVersion: number;
+  transactionId: string;
+  gsrn: string;
+  periodStart: string;
+  periodEnd: string | null;
+  originalTotalKwh: number;
+  correctedTotalKwh: number;
+  deltaKwh: number;
+  deltaPercent: number;
+  observationCount: number;
+  message: string;
 }
 
 export interface PriceSummary {
@@ -359,5 +394,11 @@ export const requestAggregatedData = (data: { gridArea: string; startDate: strin
 // BRS-027: Request Wholesale Settlement
 export const requestWholesaleSettlement = (data: { gridArea: string; startDate: string; endDate: string; energySupplierGln?: string }) =>
   api.post('/processes/request-wholesale-settlement', data);
+
+// Simulation - Corrected Metered Data
+export const getInvoicedSettlements = () =>
+  api.get<InvoicedSettlement[]>('/simulation/invoiced-settlements');
+export const simulateCorrectedMeteredData = (settlementId: string) =>
+  api.post<CorrectedMeteredDataResult>('/simulation/corrected-metered-data', { settlementId });
 
 export default api;

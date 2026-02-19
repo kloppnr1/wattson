@@ -148,3 +148,6 @@ record RequestMeteredDataRequest(string Gsrn, DateTimeOffset StartDate, DateTime
 record ServiceRequestDto(string Gsrn, string ServiceType, DateTimeOffset RequestedDate, string? Reason);
 
 record ElectricalHeatingRequest(string Gsrn, string Action, DateTimeOffset EffectiveDate);
+
+record SimulateCorrectedMeteredDataRequest(
+    Guid SettlementId);

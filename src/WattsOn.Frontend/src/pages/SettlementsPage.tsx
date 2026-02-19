@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Card, Table, Spin, Alert, Space, Typography, Segmented, Row, Col, Statistic, Select, Input, DatePicker } from 'antd';
+import { Card, Table, Spin, Alert, Space, Typography, Segmented, Row, Col, Statistic, Select, Input, DatePicker, Tag } from 'antd';
+import { SwapOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { SettlementDocument } from '../api/client';
 import { getSettlementDocuments } from '../api/client';
@@ -39,15 +40,27 @@ export default function SettlementsPage() {
       dataIndex: 'status',
       key: 'status',
       width: 130,
-      render: (status: string) => {
+      render: (status: string, record: SettlementDocument) => {
         const color = status === 'Calculated' ? 'green'
           : status === 'Invoiced' ? 'blue'
           : status === 'Adjusted' ? 'orange' : 'gray';
         return (
-          <span className="status-badge">
-            <span className={`status-dot ${color}`} />
-            <span className={`status-text ${color}`}>{status.toLowerCase()}</span>
-          </span>
+          <Space size={6}>
+            <span className="status-badge">
+              <span className={`status-dot ${color}`} />
+              <span className={`status-text ${color}`}>{status.toLowerCase()}</span>
+            </span>
+            {record.documentType === 'creditNote' && (
+              <Tag color="green" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
+                <SwapOutlined style={{ marginRight: 2 }} />kredit
+              </Tag>
+            )}
+            {record.documentType === 'debitNote' && (
+              <Tag color="orange" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
+                <SwapOutlined style={{ marginRight: 2 }} />debit
+              </Tag>
+            )}
+          </Space>
         );
       },
     },

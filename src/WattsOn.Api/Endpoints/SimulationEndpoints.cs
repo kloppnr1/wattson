@@ -513,6 +513,192 @@ public static class SimulationEndpoints
             });
         }).WithName("SimulateMoveOut");
 
+        /// <summary>
+        /// Simulate corrected metered data — DataHub sends updated time series for an already-invoiced period.
+        /// This triggers WattsOn's correction detection: the SettlementWorker detects the updated data,
+        /// calculates the delta against the invoiced settlement, and creates an adjustment.
+        ///
+        /// Realistic CIM envelope: BRS-021/RSM-012 (NotifyValidatedMeasureData_MarketDocument)
+        /// with process type E23 (metered data collection) and type code E66 (validated measure data).
+        ///
+        /// The variation is ±5-15% per hour, which is realistic for meter recalibrations,
+        /// load profile corrections, and estimated-to-measured transitions.
+        /// </summary>
+        app.MapPost("/api/simulation/corrected-metered-data", async (SimulateCorrectedMeteredDataRequest req, WattsOnDbContext db) =>
+        {
+            var identity = await db.SupplierIdentities.FirstOrDefaultAsync(a => a.IsActive);
+            if (identity is null) return Results.Problem("No supplier identity configured");
+
+            // 1. Find the invoiced settlement
+            var settlement = await db.Settlements
+                .Include(a => a.MeteringPoint)
+                .Include(a => a.Lines)
+                .FirstOrDefaultAsync(a => a.Id == req.SettlementId);
+
+            if (settlement is null)
+                return Results.NotFound("Settlement ikke fundet");
+
+            if (settlement.Status != SettlementStatus.Invoiced)
+                return Results.Problem($"Settlement har status '{settlement.Status}' — kun fakturerede settlements kan korrigeres");
+
+            // 2. Find the original time series
+            var originalTimeSeries = await db.TimeSeriesCollection
+                .Include(ts => ts.Observations)
+                .FirstOrDefaultAsync(ts =>
+                    ts.Id == settlement.TimeSeriesId &&
+                    ts.Version == settlement.TimeSeriesVersion);
+
+            if (originalTimeSeries is null)
+                return Results.Problem("Original tidsserie ikke fundet");
+
+            // 3. Find the active supply for this metering point
+            var supply = await db.Supplies
+                .Where(l => l.MeteringPointId == settlement.MeteringPointId)
+                .Where(l => l.SupplyPeriod.Start <= settlement.SettlementPeriod.Start)
+                .Where(l => l.SupplyPeriod.End == null || l.SupplyPeriod.End > settlement.SettlementPeriod.Start)
+                .FirstOrDefaultAsync();
+
+            if (supply is null)
+                return Results.Problem("Ingen aktiv leverance fundet for målepunktet");
+
+            // 4. Mark old time series as superseded
+            originalTimeSeries.Supersede();
+
+            // 5. Generate new time series with ±5-15% random variation per hour
+            var newVersion = originalTimeSeries.Version + 1;
+            var transactionId = $"DH-COR-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString()[..8]}";
+
+            var correctedTimeSeries = TimeSeries.Create(
+                settlement.MeteringPointId,
+                originalTimeSeries.Period,
+                originalTimeSeries.Resolution,
+                newVersion,
+                transactionId);
+
+            var rng = new Random();
+            var totalOriginalKwh = 0m;
+            var totalCorrectedKwh = 0m;
+
+            foreach (var obs in originalTimeSeries.Observations.OrderBy(o => o.Timestamp))
+            {
+                // Apply ±5-15% random variation
+                var variationPercent = (decimal)(rng.NextDouble() * 0.10 + 0.05); // 5% to 15%
+                var direction = rng.NextDouble() > 0.5 ? 1m : -1m;
+                var variation = obs.Quantity.Value * variationPercent * direction;
+                var newKwh = Math.Max(0.01m, obs.Quantity.Value + variation); // Ensure positive
+
+                correctedTimeSeries.AddObservation(
+                    obs.Timestamp,
+                    EnergyQuantity.Create(newKwh),
+                    QuantityQuality.Revised); // A05 = Revised — correct quality code for corrections
+
+                totalOriginalKwh += obs.Quantity.Value;
+                totalCorrectedKwh += newKwh;
+            }
+
+            db.TimeSeriesCollection.Add(correctedTimeSeries);
+
+            // 6. Create realistic CIM inbox message for BRS-021/RSM-012
+            // Build the time series observations as CIM "Point" elements
+            var cimPoints = correctedTimeSeries.Observations
+                .OrderBy(o => o.Timestamp)
+                .Select((o, idx) => new Dictionary<string, object?>
+                {
+                    ["position"] = idx + 1,
+                    ["quantity"] = o.Quantity.Value,
+                    ["quality"] = new { value = "A05" } // Revised
+                })
+                .ToArray();
+
+            var gsrn = settlement.MeteringPoint.Gsrn.Value;
+            var inboxMsg = InboxMessage.Create(
+                $"MSG-{Guid.NewGuid().ToString()[..8]}",
+                "RSM-012", "5790000432752", identity.Gln.Value,
+                BuildIncomingCimEnvelope(
+                    "NotifyValidatedMeasureData_MarketDocument", "E66", "E23",
+                    "5790000432752", identity.Gln.Value, transactionId,
+                    new Dictionary<string, object?>
+                    {
+                        ["marketEvaluationPoint.mRID"] = CimGsrn(gsrn),
+                        ["marketEvaluationPoint.type"] = new { value = "E17" }, // Consumption
+                        ["product"] = "8716867000030", // Active energy
+                        ["quantity_Measure_Unit.name"] = new { value = "KWH" },
+                        ["registration_DateAndOrTime.dateTime"] = CimDateTime(DateTimeOffset.UtcNow),
+                        ["Period"] = new
+                        {
+                            resolution = new { value = "PT1H" },
+                            timeInterval = new
+                            {
+                                start = CimDateTime(originalTimeSeries.Period.Start),
+                                end = CimDateTime(originalTimeSeries.Period.End!.Value)
+                            },
+                            Point = cimPoints
+                        }
+                    }),
+                "BRS-021");
+            inboxMsg.MarkProcessed(); // Auto-process — the SettlementWorker handles the actual settlement
+
+            db.InboxMessages.Add(inboxMsg);
+            await db.SaveChangesAsync();
+
+            var deltaKwh = totalCorrectedKwh - totalOriginalKwh;
+            var deltaPercent = totalOriginalKwh > 0 ? (deltaKwh / totalOriginalKwh) * 100m : 0m;
+
+            return Results.Ok(new
+            {
+                originalSettlementId = settlement.Id,
+                originalTimeSeriesVersion = originalTimeSeries.Version,
+                correctedTimeSeriesId = correctedTimeSeries.Id,
+                correctedTimeSeriesVersion = newVersion,
+                transactionId,
+                gsrn,
+                periodStart = originalTimeSeries.Period.Start,
+                periodEnd = originalTimeSeries.Period.End,
+                originalTotalKwh = Math.Round(totalOriginalKwh, 3),
+                correctedTotalKwh = Math.Round(totalCorrectedKwh, 3),
+                deltaKwh = Math.Round(deltaKwh, 3),
+                deltaPercent = Math.Round(deltaPercent, 1),
+                observationCount = correctedTimeSeries.Observations.Count,
+                message = $"Korrigeret måledata genereret for {gsrn}. " +
+                          $"Version {originalTimeSeries.Version} → {newVersion}. " +
+                          $"Delta: {deltaKwh:+0.0;-0.0} kWh ({deltaPercent:+0.0;-0.0}%). " +
+                          $"SettlementWorker registrerer automatisk korrektionen inden for 30 sekunder."
+            });
+        }).WithName("SimulateCorrectedMeteredData");
+
+        /// <summary>
+        /// Get invoiced settlements available for correction simulation.
+        /// Returns only settlements that have been invoiced and haven't already been adjusted.
+        /// </summary>
+        app.MapGet("/api/simulation/invoiced-settlements", async (WattsOnDbContext db) =>
+        {
+            var invoiced = await db.Settlements
+                .Include(a => a.MeteringPoint)
+                .Include(a => a.Supply)
+                    .ThenInclude(l => l.Customer)
+                .Where(a => a.Status == SettlementStatus.Invoiced)
+                .AsNoTracking()
+                .OrderByDescending(a => a.CalculatedAt)
+                .Select(a => new
+                {
+                    a.Id,
+                    gsrn = a.MeteringPoint.Gsrn.Value,
+                    customerName = a.Supply.Customer.Name,
+                    periodStart = a.SettlementPeriod.Start,
+                    periodEnd = a.SettlementPeriod.End,
+                    totalEnergyKwh = a.TotalEnergy.Value,
+                    totalAmount = a.TotalAmount.Amount,
+                    currency = a.TotalAmount.Currency,
+                    externalInvoiceReference = a.ExternalInvoiceReference,
+                    invoicedAt = a.InvoicedAt,
+                    documentNumber = a.DocumentNumber,
+                    calculatedAt = a.CalculatedAt
+                })
+                .ToListAsync();
+
+            return Results.Ok(invoiced);
+        }).WithName("GetInvoicedSettlementsForSimulation");
+
         return app;
     }
 }

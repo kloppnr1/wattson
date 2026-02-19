@@ -15,8 +15,8 @@ import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import api from '../api/client';
-import type { Supply } from '../api/client';
-import { getSupplies } from '../api/client';
+import type { Supply, InvoicedSettlement, CorrectedMeteredDataResult } from '../api/client';
+import { getSupplies, getInvoicedSettlements, simulateCorrectedMeteredData } from '../api/client';
 
 const { Text, Title, Paragraph } = Typography;
 
@@ -907,6 +907,415 @@ export default function SimulationPage() {
           )}
         </Col>
       </Row>
+
+      {/* Correction Simulation Section */}
+      <CorrectionSimulation navigate={navigate} />
     </Space>
+  );
+}
+
+// =============================================================================
+// Correction Simulation — separate component for Scenario 003
+// =============================================================================
+
+interface CorrectionStep {
+  key: string;
+  title: string;
+  description: string;
+  status: 'waiting' | 'running' | 'done' | 'error';
+  detail?: string;
+  timestamp?: string;
+}
+
+function CorrectionSimulation({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
+  const [invoicedSettlements, setInvoicedSettlements] = useState<InvoicedSettlement[]>([]);
+  const [selectedSettlementId, setSelectedSettlementId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [steps, setSteps] = useState<CorrectionStep[]>([]);
+  const [corrResult, setCorrResult] = useState<CorrectedMeteredDataResult | null>(null);
+  const [adjustmentFound, setAdjustmentFound] = useState<{ id: string; amount: number; energy: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load invoiced settlements
+  const loadInvoiced = useCallback(() => {
+    setLoading(true);
+    getInvoicedSettlements()
+      .then(res => {
+        setInvoicedSettlements(res.data);
+        if (res.data.length > 0 && !selectedSettlementId) {
+          setSelectedSettlementId(res.data[0].id);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { loadInvoiced(); }, [loadInvoiced]);
+
+  const updateStep = (key: string, update: Partial<CorrectionStep>) => {
+    setSteps(prev => prev.map(s => s.key === key ? { ...s, ...update } : s));
+  };
+
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+  const now = () => new Date().toLocaleTimeString('da-DK');
+
+  const runCorrection = async () => {
+    if (!selectedSettlementId) return;
+    setRunning(true);
+    setCorrResult(null);
+    setAdjustmentFound(null);
+    setError(null);
+
+    const selected = invoicedSettlements.find(s => s.id === selectedSettlementId);
+
+    setSteps([
+      { key: 'detect', title: 'DataHub sender korrigeret data', description: 'Ny version af målinger received', status: 'waiting' },
+      { key: 'generate', title: 'Genererer korrigerede målinger', description: 'Simulerer ±5-15% variation pr. time', status: 'waiting' },
+      { key: 'inbox', title: 'CIM besked oprettet', description: 'BRS-021/RSM-012 inbox besked', status: 'waiting' },
+      { key: 'engine', title: 'Settlement Engine registrerer', description: 'SettlementWorker opdager ny version', status: 'waiting' },
+      { key: 'adjustment', title: 'Justering beregnet', description: 'Delta-settlement oprettet automatisk', status: 'waiting' },
+    ]);
+
+    try {
+      // Step 1: Detect
+      updateStep('detect', {
+        status: 'running',
+        detail: `DataHub sender opdaterede målinger for ${selected?.gsrn ?? 'målepunkt'}...`,
+        timestamp: now(),
+      });
+      await sleep(800);
+      updateStep('detect', {
+        status: 'done',
+        detail: `RSM-012 received — ny version af måledata for perioden`,
+      });
+
+      // Step 2: Generate
+      updateStep('generate', {
+        status: 'running',
+        detail: `Genererer varierede timeværdier (±5-15% af original)...`,
+        timestamp: now(),
+      });
+      await sleep(600);
+
+      // Step 3: API call
+      const response = await simulateCorrectedMeteredData(selectedSettlementId);
+      const data = response.data;
+      setCorrResult(data);
+
+      updateStep('generate', {
+        status: 'done',
+        detail: `Version ${data.originalTimeSeriesVersion} → ${data.correctedTimeSeriesVersion}. ` +
+                `${data.originalTotalKwh.toFixed(1)} → ${data.correctedTotalKwh.toFixed(1)} kWh ` +
+                `(${data.deltaPercent > 0 ? '+' : ''}${data.deltaPercent.toFixed(1)}%)`,
+      });
+
+      // Step 3: Inbox
+      updateStep('inbox', {
+        status: 'running',
+        detail: 'Opretter BRS-021/RSM-012 besked med CIM JSON envelope...',
+        timestamp: now(),
+      });
+      await sleep(500);
+      updateStep('inbox', {
+        status: 'done',
+        detail: `NotifyValidatedMeasureData — ${data.observationCount} timeværdier, kvalitet A05 (Revised)`,
+      });
+
+      // Step 4: Wait for settlement engine
+      updateStep('engine', {
+        status: 'running',
+        detail: 'Venter på SettlementWorker...',
+        timestamp: now(),
+      });
+
+      // Poll for the adjustment settlement
+      let adjustment = null;
+      for (let attempt = 0; attempt < 15; attempt++) {
+        await sleep(5000);
+        try {
+          // Check if a correction settlement has been created for this original
+          const docs = await api.get('/settlement-documents', { params: { status: 'corrections' } });
+          const corrections = docs.data as Array<{ settlementId: string; originalDocumentId: string | null; totalExclVat: number; totalInclVat: number; documentId: string; status: string }>;
+          // Find a correction that references our settlement
+          adjustment = corrections.find((c: any) =>
+            c.previousSettlementId === selectedSettlementId ||
+            c.originalDocumentId === `WO-${new Date(selected?.calculatedAt ?? '').getFullYear()}-${String(selected?.documentNumber ?? 0).padStart(5, '0')}`
+          );
+          if (adjustment) break;
+        } catch { /* keep polling */ }
+        updateStep('engine', {
+          status: 'running',
+          detail: `Venter på SettlementWorker... (${(attempt + 1) * 5}s)`,
+        });
+      }
+
+      if (adjustment) {
+        updateStep('engine', {
+          status: 'done',
+          detail: 'Korrektion registreret — original settlement markeret som "Adjusted"',
+        });
+
+        setAdjustmentFound({
+          id: adjustment.settlementId,
+          amount: adjustment.totalExclVat,
+          energy: 0, // Will get from detail
+        });
+
+        const adjustDKK = adjustment.totalExclVat.toLocaleString('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        updateStep('adjustment', {
+          status: 'done',
+          detail: `${adjustment.documentId}: Delta ${adjustDKK} DKK (${adjustment.totalExclVat >= 0 ? 'Debitnota' : 'Kreditnota'})`,
+          timestamp: now(),
+        });
+      } else {
+        updateStep('engine', {
+          status: 'done',
+          detail: 'Timeout — SettlementWorker har ikke behandlet endnu. Tjek om 30 sek.',
+        });
+        updateStep('adjustment', {
+          status: 'done',
+          detail: 'Afventer — tjek Settlements-siden manuelt',
+        });
+      }
+    } catch (err: any) {
+      const msg = err.response?.data?.toString?.() || err.message || 'Ukendt fejl';
+      setError(msg);
+      setSteps(prev => prev.map(s =>
+        s.status === 'running' ? { ...s, status: 'error', detail: msg } : s
+      ));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const resetCorrection = () => {
+    setSteps([]);
+    setCorrResult(null);
+    setAdjustmentFound(null);
+    setError(null);
+    loadInvoiced();
+  };
+
+  const currentStepIndex = steps.findIndex(s => s.status === 'running');
+  const allDone = steps.length > 0 && steps.every(s => s.status === 'done');
+
+  if (invoicedSettlements.length === 0 && !loading) {
+    return (
+      <Card style={{ borderRadius: 12, marginTop: 8 }}>
+        <Space direction="vertical" align="center" style={{ width: '100%', padding: '24px 0' }}>
+          <SwapOutlined style={{ fontSize: 32, color: '#c9d4de' }} />
+          <Title level={5} type="secondary" style={{ margin: 0 }}>Simuler korrigeret data</Title>
+          <Text type="secondary" style={{ textAlign: 'center', maxWidth: 400 }}>
+            Ingen fakturerede settlements endnu. Kør først scenarie 001 (customer onboarding),
+            og marker settlement som faktureret (scenarie 002) for at kunne simulere korrektioner.
+          </Text>
+        </Space>
+      </Card>
+    );
+  }
+
+  return (
+    <Card
+      title={
+        <Space>
+          <SwapOutlined style={{ color: '#dc2626' }} />
+          <span>Simuler korrigeret data</span>
+          <Tag color="red" style={{ fontWeight: 400, fontSize: 11 }}>Scenarie 003</Tag>
+        </Space>
+      }
+      style={{ borderRadius: 12, marginTop: 8, border: '1px solid #fecaca' }}
+    >
+      <Paragraph type="secondary" style={{ marginBottom: 16 }}>
+        Simuler at DataHub sender korrigerede målinger for en allerede faktureret periode.
+        WattsOn registrerer automatisk afvigelsen og beregner en justeringssettlement (kredit/debitnota).
+      </Paragraph>
+
+      <Row gutter={[24, 24]}>
+        <Col xs={24} lg={10}>
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <div>
+              <Text type="secondary" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Vælg faktureret settlement
+              </Text>
+              {loading ? <Spin size="small" style={{ marginLeft: 8 }} /> : (
+                <Select
+                  value={selectedSettlementId}
+                  onChange={setSelectedSettlementId}
+                  disabled={running}
+                  style={{ width: '100%', marginTop: 4 }}
+                  options={invoicedSettlements.map(s => ({
+                    value: s.id,
+                    label: (
+                      <Space>
+                        <Text strong>{s.customerName}</Text>
+                        <Text type="secondary" style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                          {s.gsrn}
+                        </Text>
+                        <Text type="secondary" style={{ fontSize: 11 }}>
+                          ({s.totalAmount.toLocaleString('da-DK', { minimumFractionDigits: 2 })} DKK)
+                        </Text>
+                      </Space>
+                    ),
+                  }))}
+                />
+              )}
+            </div>
+
+            {selectedSettlementId && (() => {
+              const sel = invoicedSettlements.find(s => s.id === selectedSettlementId);
+              if (!sel) return null;
+              return (
+                <Card size="small" style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8 }}>
+                  <Descriptions size="small" column={1} colon={false}>
+                    <Descriptions.Item label="Kunde">{sel.customerName}</Descriptions.Item>
+                    <Descriptions.Item label="GSRN">
+                      <Text style={{ fontFamily: 'monospace', fontSize: 12 }}>{sel.gsrn}</Text>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Periode">
+                      {dayjs(sel.periodStart).format('D. MMM YYYY')} — {sel.periodEnd ? dayjs(sel.periodEnd).format('D. MMM YYYY') : '→'}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Forbrug">{sel.totalEnergyKwh.toFixed(1)} kWh</Descriptions.Item>
+                    <Descriptions.Item label="Beløb">
+                      <Text strong>{sel.totalAmount.toLocaleString('da-DK', { minimumFractionDigits: 2 })} {sel.currency}</Text>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Faktura">
+                      <Tag color="blue">{sel.externalInvoiceReference}</Tag>
+                    </Descriptions.Item>
+                  </Descriptions>
+                </Card>
+              );
+            })()}
+
+            {!running && !allDone && (
+              <Button
+                type="primary" block size="large"
+                icon={<PlayCircleOutlined />}
+                onClick={runCorrection}
+                disabled={!selectedSettlementId}
+                style={{
+                  height: 48, fontWeight: 600, fontSize: 15,
+                  background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+                  borderColor: 'transparent',
+                }}
+              >
+                Simuler korrektion
+              </Button>
+            )}
+
+            {allDone && (
+              <Button block size="large" icon={<ReloadOutlined />} onClick={resetCorrection}
+                style={{ height: 48, fontWeight: 600, fontSize: 15 }}>
+                Ny korrektion
+              </Button>
+            )}
+          </Space>
+        </Col>
+
+        <Col xs={24} lg={14}>
+          {steps.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px 0', color: '#9ca3af' }}>
+              <SwapOutlined style={{ fontSize: 32, marginBottom: 8 }} />
+              <div>Vælg en faktureret settlement og tryk &quot;Simuler korrektion&quot;</div>
+            </div>
+          ) : (
+            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+              <Steps
+                direction="vertical"
+                size="small"
+                current={currentStepIndex >= 0 ? currentStepIndex : (allDone ? steps.length : 0)}
+                items={steps.map(step => ({
+                  title: (
+                    <Space>
+                      <span style={{ fontWeight: 600 }}>{step.title}</span>
+                      {step.timestamp && (
+                        <Text type="secondary" style={{ fontSize: 11, fontFamily: 'monospace' }}>
+                          {step.timestamp}
+                        </Text>
+                      )}
+                    </Space>
+                  ),
+                  description: (
+                    <div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>{step.description}</Text>
+                      {step.detail && (
+                        <div style={{ marginTop: 2 }}>
+                          <Text style={{ fontSize: 13 }}>
+                            {step.status === 'running' && <LoadingOutlined style={{ marginRight: 6 }} />}
+                            {step.detail}
+                          </Text>
+                        </div>
+                      )}
+                    </div>
+                  ),
+                  status: step.status === 'done' ? 'finish'
+                    : step.status === 'running' ? 'process'
+                    : step.status === 'error' ? 'error'
+                    : 'wait',
+                  icon: step.status === 'running' ? <LoadingOutlined /> : undefined,
+                }))}
+              />
+
+              {/* Correction result */}
+              {allDone && corrResult && (
+                <Card
+                  size="small"
+                  style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8 }}
+                  title={
+                    <Space>
+                      <SwapOutlined style={{ color: '#dc2626' }} />
+                      <Text strong>Korrektionsresultat</Text>
+                      <Tag color={corrResult.deltaKwh >= 0 ? 'orange' : 'green'}>
+                        {corrResult.deltaKwh >= 0 ? 'Debitnota' : 'Kreditnota'}
+                      </Tag>
+                    </Space>
+                  }
+                >
+                  <Descriptions size="small" column={{ xs: 1, sm: 2 }} bordered>
+                    <Descriptions.Item label="Original">
+                      {corrResult.originalTotalKwh.toFixed(1)} kWh
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Korrigeret">
+                      {corrResult.correctedTotalKwh.toFixed(1)} kWh
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Delta energi">
+                      <Text strong style={{ color: corrResult.deltaKwh >= 0 ? '#dc2626' : '#059669' }}>
+                        {corrResult.deltaKwh >= 0 ? '+' : ''}{corrResult.deltaKwh.toFixed(1)} kWh
+                        ({corrResult.deltaPercent >= 0 ? '+' : ''}{corrResult.deltaPercent.toFixed(1)}%)
+                      </Text>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Version">
+                      v{corrResult.originalTimeSeriesVersion} → v{corrResult.correctedTimeSeriesVersion}
+                    </Descriptions.Item>
+                  </Descriptions>
+
+                  <div style={{ marginTop: 12 }}>
+                    <Space wrap>
+                      {adjustmentFound && (
+                        <Button
+                          type="primary" size="small"
+                          icon={<CalculatorOutlined />}
+                          onClick={() => navigate(`/settlements/${adjustmentFound.id}`)}
+                          style={{ background: '#dc2626', borderColor: '#dc2626' }}
+                        >
+                          Se justering
+                        </Button>
+                      )}
+                      <Button size="small" onClick={() => navigate('/settlements')}>
+                        Alle settlements
+                      </Button>
+                    </Space>
+                  </div>
+                </Card>
+              )}
+
+              {error && (
+                <Alert type="error" showIcon message="Korrektion fejlede" description={error} />
+              )}
+            </Space>
+          )}
+        </Col>
+      </Row>
+    </Card>
   );
 }

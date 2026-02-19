@@ -6,7 +6,8 @@ import {
 } from 'antd';
 import {
   ArrowLeftOutlined, FileTextOutlined, SwapOutlined,
-  CheckCircleOutlined, HomeOutlined,
+  CheckCircleOutlined, HomeOutlined, LinkOutlined,
+  ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import type { SettlementDocument, SettlementDocumentLine } from '../api/client';
 import { getSettlementDocument, confirmSettlement } from '../api/client';
@@ -175,6 +176,35 @@ export default function SettlementDetailPage() {
               <CheckCircleOutlined style={{ color: '#059669' }} />
               <Text>Invoiced som <Text strong>{doc.externalInvoiceReference}</Text></Text>
               {doc.invoicedAt && <Text type="secondary">({formatDateTime(doc.invoicedAt)})</Text>}
+            </Space>
+          </>
+        )}
+
+        {/* Correction links */}
+        {(doc.previousSettlementId || doc.adjustmentSettlementId) && (
+          <>
+            <Divider style={{ margin: '20px 0 16px' }} />
+            <Space direction="vertical" size={8}>
+              {doc.previousSettlementId && doc.originalDocumentId && (
+                <Button
+                  type="link"
+                  icon={<LinkOutlined />}
+                  onClick={() => navigate(`/settlements/${doc.previousSettlementId}`)}
+                  style={{ padding: 0, height: 'auto', color: '#5d7a91' }}
+                >
+                  Original settlement: <Text strong style={{ color: '#5d7a91' }}>{doc.originalDocumentId}</Text>
+                </Button>
+              )}
+              {doc.adjustmentSettlementId && doc.adjustmentDocumentId && (
+                <Button
+                  type="link"
+                  icon={<ExclamationCircleOutlined />}
+                  onClick={() => navigate(`/settlements/${doc.adjustmentSettlementId}`)}
+                  style={{ padding: 0, height: 'auto', color: '#d97706' }}
+                >
+                  Korrektion oprettet: <Text strong style={{ color: '#d97706' }}>{doc.adjustmentDocumentId}</Text>
+                </Button>
+              )}
             </Space>
           </>
         )}

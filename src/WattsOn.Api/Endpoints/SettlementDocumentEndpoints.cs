@@ -113,6 +113,7 @@ public static class SettlementDocumentEndpoints
                     documentType,
                     documentId,
                     originalDocumentId,
+                    previousSettlementId = a.PreviousSettlementId,
                     settlementId = a.Id,
                     status = a.Status.ToString(),
 
@@ -198,6 +199,7 @@ public static class SettlementDocumentEndpoints
             var documentId = $"WO-{year}-{a.DocumentNumber:D5}";
 
             string? originalDocumentId = null;
+            Guid? previousSettlementId = a.PreviousSettlementId;
             if (a.PreviousSettlementId.HasValue)
             {
                 var original = await db.Settlements.AsNoTracking()
@@ -205,6 +207,16 @@ public static class SettlementDocumentEndpoints
                 if (original is not null)
                     originalDocumentId = $"WO-{original.CalculatedAt.Year}-{original.DocumentNumber:D5}";
             }
+
+            // Find if an adjustment exists for this settlement
+            var adjustment = await db.Settlements.AsNoTracking()
+                .Where(adj => adj.PreviousSettlementId == a.Id)
+                .Select(adj => new { adj.Id, adj.CalculatedAt, adj.DocumentNumber })
+                .FirstOrDefaultAsync();
+
+            string? adjustmentDocumentId = adjustment is not null
+                ? $"WO-{adjustment.CalculatedAt.Year}-{adjustment.DocumentNumber:D5}"
+                : null;
 
             var lines = a.Lines.Select((line, idx) =>
             {
@@ -249,6 +261,9 @@ public static class SettlementDocumentEndpoints
                 documentType,
                 documentId,
                 originalDocumentId,
+                previousSettlementId,
+                adjustmentSettlementId = adjustment?.Id,
+                adjustmentDocumentId,
                 settlementId = a.Id,
                 status = a.Status.ToString(),
 
