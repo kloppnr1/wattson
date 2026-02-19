@@ -11,6 +11,45 @@ namespace WattsOn.Api.Endpoints;
 
 public static class SimulationEndpoints
 {
+    /// <summary>
+    /// Builds a realistic CIM JSON envelope as DataHub would send it (incoming message).
+    /// Sender is DataHub (DDZ role), receiver is us (DDQ role).
+    /// </summary>
+    private static string BuildIncomingCimEnvelope(
+        string documentName, string typeCode, string processType,
+        string senderGln, string receiverGln,
+        string transactionId, Dictionary<string, object?> transactionFields,
+        string senderRole = "DDZ", string receiverRole = "DDQ")
+    {
+        var transaction = new Dictionary<string, object?>
+        {
+            ["mRID"] = transactionId
+        };
+        foreach (var kvp in transactionFields)
+            if (kvp.Value is not null)
+                transaction[kvp.Key] = kvp.Value;
+
+        var document = new Dictionary<string, object?>
+        {
+            ["mRID"] = Guid.NewGuid().ToString(),
+            ["type"] = new { value = typeCode },
+            ["process.processType"] = new { value = processType },
+            ["businessSector.type"] = new { value = "23" },
+            ["sender_MarketParticipant.mRID"] = new { codingScheme = "A10", value = senderGln },
+            ["sender_MarketParticipant.marketRole.type"] = new { value = senderRole },
+            ["receiver_MarketParticipant.mRID"] = new { codingScheme = "A10", value = receiverGln },
+            ["receiver_MarketParticipant.marketRole.type"] = new { value = receiverRole },
+            ["createdDateTime"] = DateTimeOffset.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+            ["MktActivityRecord"] = new[] { transaction }
+        };
+
+        var envelope = new Dictionary<string, object?> { [documentName] = document };
+        return System.Text.Json.JsonSerializer.Serialize(envelope);
+    }
+
+    private static object CimGsrn(string gsrn) => new { codingScheme = "A10", value = gsrn };
+    private static object CimDateTime(DateTimeOffset dt) => dt.ToString("yyyy-MM-ddTHH:mm:ssZ");
+
     public static WebApplication MapSimulationEndpoints(this WebApplication app)
     {
         /// <summary>
@@ -84,32 +123,37 @@ public static class SimulationEndpoints
 
             mp.SetActiveSupply(true);
 
-            // 7. Create simulated inbox messages (audit trail)
+            // 7. Create simulated inbox messages with realistic CIM envelopes
             var requestMsg = InboxMessage.Create(
                 $"MSG-{Guid.NewGuid().ToString()[..8]}",
                 "RSM-001", "5790000432752", identity.Gln.Value,
-                System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    businessReason = "E03",
-                    gsrn = req.Gsrn,
-                    effectiveDate = req.EffectiveDate,
-                    cpr = req.CprNumber,
-                    cvr = req.CvrNumber,
-                    transactionId
-                }),
+                BuildIncomingCimEnvelope(
+                    "RequestChangeOfSupplier_MarketDocument", "392", "E03",
+                    "5790000432752", identity.Gln.Value, transactionId,
+                    new Dictionary<string, object?>
+                    {
+                        ["marketEvaluationPoint.mRID"] = CimGsrn(req.Gsrn),
+                        ["start_DateAndOrTime.dateTime"] = CimDateTime(req.EffectiveDate),
+                        ["customer_MarketParticipant.mRID"] = req.CprNumber != null
+                            ? new { codingScheme = "ARR", value = req.CprNumber }
+                            : new { codingScheme = "VA", value = req.CvrNumber! },
+                        ["customer_MarketParticipant.name"] = req.CustomerName,
+                    }),
                 "BRS-001");
             requestMsg.MarkProcessed(process.Id);
 
             var confirmMsg = InboxMessage.Create(
                 $"MSG-{Guid.NewGuid().ToString()[..8]}",
                 "RSM-001", "5790000432752", identity.Gln.Value,
-                System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    businessReason = "E03",
-                    confirmation = true,
-                    transactionId,
-                    gsrn = req.Gsrn
-                }),
+                BuildIncomingCimEnvelope(
+                    "ConfirmRequestChangeOfSupplier_MarketDocument", "A01", "E03",
+                    "5790000432752", identity.Gln.Value, transactionId,
+                    new Dictionary<string, object?>
+                    {
+                        ["originalTransactionIDReference_MktActivityRecord.mRID"] = transactionId,
+                        ["marketEvaluationPoint.mRID"] = CimGsrn(req.Gsrn),
+                        ["start_DateAndOrTime.dateTime"] = CimDateTime(req.EffectiveDate),
+                    }),
                 "BRS-001");
             confirmMsg.MarkProcessed(process.Id);
 
@@ -223,19 +267,21 @@ public static class SimulationEndpoints
 
             supply.MeteringPoint.SetActiveSupply(false);
 
-            // Create audit trail inbox message
+            // Create audit trail inbox message with CIM envelope
             var identity = await db.SupplierIdentities.FirstOrDefaultAsync(a => a.IsActive);
             var msg = InboxMessage.Create(
                 $"MSG-{Guid.NewGuid().ToString()[..8]}",
                 "RSM-004", "5790000432752", identity?.Gln.Value ?? "unknown",
-                System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    businessReason = "E03",
-                    stopOfSupply = true,
-                    gsrn = gsrn.Value,
-                    effectiveDate = req.EffectiveDate,
-                    newSupplierGln = newSupplierGln.Value,
-                }),
+                BuildIncomingCimEnvelope(
+                    "NotifyEndOfSupply_MarketDocument", "E44", "E03",
+                    "5790000432752", identity?.Gln.Value ?? "unknown",
+                    result.Process.TransactionId ?? Guid.NewGuid().ToString(),
+                    new Dictionary<string, object?>
+                    {
+                        ["marketEvaluationPoint.mRID"] = CimGsrn(gsrn.Value),
+                        ["start_DateAndOrTime.dateTime"] = CimDateTime(req.EffectiveDate),
+                        ["in_MarketParticipant.mRID"] = new { codingScheme = "A10", value = req.NewSupplierGln ?? "5790000000005" },
+                    }),
                 "BRS-001");
             msg.MarkProcessed(result.Process.Id);
 
@@ -358,18 +404,23 @@ public static class SimulationEndpoints
                 db.TimeSeriesCollection.Add(time_series);
             }
 
-            // Audit trail
+            // Audit trail with CIM envelope
             var inboxMsg = InboxMessage.Create(
                 $"MSG-{Guid.NewGuid().ToString()[..8]}",
                 "RSM-001", "5790000432752", identity.Gln.Value,
-                System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    businessReason = "E65",
-                    gsrn = req.Gsrn,
-                    effectiveDate = req.EffectiveDate,
-                    cpr = req.CprNumber,
-                    cvr = req.CvrNumber,
-                }),
+                BuildIncomingCimEnvelope(
+                    "ConfirmRequestChangeOfSupplier_MarketDocument", "A01", "E65",
+                    "5790000432752", identity.Gln.Value,
+                    result.Process.TransactionId ?? Guid.NewGuid().ToString(),
+                    new Dictionary<string, object?>
+                    {
+                        ["marketEvaluationPoint.mRID"] = CimGsrn(req.Gsrn),
+                        ["start_DateAndOrTime.dateTime"] = CimDateTime(req.EffectiveDate),
+                        ["customer_MarketParticipant.mRID"] = req.CprNumber != null
+                            ? new { codingScheme = "ARR", value = req.CprNumber }
+                            : new { codingScheme = "VA", value = req.CvrNumber! },
+                        ["customer_MarketParticipant.name"] = req.CustomerName,
+                    }),
                 "BRS-009");
             inboxMsg.MarkProcessed(result.Process.Id);
 
@@ -425,18 +476,20 @@ public static class SimulationEndpoints
 
             supply.MeteringPoint.SetActiveSupply(false);
 
-            // Audit trail
+            // Audit trail with CIM envelope
             var identity = await db.SupplierIdentities.FirstOrDefaultAsync(a => a.IsActive);
             var msg = InboxMessage.Create(
                 $"MSG-{Guid.NewGuid().ToString()[..8]}",
                 "RSM-001", "5790000432752", identity?.Gln.Value ?? "unknown",
-                System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    businessReason = "E01",
-                    gsrn = gsrn.Value,
-                    effectiveDate = req.EffectiveDate,
-                    moveOut = true,
-                }),
+                BuildIncomingCimEnvelope(
+                    "ConfirmRequestChangeOfSupplier_MarketDocument", "A01", "E01",
+                    "5790000432752", identity?.Gln.Value ?? "unknown",
+                    result.Process.TransactionId ?? Guid.NewGuid().ToString(),
+                    new Dictionary<string, object?>
+                    {
+                        ["marketEvaluationPoint.mRID"] = CimGsrn(gsrn.Value),
+                        ["start_DateAndOrTime.dateTime"] = CimDateTime(req.EffectiveDate),
+                    }),
                 "BRS-010");
             msg.MarkProcessed(result.Process.Id);
 
