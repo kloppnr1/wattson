@@ -40,13 +40,22 @@ public class Brs002HandlerTests
     }
 
     [Fact]
-    public void InitiateEndOfSupply_OutboxPayloadContainsGsrn()
+    public void InitiateEndOfSupply_OutboxPayloadIsCimEnvelope()
     {
         var result = Brs002Handler.InitiateEndOfSupply(TestGsrn, DesiredEndDate, SupplierGln, "Contract ended");
 
         var payload = JsonSerializer.Deserialize<JsonElement>(result.OutboxMessage.Payload);
-        Assert.Equal(TestGsrn.Value, payload.GetProperty("gsrn").GetString());
-        Assert.Equal("E20", payload.GetProperty("businessReason").GetString());
+        var doc = payload.GetProperty("RequestEndOfSupply_MarketDocument");
+
+        // Verify CIM envelope header
+        Assert.Equal("23", doc.GetProperty("businessSector.type").GetProperty("value").GetString());
+        Assert.Equal("E20", doc.GetProperty("process.processType").GetProperty("value").GetString());
+        Assert.Equal(SupplierGln.Value, doc.GetProperty("sender_MarketParticipant.mRID").GetProperty("value").GetString());
+        Assert.Equal("5790001330552", doc.GetProperty("receiver_MarketParticipant.mRID").GetProperty("value").GetString());
+
+        // Verify Series contains GSRN
+        var series = doc.GetProperty("Series")[0];
+        Assert.Equal(TestGsrn.Value, series.GetProperty("marketEvaluationPoint.mRID").GetProperty("value").GetString());
     }
 
     [Fact]

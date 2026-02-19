@@ -1,4 +1,3 @@
-using System.Text.Json;
 using WattsOn.Domain.Entities;
 using WattsOn.Domain.Enums;
 using WattsOn.Domain.Messaging;
@@ -51,32 +50,31 @@ public static class Brs015Handler
         process.TransitionTo("Submitted", "Kundestamdata opdatering sendt til DataHub");
         process.MarkSubmitted(transactionId);
 
-        // Build payload
-        var payloadObj = new Dictionary<string, object?>
+        // Build CIM Series fields
+        var seriesFields = new Dictionary<string, object?>
         {
-            ["businessReason"] = "E34",
-            ["gsrn"] = gsrn.Value,
-            ["effectiveDate"] = effectiveDate,
+            ["marketEvaluationPoint.mRID"] = new { codingScheme = "A10", value = gsrn.Value },
+            ["start_DateAndOrTime.dateTime"] = effectiveDate.ToString("yyyy-MM-ddTHH:mm:ssZ"),
             ["customerName"] = data.CustomerName,
         };
-        if (data.Cpr is not null) payloadObj["cpr"] = data.Cpr;
-        if (data.Cvr is not null) payloadObj["cvr"] = data.Cvr;
-        if (data.Email is not null) payloadObj["email"] = data.Email;
-        if (data.Phone is not null) payloadObj["phone"] = data.Phone;
+        if (data.Cpr is not null) seriesFields["customer.mRID"] = new { codingScheme = "CPR", value = data.Cpr };
+        if (data.Cvr is not null) seriesFields["customer.mRID"] = new { codingScheme = "CVR", value = data.Cvr };
+        if (data.Email is not null) seriesFields["electronicAddress.emailAddress"] = data.Email;
+        if (data.Phone is not null) seriesFields["electronicAddress.phoneNumber"] = data.Phone;
         if (data.Address is not null)
         {
-            payloadObj["address"] = new
-            {
-                streetName = data.Address.StreetName,
-                buildingNumber = data.Address.BuildingNumber,
-                postCode = data.Address.PostCode,
-                cityName = data.Address.CityName,
-                floor = data.Address.Floor,
-                suite = data.Address.Suite
-            };
+            seriesFields["mainAddress.streetDetail.name"] = data.Address.StreetName;
+            seriesFields["mainAddress.streetDetail.number"] = data.Address.BuildingNumber;
+            seriesFields["mainAddress.townDetail.code"] = data.Address.PostCode;
+            seriesFields["mainAddress.townDetail.name"] = data.Address.CityName;
+            if (data.Address.Floor is not null) seriesFields["mainAddress.streetDetail.floorIdentification"] = data.Address.Floor;
+            if (data.Address.Suite is not null) seriesFields["mainAddress.streetDetail.suiteNumber"] = data.Address.Suite;
         }
 
-        var payload = JsonSerializer.Serialize(payloadObj);
+        var payload = CimDocumentBuilder
+            .Create(RsmDocumentType.Rsm027, "E34", supplierGln.Value)
+            .AddSeries(seriesFields)
+            .Build();
 
         var outbox = OutboxMessage.Create(
             documentType: "RSM-027",

@@ -44,15 +44,18 @@ public class Brs015HandlerTests
     }
 
     [Fact]
-    public void SendCustomerUpdate_PayloadContainsE34()
+    public void SendCustomerUpdate_PayloadIsCimEnvelope()
     {
         var data = CreateTestData();
 
         var result = Brs015Handler.SendCustomerUpdate(TestGsrn, EffectiveDate, SupplierGln, data);
 
         var payload = JsonSerializer.Deserialize<JsonElement>(result.OutboxMessage.Payload);
-        Assert.Equal("E34", payload.GetProperty("businessReason").GetString());
-        Assert.Equal(TestGsrn.Value, payload.GetProperty("gsrn").GetString());
+        var doc = payload.GetProperty("RequestChangeCustomerCharacteristics_MarketDocument");
+        Assert.Equal("E34", doc.GetProperty("process.processType").GetProperty("value").GetString());
+
+        var series = doc.GetProperty("Series")[0];
+        Assert.Equal(TestGsrn.Value, series.GetProperty("marketEvaluationPoint.mRID").GetProperty("value").GetString());
     }
 
     [Fact]
@@ -65,16 +68,19 @@ public class Brs015HandlerTests
         var result = Brs015Handler.SendCustomerUpdate(TestGsrn, EffectiveDate, SupplierGln, data);
 
         var payload = JsonSerializer.Deserialize<JsonElement>(result.OutboxMessage.Payload);
-        Assert.Equal("Anders Andersen", payload.GetProperty("customerName").GetString());
-        Assert.Equal("0101901234", payload.GetProperty("cpr").GetString());
-        Assert.Equal("anders@test.dk", payload.GetProperty("email").GetString());
-        Assert.Equal("+4512345678", payload.GetProperty("phone").GetString());
+        var doc = payload.GetProperty("RequestChangeCustomerCharacteristics_MarketDocument");
+        var series = doc.GetProperty("Series")[0];
 
-        var addr = payload.GetProperty("address");
-        Assert.Equal("Testvej", addr.GetProperty("streetName").GetString());
-        Assert.Equal("42", addr.GetProperty("buildingNumber").GetString());
-        Assert.Equal("1000", addr.GetProperty("postCode").GetString());
-        Assert.Equal("København", addr.GetProperty("cityName").GetString());
+        Assert.Equal("Anders Andersen", series.GetProperty("customerName").GetString());
+        Assert.Equal("0101901234", series.GetProperty("customer.mRID").GetProperty("value").GetString());
+        Assert.Equal("CPR", series.GetProperty("customer.mRID").GetProperty("codingScheme").GetString());
+        Assert.Equal("anders@test.dk", series.GetProperty("electronicAddress.emailAddress").GetString());
+        Assert.Equal("+4512345678", series.GetProperty("electronicAddress.phoneNumber").GetString());
+
+        Assert.Equal("Testvej", series.GetProperty("mainAddress.streetDetail.name").GetString());
+        Assert.Equal("42", series.GetProperty("mainAddress.streetDetail.number").GetString());
+        Assert.Equal("1000", series.GetProperty("mainAddress.townDetail.code").GetString());
+        Assert.Equal("København", series.GetProperty("mainAddress.townDetail.name").GetString());
     }
 
     [Fact]

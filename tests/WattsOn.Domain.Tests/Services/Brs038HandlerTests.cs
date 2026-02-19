@@ -40,16 +40,16 @@ public class Brs038HandlerTests
 
         var result = Brs038Handler.RequestChargeLinks(TestGsrn, TestGln, start, end);
 
-        Assert.Contains("endDate", result.OutboxMessage.Payload);
+        Assert.Contains("end_DateAndOrTime.dateTime", result.OutboxMessage.Payload);
     }
 
     [Fact]
-    public void RequestChargeLinks_WithoutEndDate_EndDateIsNull()
+    public void RequestChargeLinks_WithoutEndDate_OmitsEndDate()
     {
         var result = Brs038Handler.RequestChargeLinks(TestGsrn, TestGln, DateTimeOffset.UtcNow);
 
-        // endDate should be null in JSON
-        Assert.Contains("\"endDate\":null", result.OutboxMessage.Payload);
+        // With CIM envelope, null fields are omitted (not serialized as null)
+        Assert.DoesNotContain("end_DateAndOrTime.dateTime", result.OutboxMessage.Payload);
     }
 
     [Fact]

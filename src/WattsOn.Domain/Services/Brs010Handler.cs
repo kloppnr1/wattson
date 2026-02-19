@@ -1,4 +1,3 @@
-using System.Text.Json;
 using WattsOn.Domain.Entities;
 using WattsOn.Domain.Enums;
 using WattsOn.Domain.Messaging;
@@ -51,13 +50,15 @@ public static class Brs010Handler
         process.TransitionTo("Completed", "Fraflytning gennemført — afventer slutsettlement");
         process.MarkCompleted();
 
-        // Create outbox message to DataHub
-        var payload = JsonSerializer.Serialize(new
-        {
-            businessReason = "E66",
-            gsrn = gsrn.Value,
-            endDate = effectiveDate
-        });
+        // Create CIM JSON envelope for DataHub
+        var payload = CimDocumentBuilder
+            .Create(RsmDocumentType.Rsm005, "E66", supplierGln.Value)
+            .AddSeries(new Dictionary<string, object?>
+            {
+                ["marketEvaluationPoint.mRID"] = new { codingScheme = "A10", value = gsrn.Value },
+                ["end_DateAndOrTime.dateTime"] = effectiveDate.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+            })
+            .Build();
 
         var outbox = OutboxMessage.Create(
             documentType: "RSM-005",

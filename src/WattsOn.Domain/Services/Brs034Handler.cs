@@ -1,4 +1,3 @@
-using System.Text.Json;
 using WattsOn.Domain.Enums;
 using WattsOn.Domain.Messaging;
 using WattsOn.Domain.Processes;
@@ -73,18 +72,24 @@ public static class Brs034Handler
         process.TransitionTo("Submitted", $"Anmodning om {requestType} sendt til DataHub");
         process.MarkSubmitted(transactionId);
 
-        var payloadObj = new Dictionary<string, object?>
+        var seriesFields = new Dictionary<string, object?>
         {
-            ["businessReason"] = businessReason,
-            ["startDate"] = startDate,
-            ["endDate"] = endDate,
+            ["start_DateAndOrTime.dateTime"] = startDate.ToString("yyyy-MM-ddTHH:mm:ssZ"),
         };
 
-        if (priceOwnerGln is not null) payloadObj["priceOwnerGln"] = priceOwnerGln;
-        if (priceType is not null) payloadObj["priceType"] = priceType;
-        if (chargeId is not null) payloadObj["chargeId"] = chargeId;
+        if (endDate.HasValue)
+            seriesFields["end_DateAndOrTime.dateTime"] = endDate.Value.ToString("yyyy-MM-ddTHH:mm:ssZ");
+        if (priceOwnerGln is not null)
+            seriesFields["chargeTypeOwner_MarketParticipant.mRID"] = new { codingScheme = "A10", value = priceOwnerGln };
+        if (priceType is not null)
+            seriesFields["chargeType"] = priceType;
+        if (chargeId is not null)
+            seriesFields["chargeType.mRID"] = chargeId;
 
-        var payload = JsonSerializer.Serialize(payloadObj);
+        var payload = CimDocumentBuilder
+            .Create(RsmDocumentType.Rsm035, businessReason, ourGln.Value)
+            .AddSeries(seriesFields)
+            .Build();
 
         var outbox = OutboxMessage.Create(
             documentType: "RSM-035",

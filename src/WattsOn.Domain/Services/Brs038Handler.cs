@@ -1,4 +1,3 @@
-using System.Text.Json;
 using WattsOn.Domain.Enums;
 using WattsOn.Domain.Messaging;
 using WattsOn.Domain.Processes;
@@ -41,15 +40,19 @@ public static class Brs038Handler
         process.TransitionTo("Submitted", "Anmodning om pristilknytninger sendt til DataHub");
         process.MarkSubmitted(transactionId);
 
-        var payloadObj = new Dictionary<string, object?>
+        var seriesFields = new Dictionary<string, object?>
         {
-            ["businessReason"] = "E0G",
-            ["gsrn"] = gsrn.Value,
-            ["startDate"] = startDate,
-            ["endDate"] = endDate,
+            ["marketEvaluationPoint.mRID"] = new { codingScheme = "A10", value = gsrn.Value },
+            ["start_DateAndOrTime.dateTime"] = startDate.ToString("yyyy-MM-ddTHH:mm:ssZ"),
         };
 
-        var payload = JsonSerializer.Serialize(payloadObj);
+        if (endDate.HasValue)
+            seriesFields["end_DateAndOrTime.dateTime"] = endDate.Value.ToString("yyyy-MM-ddTHH:mm:ssZ");
+
+        var payload = CimDocumentBuilder
+            .Create(RsmDocumentType.Rsm032, "E0G", ourGln.Value)
+            .AddSeries(seriesFields)
+            .Build();
 
         var outbox = OutboxMessage.Create(
             documentType: "RSM-032",

@@ -65,15 +65,18 @@ public class Brs010HandlerTests
     }
 
     [Fact]
-    public void ExecuteMoveOut_OutboxPayloadContainsE66()
+    public void ExecuteMoveOut_OutboxPayloadIsCimEnvelope()
     {
         var supply = CreateActiveSupply();
 
         var result = Brs010Handler.ExecuteMoveOut(TestGsrn, EffectiveDate, supply, SupplierGln);
 
         var payload = JsonSerializer.Deserialize<JsonElement>(result.OutboxMessage.Payload);
-        Assert.Equal("E66", payload.GetProperty("businessReason").GetString());
-        Assert.Equal(TestGsrn.Value, payload.GetProperty("gsrn").GetString());
+        var doc = payload.GetProperty("RequestEndOfSupply_MarketDocument");
+        Assert.Equal("E66", doc.GetProperty("process.processType").GetProperty("value").GetString());
+
+        var series = doc.GetProperty("Series")[0];
+        Assert.Equal(TestGsrn.Value, series.GetProperty("marketEvaluationPoint.mRID").GetProperty("value").GetString());
     }
 
     [Fact]

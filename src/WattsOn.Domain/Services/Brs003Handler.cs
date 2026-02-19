@@ -1,4 +1,3 @@
-using System.Text.Json;
 using WattsOn.Domain.Entities;
 using WattsOn.Domain.Enums;
 using WattsOn.Domain.Messaging;
@@ -50,13 +49,15 @@ public static class Brs003Handler
         process.TransitionTo("Submitted", "Anmodning om korrektion af fejlagtigt leverandørskift sendt");
         process.MarkSubmitted(transactionId);
 
-        var payload = JsonSerializer.Serialize(new
-        {
-            businessReason = "D07",
-            gsrn = gsrn.Value,
-            switchDate,
-            reason
-        });
+        var payload = CimDocumentBuilder
+            .Create(RsmDocumentType.Rsm001, "D07", ourGln.Value)
+            .AddSeries(new Dictionary<string, object?>
+            {
+                ["marketEvaluationPoint.mRID"] = new { codingScheme = "A10", value = gsrn.Value },
+                ["start_DateAndOrTime.dateTime"] = switchDate.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                ["reason"] = reason,
+            })
+            .Build();
 
         var outbox = OutboxMessage.Create(
             documentType: "RSM-001",
