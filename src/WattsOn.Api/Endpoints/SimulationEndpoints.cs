@@ -60,9 +60,6 @@ public static class SimulationEndpoints
         /// </summary>
         app.MapPost("/api/simulation/supplier-change", async (SimulateSupplierChangeRequest req, WattsOnDbContext db) =>
         {
-            // Normalize effective date to midnight UTC (avoids timezone offset drift between entities)
-            req = req with { EffectiveDate = new DateTimeOffset(req.EffectiveDate.UtcDateTime.Date, TimeSpan.Zero) };
-
             var identity = await db.SupplierIdentities.FirstOrDefaultAsync(a => a.IsActive);
             if (identity is null) return Results.Problem("No supplier identity configured");
 
@@ -244,7 +241,6 @@ public static class SimulationEndpoints
         /// </summary>
         app.MapPost("/api/simulation/supplier-change-outgoing", async (SimulateOutgoingSupplierChangeRequest req, WattsOnDbContext db) =>
         {
-            req = req with { EffectiveDate = new DateTimeOffset(req.EffectiveDate.UtcDateTime.Date, TimeSpan.Zero) };
             // Find the supply
             var supply = await db.Supplies
                 .Include(l => l.Customer)
@@ -311,7 +307,6 @@ public static class SimulationEndpoints
         /// </summary>
         app.MapPost("/api/simulation/move-in", async (SimulateMoveInRequest req, WattsOnDbContext db) =>
         {
-            req = req with { EffectiveDate = new DateTimeOffset(req.EffectiveDate.UtcDateTime.Date, TimeSpan.Zero) };
             var identity = await db.SupplierIdentities.FirstOrDefaultAsync(a => a.IsActive);
             if (identity is null) return Results.Problem("No supplier identity configured");
 
@@ -460,7 +455,6 @@ public static class SimulationEndpoints
         /// </summary>
         app.MapPost("/api/simulation/move-out", async (SimulateMoveOutRequest req, WattsOnDbContext db) =>
         {
-            req = req with { EffectiveDate = new DateTimeOffset(req.EffectiveDate.UtcDateTime.Date, TimeSpan.Zero) };
             var supply = await db.Supplies
                 .Include(l => l.Customer)
                 .Include(l => l.MeteringPoint)
