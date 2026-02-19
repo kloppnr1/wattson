@@ -144,46 +144,28 @@ export default function PricesPage() {
     if (!detail) return <Text type="secondary">Ingen detaildata</Text>;
 
     return (
-      <Space direction="vertical" size={16} style={{ width: '100%', padding: '8px 0' }}>
-        <div>
-          <Text strong style={{ marginBottom: 8, display: 'block' }}>
-            Seneste prispunkter ({detail.totalPricePoints} i alt)
-          </Text>
-          <Table
-            dataSource={detail.pricePoints.slice(0, 20)}
-            columns={[
-              { title: 'Tidspunkt', dataIndex: 'timestamp', key: 'timestamp',
-                render: (v: string) => new Date(v).toLocaleString('da-DK') },
-              { title: 'Pris (DKK/kWh)', dataIndex: 'price', key: 'price', align: 'right' as const,
-                render: (v: number) => <Text className="tnum">{formatPrice4(v)}</Text> },
-            ]}
-            rowKey="timestamp"
-            size="small"
-            pagination={false}
-          />
-        </div>
-        {detail.linkedMeteringPoints.length > 0 && (
-          <div>
-            <Text strong style={{ marginBottom: 8, display: 'block' }}>
-              Tilknyttede målepunkter ({detail.linkedMeteringPoints.length})
-            </Text>
-            <Table
-              dataSource={detail.linkedMeteringPoints}
-              columns={[
-                { title: 'GSRN', dataIndex: 'gsrn', key: 'gsrn',
-                  render: (v: string) => <Text className="mono">{v}</Text> },
-                { title: 'Periode', key: 'period',
-                  render: (_: unknown, link: { linkFrom: string; linkTo: string | null }) => (
-                    <Text className="tnum">{formatDate(link.linkFrom)} — {link.linkTo ? formatDate(link.linkTo) : '→'}</Text>
-                  ) },
-              ]}
-              rowKey="id"
-              size="small"
-              pagination={false}
-            />
-          </div>
-        )}
-      </Space>
+      <div style={{ padding: '8px 0' }}>
+        <Text strong style={{ marginBottom: 8, display: 'block' }}>
+          Seneste prispunkter ({detail.totalPricePoints} i alt)
+          {detail.priceResolution && (
+            <Tag color="geekblue" style={{ marginLeft: 8 }}>
+              {detail.priceResolution === 'PT15M' ? '15 min' : detail.priceResolution === 'PT1H' ? 'Time' : detail.priceResolution}
+            </Tag>
+          )}
+        </Text>
+        <Table
+          dataSource={detail.pricePoints.slice(0, 48)}
+          columns={[
+            { title: 'Tidspunkt', dataIndex: 'timestamp', key: 'timestamp',
+              render: (v: string) => new Date(v).toLocaleString('da-DK') },
+            { title: 'Pris (DKK/kWh)', dataIndex: 'price', key: 'price', align: 'right' as const,
+              render: (v: number) => <Text className="tnum">{formatPrice4(v)}</Text> },
+          ]}
+          rowKey="timestamp"
+          size="small"
+          pagination={false}
+        />
+      </div>
     );
   };
 
@@ -229,7 +211,7 @@ export default function PricesPage() {
             <DollarOutlined style={{ fontSize: 24, color: '#0d9488' }} />
             <div>
               <Title level={3} style={{ margin: 0 }}>Priser</Title>
-              <Text type="secondary">Leverandørpriser, regulerede tariffer og spotpriser</Text>
+              <Text type="secondary">Leverandørpriser, DataHub-priser og spotpriser</Text>
             </div>
           </Space>
         </Col>
@@ -239,7 +221,7 @@ export default function PricesPage() {
       <Row gutter={16}>
         {[
           { title: 'Leverandørpriser', value: supplierPrices.length, icon: <BankOutlined />, color: '#7c3aed' },
-          { title: 'Regulerede tariffer', value: regulatedPrices.length, icon: <ThunderboltOutlined />, color: '#0d9488' },
+          { title: 'DataHub-priser', value: regulatedPrices.length, icon: <ThunderboltOutlined />, color: '#0d9488' },
           { title: 'Spotpriser', value: spotLatest?.totalRecords ?? 0, icon: <AreaChartOutlined />, color: '#f59e0b' },
           { title: 'Priser i alt', value: prices.length, icon: <DollarOutlined />, color: '#5d7a91' },
         ].map(s => (
@@ -286,7 +268,7 @@ export default function PricesPage() {
               label: (
                 <Space size={6}>
                   <ThunderboltOutlined />
-                  <span>Regulerede tariffer ({regulatedPrices.length})</span>
+                  <span>DataHub-priser ({regulatedPrices.length})</span>
                 </Space>
               ),
               children: regulatedPrices.length > 0 ? (
@@ -295,10 +277,19 @@ export default function PricesPage() {
                   columns={[
                     ...priceColumns.slice(0, 3),
                     {
-                      title: 'OWNER GLN',
+                      title: 'EJER GLN',
                       dataIndex: 'ownerGln',
                       key: 'ownerGln',
                       render: (v: string) => <Text className="mono" style={{ fontSize: 12 }}>{v}</Text>,
+                    },
+                    {
+                      title: 'OPLØSNING',
+                      dataIndex: 'priceResolution',
+                      key: 'priceResolution',
+                      width: 100,
+                      render: (v: string | null) => v ? (
+                        <Tag color="geekblue">{v === 'PT15M' ? '15 min' : v === 'PT1H' ? 'Time' : v === 'P1D' ? 'Dag' : v === 'P1M' ? 'Måned' : v}</Tag>
+                      ) : <Text type="secondary">—</Text>,
                     },
                     ...priceColumns.slice(3),
                   ]}
@@ -308,7 +299,7 @@ export default function PricesPage() {
                   expandable={{ expandedRowRender, onExpand: handleExpand }}
                 />
               ) : (
-                <Empty description="Ingen regulerede tariffer modtaget fra DataHub" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                <Empty description="Ingen priser modtaget fra DataHub" image={Empty.PRESENTED_IMAGE_SIMPLE} />
               ),
             },
             {

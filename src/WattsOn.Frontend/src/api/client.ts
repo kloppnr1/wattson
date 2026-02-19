@@ -253,7 +253,6 @@ export interface PriceSummary {
   isPassThrough: boolean;
   priceResolution: string | null;
   pricePointCount: number;
-  linkedMeteringPoints: number;
 }
 
 export interface PricePointDto {
@@ -261,18 +260,9 @@ export interface PricePointDto {
   price: number;
 }
 
-export interface PriceLinkDto {
-  id: string;
-  meteringPointId: string;
-  gsrn: string;
-  linkFrom: string;
-  linkTo: string | null;
-}
-
-export interface PriceDetail extends Omit<PriceSummary, 'pricePointCount' | 'linkedMeteringPoints'> {
+export interface PriceDetail extends Omit<PriceSummary, 'pricePointCount'> {
   pricePoints: PricePointDto[];
   totalPricePoints: number;
-  linkedMeteringPoints: PriceLinkDto[];
 }
 
 // ==================== API Calls ====================

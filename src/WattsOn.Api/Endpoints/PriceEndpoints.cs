@@ -29,8 +29,7 @@ public static class PriceEndpoints
                     p.IsTax,
                     p.IsPassThrough,
                     PriceResolution = p.PriceResolution != null ? p.PriceResolution.ToString() : null,
-                    PricePointCount = p.PricePoints.Count,
-                    LinkedMeteringPoints = db.PriceLinks.Count(pl => pl.PriceId == p.Id)
+                    PricePointCount = p.PricePoints.Count
                 })
                 .ToListAsync();
             return Results.Ok(prices);
@@ -44,20 +43,6 @@ public static class PriceEndpoints
                 .FirstOrDefaultAsync(p => p.Id == id);
 
             if (price is null) return Results.NotFound();
-
-            var links = await db.PriceLinks
-                .AsNoTracking()
-                .Include(pl => pl.MeteringPoint)
-                .Where(pl => pl.PriceId == id)
-                .Select(pl => new
-                {
-                    pl.Id,
-                    pl.MeteringPointId,
-                    Gsrn = pl.MeteringPoint.Gsrn.Value,
-                    LinkFrom = pl.LinkPeriod.Start,
-                    LinkTo = pl.LinkPeriod.End
-                })
-                .ToListAsync();
 
             return Results.Ok(new
             {
@@ -76,8 +61,7 @@ public static class PriceEndpoints
                     .OrderByDescending(pp => pp.Timestamp)
                     .Take(100)
                     .Select(pp => new { pp.Timestamp, pp.Price }),
-                TotalPricePoints = price.PricePoints.Count,
-                LinkedMeteringPoints = links
+                TotalPricePoints = price.PricePoints.Count
             });
         }).WithName("GetPrice");
 
