@@ -12,8 +12,8 @@ using WattsOn.Infrastructure.Persistence;
 namespace WattsOn.Infrastructure.Migrations
 {
     [DbContext(typeof(WattsOnDbContext))]
-    [Migration("20260218143229_AddSupplierIdentityArchived")]
-    partial class AddSupplierIdentityArchived
+    [Migration("20260219112114_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -24,6 +24,104 @@ namespace WattsOn.Infrastructure.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("WattsOn.Domain.Entities.AggregatedObservation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AggregatedTimeSeriesId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("aggregated_time_series_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<decimal>("Kwh")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)")
+                        .HasColumnName("kwh");
+
+                    b.Property<DateTimeOffset>("Timestamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("timestamp");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AggregatedTimeSeriesId");
+
+                    b.ToTable("aggregated_observations", (string)null);
+                });
+
+            modelBuilder.Entity("WattsOn.Domain.Entities.AggregatedTimeSeries", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BusinessReason")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("business_reason");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("GridArea")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("grid_area");
+
+                    b.Property<string>("MeteringPointType")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("metering_point_type");
+
+                    b.Property<string>("QualityStatus")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("quality_status");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_at");
+
+                    b.Property<string>("Resolution")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("resolution");
+
+                    b.Property<string>("SettlementMethod")
+                        .HasColumnType("text")
+                        .HasColumnName("settlement_method");
+
+                    b.Property<decimal>("TotalEnergyKwh")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)")
+                        .HasColumnName("total_energy_kwh");
+
+                    b.Property<string>("TransactionId")
+                        .HasColumnType("text")
+                        .HasColumnName("transaction_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("aggregated_time_series", (string)null);
+                });
 
             modelBuilder.Entity("WattsOn.Domain.Entities.Customer", b =>
                 {
@@ -52,11 +150,17 @@ namespace WattsOn.Infrastructure.Migrations
                         .HasColumnType("character varying(20)")
                         .HasColumnName("phone");
 
+                    b.Property<Guid>("SupplierIdentityId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("supplier_identity_id");
+
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("SupplierIdentityId");
 
                     b.ToTable("customers", (string)null);
                 });
@@ -93,6 +197,10 @@ namespace WattsOn.Infrastructure.Migrations
                     b.Property<bool>("HasActiveSupply")
                         .HasColumnType("boolean")
                         .HasColumnName("has_active_supply");
+
+                    b.Property<bool>("HasElectricalHeating")
+                        .HasColumnType("boolean")
+                        .HasColumnName("has_electrical_heating");
 
                     b.Property<string>("Resolution")
                         .IsRequired()
@@ -179,6 +287,14 @@ namespace WattsOn.Infrastructure.Migrations
                         .HasColumnType("character varying(500)")
                         .HasColumnName("description");
 
+                    b.Property<bool>("IsPassThrough")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_pass_through");
+
+                    b.Property<bool>("IsTax")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_tax");
+
                     b.Property<string>("PriceResolution")
                         .HasMaxLength(10)
                         .HasColumnType("character varying(10)")
@@ -240,7 +356,6 @@ namespace WattsOn.Infrastructure.Migrations
             modelBuilder.Entity("WattsOn.Domain.Entities.PricePoint", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
@@ -270,6 +385,124 @@ namespace WattsOn.Infrastructure.Migrations
                     b.HasIndex("PriceId", "Timestamp");
 
                     b.ToTable("price_points", (string)null);
+                });
+
+            modelBuilder.Entity("WattsOn.Domain.Entities.ReconciliationLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ChargeId")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("charge_id");
+
+                    b.Property<string>("ChargeType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("charge_type");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<decimal>("DataHubAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("datahub_amount");
+
+                    b.Property<decimal>("Difference")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("difference");
+
+                    b.Property<decimal>("OurAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("our_amount");
+
+                    b.Property<Guid>("ReconciliationResultId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reconciliation_result_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReconciliationResultId");
+
+                    b.ToTable("reconciliation_lines", (string)null);
+                });
+
+            modelBuilder.Entity("WattsOn.Domain.Entities.ReconciliationResult", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<decimal>("DataHubTotalDkk")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("datahub_total_dkk");
+
+                    b.Property<decimal>("DifferenceDkk")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("difference_dkk");
+
+                    b.Property<decimal>("DifferencePercent")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("difference_percent");
+
+                    b.Property<string>("GridArea")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("grid_area");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("notes");
+
+                    b.Property<decimal>("OurTotalDkk")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("our_total_dkk");
+
+                    b.Property<DateTimeOffset>("ReconciliationDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reconciliation_date");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("WholesaleSettlementId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("wholesale_settlement_id");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("reconciliation_results", (string)null);
                 });
 
             modelBuilder.Entity("WattsOn.Domain.Entities.Settlement", b =>
@@ -494,10 +727,6 @@ namespace WattsOn.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("metering_point_id");
 
-                    b.Property<Guid>("SupplierIdentityId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("supplier_identity_id");
-
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
@@ -507,8 +736,6 @@ namespace WattsOn.Infrastructure.Migrations
                     b.HasIndex("CustomerId");
 
                     b.HasIndex("MeteringPointId");
-
-                    b.HasIndex("SupplierIdentityId");
 
                     b.ToTable("supplies", (string)null);
                 });
@@ -560,6 +787,128 @@ namespace WattsOn.Infrastructure.Migrations
                     b.HasIndex("MeteringPointId", "IsLatest");
 
                     b.ToTable("time_series", (string)null);
+                });
+
+            modelBuilder.Entity("WattsOn.Domain.Entities.WholesaleSettlement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BusinessReason")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("business_reason");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)")
+                        .HasDefaultValue("DKK")
+                        .HasColumnName("currency");
+
+                    b.Property<string>("GridArea")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("grid_area");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_at");
+
+                    b.Property<string>("Resolution")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("resolution");
+
+                    b.Property<decimal>("TotalAmountDkk")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("total_amount_dkk");
+
+                    b.Property<decimal>("TotalEnergyKwh")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)")
+                        .HasColumnName("total_energy_kwh");
+
+                    b.Property<string>("TransactionId")
+                        .HasColumnType("text")
+                        .HasColumnName("transaction_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("wholesale_settlements", (string)null);
+                });
+
+            modelBuilder.Entity("WattsOn.Domain.Entities.WholesaleSettlementLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("AmountDkk")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("amount_dkk");
+
+                    b.Property<string>("ChargeId")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("charge_id");
+
+                    b.Property<string>("ChargeType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("charge_type");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("description");
+
+                    b.Property<decimal>("EnergyKwh")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)")
+                        .HasColumnName("energy_kwh");
+
+                    b.Property<string>("OwnerGln")
+                        .IsRequired()
+                        .HasMaxLength(13)
+                        .HasColumnType("character varying(13)")
+                        .HasColumnName("owner_gln");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("WholesaleSettlementId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("wholesale_settlement_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WholesaleSettlementId");
+
+                    b.ToTable("wholesale_settlement_lines", (string)null);
                 });
 
             modelBuilder.Entity("WattsOn.Domain.Messaging.InboxMessage", b =>
@@ -802,7 +1151,6 @@ namespace WattsOn.Infrastructure.Migrations
             modelBuilder.Entity("WattsOn.Domain.Processes.ProcessStateTransition", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
@@ -846,8 +1194,50 @@ namespace WattsOn.Infrastructure.Migrations
                     b.ToTable("process_state_transitions", (string)null);
                 });
 
+            modelBuilder.Entity("WattsOn.Domain.Entities.AggregatedObservation", b =>
+                {
+                    b.HasOne("WattsOn.Domain.Entities.AggregatedTimeSeries", null)
+                        .WithMany("Observations")
+                        .HasForeignKey("AggregatedTimeSeriesId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("WattsOn.Domain.Entities.AggregatedTimeSeries", b =>
+                {
+                    b.OwnsOne("WattsOn.Domain.ValueObjects.Period", "Period", b1 =>
+                        {
+                            b1.Property<Guid>("AggregatedTimeSeriesId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<DateTimeOffset?>("End")
+                                .HasColumnType("timestamp with time zone")
+                                .HasColumnName("period_end");
+
+                            b1.Property<DateTimeOffset>("Start")
+                                .HasColumnType("timestamp with time zone")
+                                .HasColumnName("period_start");
+
+                            b1.HasKey("AggregatedTimeSeriesId");
+
+                            b1.ToTable("aggregated_time_series");
+
+                            b1.WithOwner()
+                                .HasForeignKey("AggregatedTimeSeriesId");
+                        });
+
+                    b.Navigation("Period")
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("WattsOn.Domain.Entities.Customer", b =>
                 {
+                    b.HasOne("WattsOn.Domain.Entities.SupplierIdentity", "SupplierIdentity")
+                        .WithMany()
+                        .HasForeignKey("SupplierIdentityId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.OwnsOne("WattsOn.Domain.ValueObjects.Address", "Address", b1 =>
                         {
                             b1.Property<Guid>("CustomerId")
@@ -949,6 +1339,8 @@ namespace WattsOn.Infrastructure.Migrations
                     b.Navigation("Cpr");
 
                     b.Navigation("Cvr");
+
+                    b.Navigation("SupplierIdentity");
                 });
 
             modelBuilder.Entity("WattsOn.Domain.Entities.MeteringPoint", b =>
@@ -1203,6 +1595,42 @@ namespace WattsOn.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("WattsOn.Domain.Entities.ReconciliationLine", b =>
+                {
+                    b.HasOne("WattsOn.Domain.Entities.ReconciliationResult", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("ReconciliationResultId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("WattsOn.Domain.Entities.ReconciliationResult", b =>
+                {
+                    b.OwnsOne("WattsOn.Domain.ValueObjects.Period", "Period", b1 =>
+                        {
+                            b1.Property<Guid>("ReconciliationResultId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<DateTimeOffset?>("End")
+                                .HasColumnType("timestamp with time zone")
+                                .HasColumnName("period_end");
+
+                            b1.Property<DateTimeOffset>("Start")
+                                .HasColumnType("timestamp with time zone")
+                                .HasColumnName("period_start");
+
+                            b1.HasKey("ReconciliationResultId");
+
+                            b1.ToTable("reconciliation_results");
+
+                            b1.WithOwner()
+                                .HasForeignKey("ReconciliationResultId");
+                        });
+
+                    b.Navigation("Period")
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("WattsOn.Domain.Entities.Settlement", b =>
                 {
                     b.HasOne("WattsOn.Domain.Entities.MeteringPoint", "MeteringPoint")
@@ -1442,12 +1870,6 @@ namespace WattsOn.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("WattsOn.Domain.Entities.SupplierIdentity", "SupplierIdentity")
-                        .WithMany()
-                        .HasForeignKey("SupplierIdentityId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.OwnsOne("WattsOn.Domain.ValueObjects.Period", "SupplyPeriod", b1 =>
                         {
                             b1.Property<Guid>("SupplyId")
@@ -1472,8 +1894,6 @@ namespace WattsOn.Infrastructure.Migrations
                     b.Navigation("Customer");
 
                     b.Navigation("MeteringPoint");
-
-                    b.Navigation("SupplierIdentity");
 
                     b.Navigation("SupplyPeriod")
                         .IsRequired();
@@ -1511,6 +1931,42 @@ namespace WattsOn.Infrastructure.Migrations
                     b.Navigation("MeteringPoint");
 
                     b.Navigation("Period")
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("WattsOn.Domain.Entities.WholesaleSettlement", b =>
+                {
+                    b.OwnsOne("WattsOn.Domain.ValueObjects.Period", "Period", b1 =>
+                        {
+                            b1.Property<Guid>("WholesaleSettlementId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<DateTimeOffset?>("End")
+                                .HasColumnType("timestamp with time zone")
+                                .HasColumnName("period_end");
+
+                            b1.Property<DateTimeOffset>("Start")
+                                .HasColumnType("timestamp with time zone")
+                                .HasColumnName("period_start");
+
+                            b1.HasKey("WholesaleSettlementId");
+
+                            b1.ToTable("wholesale_settlements");
+
+                            b1.WithOwner()
+                                .HasForeignKey("WholesaleSettlementId");
+                        });
+
+                    b.Navigation("Period")
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("WattsOn.Domain.Entities.WholesaleSettlementLine", b =>
+                {
+                    b.HasOne("WattsOn.Domain.Entities.WholesaleSettlement", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("WholesaleSettlementId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
@@ -1568,6 +2024,11 @@ namespace WattsOn.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("WattsOn.Domain.Entities.AggregatedTimeSeries", b =>
+                {
+                    b.Navigation("Observations");
+                });
+
             modelBuilder.Entity("WattsOn.Domain.Entities.Customer", b =>
                 {
                     b.Navigation("Supplies");
@@ -1585,6 +2046,11 @@ namespace WattsOn.Infrastructure.Migrations
                     b.Navigation("PricePoints");
                 });
 
+            modelBuilder.Entity("WattsOn.Domain.Entities.ReconciliationResult", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
             modelBuilder.Entity("WattsOn.Domain.Entities.Settlement", b =>
                 {
                     b.Navigation("Lines");
@@ -1593,6 +2059,11 @@ namespace WattsOn.Infrastructure.Migrations
             modelBuilder.Entity("WattsOn.Domain.Entities.TimeSeries", b =>
                 {
                     b.Navigation("Observations");
+                });
+
+            modelBuilder.Entity("WattsOn.Domain.Entities.WholesaleSettlement", b =>
+                {
+                    b.Navigation("Lines");
                 });
 
             modelBuilder.Entity("WattsOn.Domain.Processes.BrsProcess", b =>
