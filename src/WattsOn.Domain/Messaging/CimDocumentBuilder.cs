@@ -22,8 +22,8 @@ public class CimDocumentBuilder
     /// <summary>DDQ = Balance/energy supplier.</summary>
     private const string RoleSupplier = "DDQ";
 
-    /// <summary>DGL = Metered data responsible / metering point administrator (DataHub).</summary>
-    private const string RoleDataHub = "DGL";
+    /// <summary>DDZ = Metering point administrator (DataHub) — used for most RSM types.</summary>
+    private const string RoleDataHub = "DDZ";
 
     private readonly string _documentType;
     private readonly string _typeCode;
@@ -34,7 +34,8 @@ public class CimDocumentBuilder
     private readonly string _receiverRole;
     private readonly Guid _documentId;
     private readonly DateTimeOffset _createdDateTime;
-    private readonly List<Dictionary<string, object?>> _series = new();
+    private readonly string _transactionElementName;
+    private readonly List<Dictionary<string, object?>> _transactions = new();
 
     private CimDocumentBuilder(
         string documentType,
@@ -43,7 +44,8 @@ public class CimDocumentBuilder
         string senderGln,
         string senderRole,
         string receiverGln,
-        string receiverRole)
+        string receiverRole,
+        string transactionElementName)
     {
         _documentType = documentType;
         _typeCode = typeCode;
@@ -52,6 +54,7 @@ public class CimDocumentBuilder
         _senderRole = senderRole;
         _receiverGln = receiverGln;
         _receiverRole = receiverRole;
+        _transactionElementName = transactionElementName;
         _documentId = Guid.NewGuid();
         _createdDateTime = DateTimeOffset.UtcNow;
     }
@@ -75,16 +78,18 @@ public class CimDocumentBuilder
             senderGln,
             senderRole ?? RoleSupplier,
             receiverGln ?? DataHubGln,
-            receiverRole ?? RoleDataHub);
+            receiverRole ?? config.ReceiverRole ?? RoleDataHub,
+            config.TransactionElementName);
     }
 
     /// <summary>
-    /// Add a Series (transaction) to the document with the given fields.
-    /// Each series gets its own auto-generated mRID.
+    /// Add a transaction (MktActivityRecord / Series) to the document.
+    /// Each transaction gets its own auto-generated mRID.
+    /// The element name varies per RSM type (MktActivityRecord for RSM-005, Series for RSM-016, etc.)
     /// </summary>
-    public CimDocumentBuilder AddSeries(Dictionary<string, object?> fields)
+    public CimDocumentBuilder AddTransaction(Dictionary<string, object?> fields)
     {
-        var series = new Dictionary<string, object?>
+        var transaction = new Dictionary<string, object?>
         {
             ["mRID"] = Guid.NewGuid().ToString()
         };
@@ -92,12 +97,15 @@ public class CimDocumentBuilder
         foreach (var kvp in fields)
         {
             if (kvp.Value is not null)
-                series[kvp.Key] = kvp.Value;
+                transaction[kvp.Key] = kvp.Value;
         }
 
-        _series.Add(series);
+        _transactions.Add(transaction);
         return this;
     }
+
+    /// <summary>Alias for AddTransaction — backwards compatibility.</summary>
+    public CimDocumentBuilder AddSeries(Dictionary<string, object?> fields) => AddTransaction(fields);
 
     /// <summary>
     /// Build the CIM JSON envelope as a serialized string.
@@ -117,9 +125,9 @@ public class CimDocumentBuilder
             ["createdDateTime"] = _createdDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ"),
         };
 
-        if (_series.Count > 0)
+        if (_transactions.Count > 0)
         {
-            document["Series"] = _series;
+            document[_transactionElementName] = _transactions;
         }
 
         var envelope = new Dictionary<string, object?>
@@ -176,20 +184,39 @@ public enum RsmDocumentType
 }
 
 /// <summary>
-/// RSM-specific document configuration (MarketDocument name + type code).
+/// RSM-specific document configuration.
+/// MarketDocument name, type code, transaction element name, and receiver role
+/// per the DataHub RSM specification documents.
 /// </summary>
 public static class RsmDocumentConfig
 {
     private static readonly Dictionary<RsmDocumentType, RsmConfig> Configs = new()
     {
-        [RsmDocumentType.Rsm001] = new("RequestChangeOfSupplier_MarketDocument", "392"),
-        [RsmDocumentType.Rsm005] = new("RequestEndOfSupply_MarketDocument", "392"),
-        [RsmDocumentType.Rsm027] = new("RequestChangeCustomerCharacteristics_MarketDocument", "D15"),
-        [RsmDocumentType.Rsm032] = new("RequestChargeLinks_MarketDocument", "E0G"),
-        [RsmDocumentType.Rsm035] = new("RequestPrices_MarketDocument", "E0G"),
+        // RSM-001: MarketDocument type=392, transaction=MktActivityRecord
+        // Verified from DataHub doc: "Request change of supplier MarketDocument type = 392"
+        [RsmDocumentType.Rsm001] = new("RequestChangeOfSupplier_MarketDocument", "392", "MktActivityRecord", "DDZ"),
+
+        // RSM-005: MarketDocument type=432, transaction=MktActivityRecord
+        // Verified from RSM-005 PDF: "Request End of supply med MarketDocument type = 432"
+        // Receiver role = DDZ (målepunktsadministrator)
+        [RsmDocumentType.Rsm005] = new("RequestEndOfSupply_MarketDocument", "432", "MktActivityRecord", "DDZ"),
+
+        // RSM-027: MarketDocument type=D15, transaction=MktActivityRecord
+        // From RSM-027 doc: "MarketDocument type = D15 (Request change Customer characteristics)"
+        [RsmDocumentType.Rsm027] = new("RequestChangeCustomerCharacteristics_MarketDocument", "D15", "MktActivityRecord", "DDZ"),
+
+        // RSM-032: Request charge links — pending verification from RSM-032 PDF
+        [RsmDocumentType.Rsm032] = new("RequestChargeLinks_MarketDocument", "E0G", "MktActivityRecord", "DDZ"),
+
+        // RSM-035: Request prices — pending verification from RSM-035 PDF
+        [RsmDocumentType.Rsm035] = new("RequestPrices_MarketDocument", "E0G", "MktActivityRecord", "DDZ"),
     };
 
     public static RsmConfig Get(RsmDocumentType type) => Configs[type];
 
-    public record RsmConfig(string MarketDocumentName, string TypeCode);
+    /// <param name="MarketDocumentName">Root element name in CIM JSON</param>
+    /// <param name="TypeCode">MarketDocument type code</param>
+    /// <param name="TransactionElementName">Transaction/series element name (MktActivityRecord or Series)</param>
+    /// <param name="ReceiverRole">DataHub receiver role code (DDZ for most, may vary)</param>
+    public record RsmConfig(string MarketDocumentName, string TypeCode, string TransactionElementName, string? ReceiverRole = null);
 }

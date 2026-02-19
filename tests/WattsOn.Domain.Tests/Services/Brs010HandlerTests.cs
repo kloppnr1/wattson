@@ -75,7 +75,7 @@ public class Brs010HandlerTests
         var doc = payload.GetProperty("RequestEndOfSupply_MarketDocument");
         Assert.Equal("E66", doc.GetProperty("process.processType").GetProperty("value").GetString());
 
-        var series = doc.GetProperty("Series")[0];
+        var series = doc.GetProperty("MktActivityRecord")[0];
         Assert.Equal(TestGsrn.Value, series.GetProperty("marketEvaluationPoint.mRID").GetProperty("value").GetString());
     }
 

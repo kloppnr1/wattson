@@ -51,11 +51,10 @@ public static class Brs003Handler
 
         var payload = CimDocumentBuilder
             .Create(RsmDocumentType.Rsm001, "D07", ourGln.Value)
-            .AddSeries(new Dictionary<string, object?>
+            .AddTransaction(new Dictionary<string, object?>
             {
-                ["marketEvaluationPoint.mRID"] = new { codingScheme = "A10", value = gsrn.Value },
+                ["marketEvaluationPoint.mRID"] = new CimDocumentBuilder.CimCodedValue("A10", gsrn.Value),
                 ["start_DateAndOrTime.dateTime"] = switchDate.ToString("yyyy-MM-ddTHH:mm:ssZ"),
-                ["reason"] = reason,
             })
             .Build();
 

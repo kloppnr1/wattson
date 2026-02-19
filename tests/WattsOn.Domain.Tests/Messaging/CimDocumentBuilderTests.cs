@@ -74,7 +74,7 @@ public class CimDocumentBuilderTests
         Assert.Equal(DataHubGln, receiverMrid.GetProperty("value").GetString());
 
         var receiverRole = doc.GetProperty("receiver_MarketParticipant.marketRole.type");
-        Assert.Equal("DGL", receiverRole.GetProperty("value").GetString());
+        Assert.Equal("DDZ", receiverRole.GetProperty("value").GetString());
     }
 
     [Fact]
@@ -127,7 +127,7 @@ public class CimDocumentBuilderTests
 
     [Theory]
     [InlineData(RsmDocumentType.Rsm001, "392")]
-    [InlineData(RsmDocumentType.Rsm005, "392")]
+    [InlineData(RsmDocumentType.Rsm005, "432")]
     [InlineData(RsmDocumentType.Rsm027, "D15")]
     [InlineData(RsmDocumentType.Rsm032, "E0G")]
     [InlineData(RsmDocumentType.Rsm035, "E0G")]
@@ -161,7 +161,7 @@ public class CimDocumentBuilderTests
         var doc = JsonSerializer.Deserialize<JsonElement>(json)
             .GetProperty("RequestChangeOfSupplier_MarketDocument");
 
-        var series = doc.GetProperty("Series");
+        var series = doc.GetProperty("MktActivityRecord");
         Assert.Equal(JsonValueKind.Array, series.ValueKind);
         Assert.Equal(1, series.GetArrayLength());
 
@@ -180,7 +180,7 @@ public class CimDocumentBuilderTests
         var doc = JsonSerializer.Deserialize<JsonElement>(json)
             .GetProperty("RequestChangeOfSupplier_MarketDocument");
 
-        Assert.False(doc.TryGetProperty("Series", out _));
+        Assert.False(doc.TryGetProperty("MktActivityRecord", out _));
     }
 
     [Fact]
@@ -195,7 +195,7 @@ public class CimDocumentBuilderTests
         var doc = JsonSerializer.Deserialize<JsonElement>(json)
             .GetProperty("RequestChangeOfSupplier_MarketDocument");
 
-        var series = doc.GetProperty("Series");
+        var series = doc.GetProperty("MktActivityRecord");
         Assert.Equal(2, series.GetArrayLength());
     }
 
@@ -215,7 +215,7 @@ public class CimDocumentBuilderTests
 
         var series = JsonSerializer.Deserialize<JsonElement>(json)
             .GetProperty("RequestChangeOfSupplier_MarketDocument")
-            .GetProperty("Series")[0];
+            .GetProperty("MktActivityRecord")[0];
 
         Assert.Equal("571313180000000005",
             series.GetProperty("marketEvaluationPoint.mRID").GetProperty("value").GetString());
@@ -240,9 +240,9 @@ public class CimDocumentBuilderTests
         var doc = JsonSerializer.Deserialize<JsonElement>(json);
         Assert.True(doc.TryGetProperty("RequestEndOfSupply_MarketDocument", out var marketDoc));
         Assert.Equal("E20", marketDoc.GetProperty("process.processType").GetProperty("value").GetString());
-        Assert.Equal("392", marketDoc.GetProperty("type").GetProperty("value").GetString());
+        Assert.Equal("432", marketDoc.GetProperty("type").GetProperty("value").GetString());
 
-        var series = marketDoc.GetProperty("Series")[0];
+        var series = marketDoc.GetProperty("MktActivityRecord")[0];
         Assert.Equal("571313180000000005",
             series.GetProperty("marketEvaluationPoint.mRID").GetProperty("value").GetString());
     }
@@ -267,7 +267,7 @@ public class CimDocumentBuilderTests
         Assert.True(doc.TryGetProperty("RequestChangeCustomerCharacteristics_MarketDocument", out var marketDoc));
         Assert.Equal("D15", marketDoc.GetProperty("type").GetProperty("value").GetString());
 
-        var series = marketDoc.GetProperty("Series")[0];
+        var series = marketDoc.GetProperty("MktActivityRecord")[0];
         Assert.Equal("Anders Andersen", series.GetProperty("customerName").GetString());
         Assert.Equal("CPR", series.GetProperty("customer.mRID").GetProperty("codingScheme").GetString());
         Assert.Equal("anders@test.dk", series.GetProperty("electronicAddress.emailAddress").GetString());
@@ -292,7 +292,7 @@ public class CimDocumentBuilderTests
         Assert.True(doc.TryGetProperty("RequestChargeLinks_MarketDocument", out var marketDoc));
         Assert.Equal("E0G", marketDoc.GetProperty("type").GetProperty("value").GetString());
 
-        var series = marketDoc.GetProperty("Series")[0];
+        var series = marketDoc.GetProperty("MktActivityRecord")[0];
         Assert.Equal("571313180000000005",
             series.GetProperty("marketEvaluationPoint.mRID").GetProperty("value").GetString());
         Assert.Equal("2025-01-01T00:00:00Z",
@@ -321,7 +321,7 @@ public class CimDocumentBuilderTests
         Assert.True(doc.TryGetProperty("RequestPrices_MarketDocument", out var marketDoc));
         Assert.Equal("E0G", marketDoc.GetProperty("type").GetProperty("value").GetString());
 
-        var series = marketDoc.GetProperty("Series")[0];
+        var series = marketDoc.GetProperty("MktActivityRecord")[0];
         Assert.Equal("5790000000013",
             series.GetProperty("chargeTypeOwner_MarketParticipant.mRID").GetProperty("value").GetString());
         Assert.Equal("Tarif", series.GetProperty("chargeType").GetString());
@@ -382,7 +382,7 @@ public class CimDocumentBuilderTests
 
         var series = JsonSerializer.Deserialize<JsonElement>(json)
             .GetProperty("RequestEndOfSupply_MarketDocument")
-            .GetProperty("Series")[0];
+            .GetProperty("MktActivityRecord")[0];
 
         Assert.False(series.TryGetProperty("end_DateAndOrTime.dateTime", out _),
             "Null fields should be omitted from CIM JSON");

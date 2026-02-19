@@ -26,7 +26,7 @@ public class Brs011HandlerTests
         Assert.Equal("RSM-005", result.OutboxMessage.DocumentType);
         Assert.Equal("BRS-011", result.OutboxMessage.BusinessProcess);
         Assert.Contains("D33", result.OutboxMessage.Payload);
-        Assert.Contains("move-in", result.OutboxMessage.Payload);
+        Assert.Contains(TestGsrn.Value, result.OutboxMessage.Payload);
     }
 
     [Fact]
@@ -36,7 +36,7 @@ public class Brs011HandlerTests
 
         var result = Brs011Handler.InitiateReversal(TestGsrn, moveDate, TestGln, "move-out", "Error");
 
-        Assert.Contains("move-out", result.OutboxMessage.Payload);
+        Assert.Contains("432", result.OutboxMessage.Payload); // RSM-005 type code
     }
 
     [Fact]

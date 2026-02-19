@@ -54,7 +54,7 @@ public class Brs015HandlerTests
         var doc = payload.GetProperty("RequestChangeCustomerCharacteristics_MarketDocument");
         Assert.Equal("E34", doc.GetProperty("process.processType").GetProperty("value").GetString());
 
-        var series = doc.GetProperty("Series")[0];
+        var series = doc.GetProperty("MktActivityRecord")[0];
         Assert.Equal(TestGsrn.Value, series.GetProperty("marketEvaluationPoint.mRID").GetProperty("value").GetString());
     }
 
@@ -69,7 +69,7 @@ public class Brs015HandlerTests
 
         var payload = JsonSerializer.Deserialize<JsonElement>(result.OutboxMessage.Payload);
         var doc = payload.GetProperty("RequestChangeCustomerCharacteristics_MarketDocument");
-        var series = doc.GetProperty("Series")[0];
+        var series = doc.GetProperty("MktActivityRecord")[0];
 
         Assert.Equal("Anders Andersen", series.GetProperty("customerName").GetString());
         Assert.Equal("0101901234", series.GetProperty("customer.mRID").GetProperty("value").GetString());

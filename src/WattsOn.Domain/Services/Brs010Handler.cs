@@ -53,9 +53,9 @@ public static class Brs010Handler
         // Create CIM JSON envelope for DataHub
         var payload = CimDocumentBuilder
             .Create(RsmDocumentType.Rsm005, "E66", supplierGln.Value)
-            .AddSeries(new Dictionary<string, object?>
+            .AddTransaction(new Dictionary<string, object?>
             {
-                ["marketEvaluationPoint.mRID"] = new { codingScheme = "A10", value = gsrn.Value },
+                ["marketEvaluationPoint.mRID"] = new CimDocumentBuilder.CimCodedValue("A10", gsrn.Value),
                 ["end_DateAndOrTime.dateTime"] = effectiveDate.ToString("yyyy-MM-ddTHH:mm:ssZ"),
             })
             .Build();

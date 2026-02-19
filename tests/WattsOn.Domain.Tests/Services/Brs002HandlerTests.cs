@@ -54,7 +54,7 @@ public class Brs002HandlerTests
         Assert.Equal("5790001330552", doc.GetProperty("receiver_MarketParticipant.mRID").GetProperty("value").GetString());
 
         // Verify Series contains GSRN
-        var series = doc.GetProperty("Series")[0];
+        var series = doc.GetProperty("MktActivityRecord")[0];
         Assert.Equal(TestGsrn.Value, series.GetProperty("marketEvaluationPoint.mRID").GetProperty("value").GetString());
     }
 
