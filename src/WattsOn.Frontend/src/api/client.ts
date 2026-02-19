@@ -391,4 +391,18 @@ export const getInvoicedSettlements = () =>
 export const simulateCorrectedMeteredData = (settlementId: string) =>
   api.post<CorrectedMeteredDataResult>('/simulation/corrected-metered-data', { settlementId });
 
+// Simulation - Price Update (BRS-031)
+export interface PriceUpdateResult {
+  pricesCreated: number;
+  inboxMessagesCreated: number;
+  effectiveDate: string;
+  endDate: string;
+  gridCompanyGln: string;
+  gridArea: string;
+  prices: { chargeId: string; ownerGln: string; type: string; description: string; resolution: string | null; isTax: boolean }[];
+  message: string;
+}
+export const simulatePriceUpdate = (data?: { gridCompanyGln?: string; effectiveDate?: string; gridArea?: string }) =>
+  api.post<PriceUpdateResult>('/simulation/price-update', data ?? {});
+
 export default api;

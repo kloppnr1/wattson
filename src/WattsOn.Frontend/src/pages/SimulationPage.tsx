@@ -10,13 +10,15 @@ import {
   UserOutlined, CalculatorOutlined,
   ReloadOutlined, ExperimentOutlined, LoginOutlined,
   LogoutOutlined, UserDeleteOutlined,
+  ThunderboltOutlined, CheckCircleOutlined,
+  DollarOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useBlocker } from 'react-router-dom';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import api from '../api/client';
-import type { Supply, InvoicedSettlement, CorrectedMeteredDataResult } from '../api/client';
-import { getSupplies, getInvoicedSettlements, simulateCorrectedMeteredData } from '../api/client';
+import type { Supply, InvoicedSettlement, CorrectedMeteredDataResult, PriceSummary } from '../api/client';
+import { getSupplies, getInvoicedSettlements, simulateCorrectedMeteredData, getPrices, simulatePriceUpdate } from '../api/client';
 
 const { Text, Title, Paragraph } = Typography;
 
@@ -176,6 +178,39 @@ export default function SimulationPage() {
   const [activeSupplies, setActiveSupplies] = useState<Supply[]>([]);
   const [selectedSupplyId, setSelectedSupplyId] = useState<string | null>(null);
   const [loadingSupplies, setLoadingSupplies] = useState(false);
+
+  // Prerequisites state
+  const [datahubPrices, setDatahubPrices] = useState<PriceSummary[]>([]);
+  const [pricesLoading, setPricesLoading] = useState(true);
+  const [pricesCreating, setPricesCreating] = useState(false);
+
+  // Load prerequisites
+  useEffect(() => {
+    getPrices()
+      .then(res => {
+        // DataHub prices = everything that's NOT a supplier margin/subscription
+        const regulated = res.data.filter((p: PriceSummary) =>
+          !p.chargeId.startsWith('MARGIN') && p.type !== 'Abonnement' || p.chargeId.startsWith('NET-ABO'));
+        setDatahubPrices(regulated);
+      })
+      .finally(() => setPricesLoading(false));
+  }, []);
+
+  const handleCreatePrices = async () => {
+    setPricesCreating(true);
+    try {
+      await simulatePriceUpdate({
+        effectiveDate: effectiveDate?.toISOString(),
+      });
+      // Reload prices
+      const res = await getPrices();
+      const regulated = res.data.filter((p: PriceSummary) =>
+        !p.chargeId.startsWith('MARGIN') && p.type !== 'Abonnement' || p.chargeId.startsWith('NET-ABO'));
+      setDatahubPrices(regulated);
+    } finally {
+      setPricesCreating(false);
+    }
+  };
 
   // Simulation state
   const [running, setRunning] = useState(false);
@@ -544,6 +579,59 @@ export default function SimulationPage() {
         ]}
         style={{ marginBottom: 0 }}
       />
+
+      {/* Prerequisites: DataHub prices */}
+      {!pricesLoading && datahubPrices.length === 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          icon={<DollarOutlined />}
+          message="DataHub-priser mangler"
+          description={
+            <Space direction="vertical" size={8}>
+              <Text>
+                Ingen regulerede priser i systemet. I produktion modtages disse via BRS-031 fra DataHub
+                (nettarif, systemtarif, transmissionstarif, elafgift, balancetarif, net-abonnement).
+              </Text>
+              <Text type="secondary">
+                Simulér en BRS-031 prisbesked for at oprette alle obligatoriske priselementer med
+                realistiske timedifferentierede satser.
+              </Text>
+              <Button
+                type="primary"
+                icon={<ThunderboltOutlined />}
+                loading={pricesCreating}
+                onClick={handleCreatePrices}
+                style={{ alignSelf: 'flex-start' }}
+              >
+                Simulér BRS-031 · Prisbesked
+              </Button>
+            </Space>
+          }
+          style={{ borderRadius: 10 }}
+        />
+      )}
+
+      {!pricesLoading && datahubPrices.length > 0 && (
+        <Alert
+          type="success"
+          showIcon
+          icon={<CheckCircleOutlined />}
+          message={`${datahubPrices.length} DataHub-priser indlæst`}
+          description={
+            <Space size={4} wrap>
+              {datahubPrices.map(p => (
+                <Tag key={p.id} color={p.isTax ? 'red' : 'teal'}>
+                  {p.description.split(' — ')[0]}
+                  {p.priceResolution === 'PT1H' && ' (time)'}
+                  {p.priceResolution === 'PT15M' && ' (15 min)'}
+                </Tag>
+              ))}
+            </Space>
+          }
+          style={{ borderRadius: 10 }}
+        />
+      )}
 
       <Row gutter={[24, 24]}>
         {/* Left: Scenario config */}

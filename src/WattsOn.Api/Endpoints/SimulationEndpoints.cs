@@ -157,7 +157,7 @@ public static class SimulationEndpoints
                 "BRS-001");
             confirmMsg.MarkProcessed(process.Id);
 
-            // 8. Link standard prices to the metering point (if not already linked)
+            // 8. Link existing prices to the metering point via BRS-037 D17 messages (like DataHub would)
             var existingLinks = await db.PriceLinks
                 .Where(pt => pt.MeteringPointId == mp.Id)
                 .CountAsync();
@@ -168,6 +168,33 @@ public static class SimulationEndpoints
                 var allPrices = await db.Prices.ToListAsync();
                 foreach (var pris in allPrices)
                 {
+                    // Create D17 inbox message (same format BRS-037 sends from DataHub)
+                    var d17TransactionId = Guid.NewGuid().ToString();
+                    var d17Payload = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, object?>
+                    {
+                        ["businessReason"] = "D17",
+                        ["gsrn"] = req.Gsrn,
+                        ["chargeId"] = pris.ChargeId,
+                        ["ownerGln"] = pris.OwnerGln.Value,
+                        ["linkStart"] = req.EffectiveDate.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                    });
+                    var d17Envelope = BuildIncomingCimEnvelope(
+                        "NotifyChargeLinks", "D17", "D17",
+                        pris.OwnerGln.Value, identity.Gln.Value,
+                        d17TransactionId,
+                        new Dictionary<string, object?>
+                        {
+                            ["marketEvaluationPoint.mRID"] = CimGsrn(req.Gsrn),
+                            ["start_DateAndOrTime.dateTime"] = CimDateTime(req.EffectiveDate),
+                        });
+                    var d17Msg = InboxMessage.Create(
+                        $"BRS-037-D17-{pris.ChargeId}", "D17",
+                        pris.OwnerGln.Value, identity.Gln.Value,
+                        d17Payload, "BRS-037");
+                    d17Msg.MarkProcessed(null);
+                    db.InboxMessages.Add(d17Msg);
+
+                    // Also create the actual link (handler would do this)
                     var link = PriceLink.Create(mp.Id, pris.Id, Period.From(req.EffectiveDate));
                     db.PriceLinks.Add(link);
                     newPriceLinks++;
@@ -358,7 +385,7 @@ public static class SimulationEndpoints
 
             mp.SetActiveSupply(true);
 
-            // Link prices
+            // Link prices via BRS-037 D17 messages (like DataHub would)
             var existingLinks = await db.PriceLinks
                 .Where(pt => pt.MeteringPointId == mp.Id).CountAsync();
             var newPriceLinks = 0;
@@ -366,6 +393,30 @@ public static class SimulationEndpoints
             {
                 foreach (var pris in await db.Prices.ToListAsync())
                 {
+                    var d17Payload = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, object?>
+                    {
+                        ["businessReason"] = "D17",
+                        ["gsrn"] = req.Gsrn,
+                        ["chargeId"] = pris.ChargeId,
+                        ["ownerGln"] = pris.OwnerGln.Value,
+                        ["linkStart"] = req.EffectiveDate.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                    });
+                    var d17Envelope = BuildIncomingCimEnvelope(
+                        "NotifyChargeLinks", "D17", "D17",
+                        pris.OwnerGln.Value, identity.Gln.Value,
+                        Guid.NewGuid().ToString(),
+                        new Dictionary<string, object?>
+                        {
+                            ["marketEvaluationPoint.mRID"] = CimGsrn(req.Gsrn),
+                            ["start_DateAndOrTime.dateTime"] = CimDateTime(req.EffectiveDate),
+                        });
+                    var d17Msg = InboxMessage.Create(
+                        $"BRS-037-D17-{pris.ChargeId}", "D17",
+                        pris.OwnerGln.Value, identity.Gln.Value,
+                        d17Payload, "BRS-037");
+                    d17Msg.MarkProcessed(null);
+                    db.InboxMessages.Add(d17Msg);
+
                     db.PriceLinks.Add(PriceLink.Create(mp.Id, pris.Id, Period.From(req.EffectiveDate)));
                     newPriceLinks++;
                 }
@@ -661,6 +712,308 @@ public static class SimulationEndpoints
                           $"SettlementWorker registrerer automatisk korrektionen inden for 30 sekunder."
             });
         }).WithName("SimulateCorrectedMeteredData");
+
+        /// <summary>
+        /// Simulate BRS-031: DataHub sends price information for all mandatory price elements.
+        /// Creates realistic Danish electricity market prices via inbox messages:
+        /// - Nettarif (grid tariff, hourly differentiated)
+        /// - Systemtarif (TSO system tariff)
+        /// - Transmissionstarif (TSO transmission tariff)
+        /// - Elafgift (electricity tax)
+        /// - Balancetarif for forbrug (balance tariff)
+        /// - Net abonnement (grid subscription)
+        /// Each price gets a D18 (masterdata) + D08 (price points) inbox message.
+        /// </summary>
+        app.MapPost("/api/simulation/price-update", async (SimulatePriceUpdateRequest req, WattsOnDbContext db) =>
+        {
+            var identity = await db.SupplierIdentities.FirstOrDefaultAsync(a => a.IsActive);
+            if (identity is null) return Results.Problem("No supplier identity configured");
+
+            var gridGln = req.GridCompanyGln ?? "5790000432752"; // Default grid company (Radius)
+            var tsoGln = "5790000432752"; // Energinet (TSO)
+            var effectiveDate = req.EffectiveDate ?? new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.FromHours(1)).ToOffset(TimeSpan.Zero); // Jan 1 2026 CET → UTC
+            var gridArea = req.GridArea ?? "DK1";
+
+            // Define all mandatory price elements from DataHub
+            var priceDefinitions = new[]
+            {
+                new {
+                    ChargeId = "NET-T-" + gridArea,
+                    OwnerGln = gridGln,
+                    Type = "Tarif",
+                    Description = "Nettarif — " + gridArea,
+                    Resolution = "PT1H",
+                    IsTax = false,
+                    IsPassThrough = true,
+                    // Hourly-differentiated grid tariff (øre/kWh) — Radius-style time-of-use
+                    GetHourlyPrice = (Func<int, decimal>)(hour => hour switch
+                    {
+                        >= 0 and <= 5 => 0.1367m,    // Lavlast (low)
+                        >= 6 and <= 16 => 0.4099m,   // Højlast (high)
+                        >= 17 and <= 20 => 1.0113m,  // Spidslast (peak)
+                        _ => 0.4099m,                 // Højlast
+                    }),
+                },
+                new {
+                    ChargeId = "SYS-T-01",
+                    OwnerGln = tsoGln,
+                    Type = "Tarif",
+                    Description = "Systemtarif",
+                    Resolution = "PT1H",
+                    IsTax = false,
+                    IsPassThrough = true,
+                    GetHourlyPrice = (Func<int, decimal>)(_ => 0.054m), // Flat 5,4 øre/kWh
+                },
+                new {
+                    ChargeId = "TRANS-T-01",
+                    OwnerGln = tsoGln,
+                    Type = "Tarif",
+                    Description = "Transmissionstarif",
+                    Resolution = "PT1H",
+                    IsTax = false,
+                    IsPassThrough = true,
+                    GetHourlyPrice = (Func<int, decimal>)(_ => 0.049m), // Flat 4,9 øre/kWh
+                },
+                new {
+                    ChargeId = "ELAFG-01",
+                    OwnerGln = tsoGln,
+                    Type = "Tarif",
+                    Description = "Elafgift",
+                    Resolution = "PT1H",
+                    IsTax = true,
+                    IsPassThrough = true,
+                    GetHourlyPrice = (Func<int, decimal>)(_ => 0.7610m), // 76,1 øre/kWh (2026 rate)
+                },
+                new {
+                    ChargeId = "BAL-T-01",
+                    OwnerGln = tsoGln,
+                    Type = "Tarif",
+                    Description = "Balancetarif for forbrug",
+                    Resolution = "PT1H",
+                    IsTax = false,
+                    IsPassThrough = true,
+                    GetHourlyPrice = (Func<int, decimal>)(_ => 0.00229m), // 0,229 øre/kWh
+                },
+                new {
+                    ChargeId = "NET-ABO-" + gridArea,
+                    OwnerGln = gridGln,
+                    Type = "Abonnement",
+                    Description = "Net abonnement — " + gridArea,
+                    Resolution = (string?)null!,
+                    IsTax = false,
+                    IsPassThrough = true,
+                    GetHourlyPrice = (Func<int, decimal>)(_ => 21.56m), // ~258 kr/year ÷ 12
+                },
+            };
+
+            var createdPrices = new List<object>();
+            var messageCount = 0;
+            var endDate = effectiveDate.AddMonths(1);
+
+            foreach (var def in priceDefinitions)
+            {
+                var transactionId = Guid.NewGuid().ToString();
+
+                // D18: Price masterdata
+                var d18Payload = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, object?>
+                {
+                    ["businessReason"] = "D18",
+                    ["chargeId"] = def.ChargeId,
+                    ["ownerGln"] = def.OwnerGln,
+                    ["priceType"] = def.Type,
+                    ["description"] = def.Description,
+                    ["effectiveDate"] = effectiveDate.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                    ["resolution"] = def.Resolution ?? "P1M",
+                    ["vatExempt"] = false,
+                    ["isTax"] = def.IsTax,
+                    ["isPassThrough"] = def.IsPassThrough,
+                });
+
+                var d18Envelope = BuildIncomingCimEnvelope(
+                    "NotifyPriceList", "D18", "D18",
+                    def.OwnerGln, identity.Gln.Value,
+                    transactionId,
+                    new Dictionary<string, object?>
+                    {
+                        ["originalTransactionIDReference_MktActivityRecord.mRID"] = transactionId,
+                        ["start_DateAndOrTime.dateTime"] = CimDateTime(effectiveDate),
+                    });
+
+                var d18Msg = InboxMessage.Create(
+                    $"BRS-031-D18-{def.ChargeId}", "D18",
+                    def.OwnerGln, identity.Gln.Value,
+                    d18Payload, "BRS-031");
+                d18Msg.MarkProcessed(null);
+                db.InboxMessages.Add(d18Msg);
+                messageCount++;
+
+                // D08: Price points
+                if (def.Type == "Tarif" && def.Resolution == "PT1H")
+                {
+                    // Hourly-differentiated tariff — generate one month of hourly prices
+                    var points = new List<Dictionary<string, object>>();
+                    var hours = (int)(endDate - effectiveDate).TotalHours;
+                    for (int i = 0; i < hours; i++)
+                    {
+                        var ts = effectiveDate.AddHours(i);
+                        var hour = ts.Hour;
+                        points.Add(new Dictionary<string, object>
+                        {
+                            ["timestamp"] = ts.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                            ["price"] = def.GetHourlyPrice(hour),
+                        });
+                    }
+
+                    var d08Payload = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, object?>
+                    {
+                        ["businessReason"] = "D08",
+                        ["chargeId"] = def.ChargeId,
+                        ["ownerGln"] = def.OwnerGln,
+                        ["startDate"] = effectiveDate.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                        ["endDate"] = endDate.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                        ["points"] = points,
+                    });
+
+                    var d08Envelope = BuildIncomingCimEnvelope(
+                        "NotifyPriceList", "D08", "D08",
+                        def.OwnerGln, identity.Gln.Value,
+                        Guid.NewGuid().ToString(),
+                        new Dictionary<string, object?>
+                        {
+                            ["start_DateAndOrTime.dateTime"] = CimDateTime(effectiveDate),
+                            ["end_DateAndOrTime.dateTime"] = CimDateTime(endDate),
+                        });
+
+                    var d08Msg = InboxMessage.Create(
+                        $"BRS-031-D08-{def.ChargeId}", "D08",
+                        def.OwnerGln, identity.Gln.Value,
+                        d08Payload, "BRS-031");
+                    d08Msg.MarkProcessed(null);
+                    db.InboxMessages.Add(d08Msg);
+                    messageCount++;
+                }
+                else if (def.Type == "Abonnement")
+                {
+                    // Subscription — single monthly price point
+                    var d08Payload = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, object?>
+                    {
+                        ["businessReason"] = "D08",
+                        ["chargeId"] = def.ChargeId,
+                        ["ownerGln"] = def.OwnerGln,
+                        ["startDate"] = effectiveDate.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                        ["endDate"] = endDate.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                        ["points"] = new[]
+                        {
+                            new Dictionary<string, object>
+                            {
+                                ["timestamp"] = effectiveDate.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                                ["price"] = def.GetHourlyPrice(0),
+                            }
+                        },
+                    });
+
+                    var d08Envelope = BuildIncomingCimEnvelope(
+                        "NotifyPriceList", "D08", "D08",
+                        def.OwnerGln, identity.Gln.Value,
+                        Guid.NewGuid().ToString(),
+                        new Dictionary<string, object?>
+                        {
+                            ["start_DateAndOrTime.dateTime"] = CimDateTime(effectiveDate),
+                            ["end_DateAndOrTime.dateTime"] = CimDateTime(endDate),
+                        });
+
+                    var d08Msg = InboxMessage.Create(
+                        $"BRS-031-D08-{def.ChargeId}", "D08",
+                        def.OwnerGln, identity.Gln.Value,
+                        d08Payload, "BRS-031");
+                    d08Msg.MarkProcessed(null);
+                    db.InboxMessages.Add(d08Msg);
+                    messageCount++;
+                }
+
+                createdPrices.Add(new
+                {
+                    chargeId = def.ChargeId,
+                    ownerGln = def.OwnerGln,
+                    type = def.Type,
+                    description = def.Description,
+                    resolution = def.Resolution,
+                    isTax = def.IsTax,
+                });
+            }
+
+            // Process all messages through the BRS-031 handler
+            var unprocessedMessages = await db.InboxMessages
+                .Where(m => m.BusinessProcess == "BRS-031" && m.ProcessedAt == null)
+                .OrderBy(m => m.ReceivedAt)
+                .ToListAsync();
+
+            // Re-fetch to process (handler needs them unprocessed)
+            // Actually, we marked them processed above for the audit trail.
+            // Instead, process them directly through the domain handler.
+            foreach (var def in priceDefinitions)
+            {
+                var ownerGln = GlnNumber.Create(def.OwnerGln);
+                var priceType = Enum.Parse<PriceType>(def.Type);
+                var resolution = def.Resolution != null ? Enum.Parse<Resolution>(def.Resolution) : (Resolution?)null;
+
+                // Create or update price via domain logic (same as Brs031Handler D18)
+                var existingPrice = await db.Prices
+                    .Include(p => p.PricePoints)
+                    .Where(p => p.ChargeId == def.ChargeId)
+                    .FirstOrDefaultAsync(p => p.OwnerGln.Value == ownerGln.Value);
+
+                var price = existingPrice;
+
+                if (price is null)
+                {
+                    price = Price.Create(
+                        def.ChargeId, ownerGln, priceType, def.Description,
+                        Period.From(effectiveDate), false, resolution,
+                        def.IsTax, def.IsPassThrough);
+                    db.Prices.Add(price);
+                }
+                else
+                {
+                    price.UpdatePriceInfo(def.Description, def.IsTax, def.IsPassThrough);
+                    price.UpdateValidity(Period.From(effectiveDate));
+                }
+
+                // Add price points (D08)
+                if (def.Type == "Tarif" && def.Resolution == "PT1H")
+                {
+                    var hours = (int)(endDate - effectiveDate).TotalHours;
+                    var points = new List<(DateTimeOffset, decimal)>();
+                    for (int i = 0; i < hours; i++)
+                    {
+                        var ts = effectiveDate.AddHours(i);
+                        points.Add((ts, def.GetHourlyPrice(ts.Hour)));
+                    }
+                    price.ReplacePricePoints(effectiveDate, endDate, points);
+                }
+                else if (def.Type == "Abonnement")
+                {
+                    price.ReplacePricePoints(effectiveDate, endDate,
+                        new[] { (effectiveDate, def.GetHourlyPrice(0)) });
+                }
+            }
+
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new
+            {
+                pricesCreated = createdPrices.Count,
+                inboxMessagesCreated = messageCount,
+                effectiveDate,
+                endDate,
+                gridCompanyGln = gridGln,
+                gridArea,
+                prices = createdPrices,
+                message = $"BRS-031: {createdPrices.Count} regulerede priser oprettet med {messageCount} CIM-beskeder. " +
+                          $"Nettarif er timedifferentieret (lavlast/højlast/spidslast). " +
+                          $"Periode: {effectiveDate:yyyy-MM-dd} — {endDate:yyyy-MM-dd}."
+            });
+        }).WithName("SimulatePriceUpdate");
 
         /// <summary>
         /// Get invoiced settlements available for correction simulation.

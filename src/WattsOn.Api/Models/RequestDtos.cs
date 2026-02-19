@@ -151,3 +151,8 @@ record ElectricalHeatingRequest(string Gsrn, string Action, DateTimeOffset Effec
 
 record SimulateCorrectedMeteredDataRequest(
     Guid SettlementId);
+
+record SimulatePriceUpdateRequest(
+    string? GridCompanyGln = null,
+    DateTimeOffset? EffectiveDate = null,
+    string? GridArea = null);
