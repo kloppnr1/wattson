@@ -279,39 +279,10 @@ export default function PricesPage() {
             </div>
           </Space>
         </Col>
-        <Col>
-          <Card
-            size="small"
-            style={{
-              borderRadius: 10,
-              background: 'linear-gradient(135deg, #f0fdfa, #ccfbf1)',
-              border: '1px solid #99f6e4',
-              padding: 0,
-            }}
-            styles={{ body: { padding: '8px 16px' } }}
-          >
-            <Space align="center" size={10}>
-              <CalendarOutlined style={{ fontSize: 18, color: '#0d9488' }} />
-              <div>
-                <Text type="secondary" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.8, display: 'block', lineHeight: 1 }}>
-                  Dato
-                </Text>
-                <DatePicker
-                  value={selectedDate}
-                  onChange={(d) => d && setSelectedDate(d)}
-                  format="D. MMMM YYYY"
-                  allowClear={false}
-                  variant="borderless"
-                  style={{ width: 200, fontWeight: 600, fontSize: 15, padding: 0 }}
-                />
-              </div>
-            </Space>
-          </Card>
-        </Col>
       </Row>
 
-      {/* Stats */}
-      <Row gutter={16}>
+      {/* Stats — tighter spacing */}
+      <Row gutter={16} style={{ marginTop: -8 }}>
         {[
           { title: 'Leverandørpriser', value: supplierPrices.length, icon: <BankOutlined />, color: '#7c3aed' },
           { title: 'DataHub-priser', value: datahubPrices.length, icon: <ThunderboltOutlined />, color: '#0d9488' },
@@ -334,6 +305,24 @@ export default function PricesPage() {
       <Card style={{ borderRadius: 12 }}>
         <Tabs
           defaultActiveKey="spot"
+          tabBarExtraContent={
+            <Space align="center" size={8} style={{
+              background: 'linear-gradient(135deg, #f0fdfa, #ccfbf1)',
+              border: '1px solid #99f6e4',
+              borderRadius: 8,
+              padding: '4px 12px',
+            }}>
+              <CalendarOutlined style={{ color: '#0d9488' }} />
+              <DatePicker
+                value={selectedDate}
+                onChange={(d) => d && setSelectedDate(d)}
+                format="D. MMM YYYY"
+                allowClear={false}
+                variant="borderless"
+                style={{ width: 140, fontWeight: 600, padding: 0 }}
+              />
+            </Space>
+          }
           items={[
             {
               key: 'spot',
