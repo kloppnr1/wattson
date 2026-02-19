@@ -11,8 +11,9 @@ namespace WattsOn.Worker;
 
 /// <summary>
 /// Polls for unprocessed inbox messages and routes them to the appropriate BRS handler.
-/// Supports BRS-001 (Leverandørskift), BRS-009 (Tilflytning/Fraflytning),
-/// BRS-021 (Måledata), BRS-031 (Prisoplysninger) and BRS-037 (Pristilknytninger) messages.
+/// Supports BRS-001 (Leverandørskift), BRS-006 (Stamdata), BRS-009 (Tilflytning/Fraflytning),
+/// BRS-021 (Måledata), BRS-023 (Beregnede tidsserier), BRS-027 (Engrosydelser),
+/// BRS-031 (Prisoplysninger) and BRS-037 (Pristilknytninger) messages.
 /// </summary>
 public class InboxPollingWorker : BackgroundService
 {
@@ -93,12 +94,24 @@ public class InboxPollingWorker : BackgroundService
                 await HandleBrs001Message(db, message, payload, ct);
                 break;
 
+            case "BRS-006":
+                await HandleBrs006Message(db, message, payload, ct);
+                break;
+
             case "BRS-009":
                 await HandleBrs009Message(db, message, payload, ct);
                 break;
 
             case "BRS-021":
                 await HandleBrs021Message(db, message, payload, ct);
+                break;
+
+            case "BRS-023":
+                await HandleBrs023Message(db, message, payload, ct);
+                break;
+
+            case "BRS-027":
+                await HandleBrs027Message(db, message, payload, ct);
                 break;
 
             case "BRS-031":
@@ -470,6 +483,166 @@ public class InboxPollingWorker : BackgroundService
             result.TimeSeries.Version,
             observations.Count,
             result.TimeSeries.TotalEnergy.Value);
+    }
+
+    private async Task HandleBrs006Message(WattsOnDbContext db, InboxMessage message, JsonElement payload, CancellationToken ct)
+    {
+        var gsrnStr = GetPayloadString(payload, "gsrn");
+        if (string.IsNullOrEmpty(gsrnStr))
+        {
+            _logger.LogWarning("BRS-006: Missing GSRN — skipping message {MessageId}", message.MessageId);
+            return;
+        }
+
+        var gsrn = Gsrn.Create(gsrnStr);
+        var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn, ct);
+        if (mp is null)
+        {
+            _logger.LogWarning("BRS-006: Metering point not found for GSRN {Gsrn}", gsrnStr);
+            return;
+        }
+
+        // Parse optional update fields
+        var typeStr = GetPayloadString(payload, "type");
+        var artStr = GetPayloadString(payload, "art");
+        var settlementStr = GetPayloadString(payload, "settlementMethod");
+        var resolutionStr = GetPayloadString(payload, "resolution");
+        var connectionStr = GetPayloadString(payload, "connectionState");
+        var gridArea = GetPayloadString(payload, "gridArea");
+        var gridCompanyGlnStr = GetPayloadString(payload, "gridCompanyGln");
+
+        // Parse address if present
+        Address? address = null;
+        if (payload.TryGetProperty("address", out var addrEl) && addrEl.ValueKind == JsonValueKind.Object)
+        {
+            var street = addrEl.TryGetProperty("streetName", out var s) ? s.GetString() ?? "" : "";
+            var building = addrEl.TryGetProperty("buildingNumber", out var b) ? b.GetString() ?? "" : "";
+            var postCode = addrEl.TryGetProperty("postCode", out var pc) ? pc.GetString() ?? "" : "";
+            var city = addrEl.TryGetProperty("cityName", out var ci) ? ci.GetString() ?? "" : "";
+            var floor = addrEl.TryGetProperty("floor", out var fl) ? fl.GetString() : null;
+            var suite = addrEl.TryGetProperty("suite", out var su) ? su.GetString() : null;
+            address = Address.Create(street, building, postCode, city, floor, suite);
+        }
+
+        var update = new Brs006Handler.MasterDataUpdate(
+            Type: typeStr != null ? Enum.Parse<MeteringPointType>(typeStr, ignoreCase: true) : null,
+            Art: artStr != null ? Enum.Parse<MeteringPointCategory>(artStr, ignoreCase: true) : null,
+            SettlementMethod: settlementStr != null ? Enum.Parse<SettlementMethod>(settlementStr, ignoreCase: true) : null,
+            Resolution: resolutionStr != null ? Enum.Parse<Resolution>(resolutionStr, ignoreCase: true) : null,
+            ConnectionState: connectionStr != null ? Enum.Parse<ConnectionState>(connectionStr, ignoreCase: true) : null,
+            GridArea: gridArea,
+            GridCompanyGln: gridCompanyGlnStr != null ? GlnNumber.Create(gridCompanyGlnStr) : null,
+            Address: address);
+
+        var result = Brs006Handler.ApplyMasterDataUpdate(mp, update);
+
+        if (result.ChangedFields.Count > 0)
+        {
+            _logger.LogInformation("BRS-006: Updated GSRN {Gsrn}: {Fields}",
+                gsrnStr, string.Join(", ", result.ChangedFields));
+        }
+        else
+        {
+            _logger.LogInformation("BRS-006: No changes for GSRN {Gsrn}", gsrnStr);
+        }
+    }
+
+    private Task HandleBrs023Message(WattsOnDbContext db, InboxMessage message, JsonElement payload, CancellationToken ct)
+    {
+        var gridArea = GetPayloadString(payload, "gridArea") ?? "Unknown";
+        var businessReason = GetPayloadString(payload, "businessReason") ?? message.DocumentType;
+        var mpType = GetPayloadString(payload, "meteringPointType") ?? "E17";
+        var settlementMethod = GetPayloadString(payload, "settlementMethod");
+        var periodStartStr = GetPayloadString(payload, "periodStart");
+        var periodEndStr = GetPayloadString(payload, "periodEnd");
+        var resolutionStr = GetPayloadString(payload, "resolution") ?? "PT1H";
+        var qualityStatus = GetPayloadString(payload, "qualityStatus") ?? "Measured";
+        var transactionId = GetPayloadString(payload, "transactionId") ?? message.MessageId;
+
+        if (periodStartStr is null || periodEndStr is null)
+        {
+            _logger.LogWarning("BRS-023: Missing period — skipping message {MessageId}", message.MessageId);
+            return Task.CompletedTask;
+        }
+
+        var periodStart = DateTimeOffset.Parse(periodStartStr);
+        var periodEnd = DateTimeOffset.Parse(periodEndStr);
+        var resolution = Enum.Parse<Resolution>(resolutionStr, ignoreCase: true);
+
+        var observations = new List<Brs023Handler.AggregatedObservationData>();
+        if (payload.TryGetProperty("observations", out var obsArray))
+        {
+            foreach (var obs in obsArray.EnumerateArray())
+            {
+                var timestamp = DateTimeOffset.Parse(obs.GetProperty("timestamp").GetString()!);
+                var kwh = obs.GetProperty("kwh").GetDecimal();
+                observations.Add(new Brs023Handler.AggregatedObservationData(timestamp, kwh));
+            }
+        }
+
+        var result = Brs023Handler.ProcessAggregatedData(
+            gridArea, businessReason, mpType, settlementMethod,
+            periodStart, periodEnd, resolution, qualityStatus, transactionId, observations);
+
+        db.AggregatedTimeSeriesCollection.Add(result.TimeSeries);
+
+        var label = Brs023Handler.MapBusinessReasonToLabel(businessReason);
+        _logger.LogInformation(
+            "BRS-023: Stored {Label} for {GridArea} ({MpType}/{Settlement}), {Start}—{End}, {Count} obs, {Total:F3} kWh",
+            label, gridArea, mpType, settlementMethod ?? "all",
+            periodStart.ToString("yyyy-MM-dd"), periodEnd.ToString("yyyy-MM-dd"),
+            observations.Count, result.TimeSeries.TotalEnergyKwh);
+
+        return Task.CompletedTask;
+    }
+
+    private Task HandleBrs027Message(WattsOnDbContext db, InboxMessage message, JsonElement payload, CancellationToken ct)
+    {
+        var gridArea = GetPayloadString(payload, "gridArea") ?? "Unknown";
+        var businessReason = GetPayloadString(payload, "businessReason") ?? "D05";
+        var periodStartStr = GetPayloadString(payload, "periodStart");
+        var periodEndStr = GetPayloadString(payload, "periodEnd");
+        var resolutionStr = GetPayloadString(payload, "resolution") ?? "PT1H";
+        var transactionId = GetPayloadString(payload, "transactionId") ?? message.MessageId;
+
+        if (periodStartStr is null || periodEndStr is null)
+        {
+            _logger.LogWarning("BRS-027: Missing period — skipping message {MessageId}", message.MessageId);
+            return Task.CompletedTask;
+        }
+
+        var periodStart = DateTimeOffset.Parse(periodStartStr);
+        var periodEnd = DateTimeOffset.Parse(periodEndStr);
+        var resolution = Enum.Parse<Resolution>(resolutionStr, ignoreCase: true);
+
+        var lines = new List<Brs027Handler.SettlementLineData>();
+        if (payload.TryGetProperty("lines", out var linesArray))
+        {
+            foreach (var line in linesArray.EnumerateArray())
+            {
+                var chargeId = line.GetProperty("chargeId").GetString()!;
+                var chargeType = line.GetProperty("chargeType").GetString()!;
+                var ownerGln = line.GetProperty("ownerGln").GetString()!;
+                var energyKwh = line.GetProperty("energyKwh").GetDecimal();
+                var amountDkk = line.GetProperty("amountDkk").GetDecimal();
+                var description = line.TryGetProperty("description", out var d) ? d.GetString() ?? "" : "";
+                lines.Add(new Brs027Handler.SettlementLineData(
+                    chargeId, chargeType, ownerGln, energyKwh, amountDkk, description));
+            }
+        }
+
+        var result = Brs027Handler.ProcessWholesaleSettlement(
+            gridArea, businessReason, periodStart, periodEnd, resolution, transactionId, lines);
+
+        db.WholesaleSettlements.Add(result.Settlement);
+
+        _logger.LogInformation(
+            "BRS-027: Stored wholesale settlement for {GridArea} ({BusinessReason}), {Start}—{End}, {Count} lines, {Energy:F3} kWh, {Amount:F2} DKK",
+            gridArea, businessReason,
+            periodStart.ToString("yyyy-MM-dd"), periodEnd.ToString("yyyy-MM-dd"),
+            lines.Count, result.Settlement.TotalEnergyKwh, result.Settlement.TotalAmountDkk);
+
+        return Task.CompletedTask;
     }
 
     private static string? GetPayloadString(JsonElement payload, string property)

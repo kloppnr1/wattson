@@ -25,6 +25,8 @@ public interface IWattsOnDbContext
     DbSet<SpotPrice> SpotPrices { get; }
     DbSet<BrsProcess> Processes { get; }
     DbSet<ProcessStateTransition> ProcessTransitions { get; }
+    DbSet<AggregatedTimeSeries> AggregatedTimeSeriesCollection { get; }
+    DbSet<WholesaleSettlement> WholesaleSettlements { get; }
     DbSet<InboxMessage> InboxMessages { get; }
     DbSet<OutboxMessage> OutboxMessages { get; }
 

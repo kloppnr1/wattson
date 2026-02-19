@@ -86,4 +86,29 @@ public class MeteringPoint : Entity
         Address = address;
         MarkUpdated();
     }
+
+    public void UpdateType(MeteringPointType type)
+    {
+        Type = type;
+        MarkUpdated();
+    }
+
+    public void UpdateCategory(MeteringPointCategory art)
+    {
+        Art = art;
+        MarkUpdated();
+    }
+
+    public void UpdateGridArea(string gridArea, GlnNumber gridCompanyGln)
+    {
+        GridArea = gridArea;
+        GridCompanyGln = gridCompanyGln;
+        MarkUpdated();
+    }
+
+    public void UpdateResolution(Resolution resolution)
+    {
+        Resolution = resolution;
+        MarkUpdated();
+    }
 }
