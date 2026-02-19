@@ -117,6 +117,29 @@ public class SettlementWorker : BackgroundService
             .Select(pt => new PriceWithPoints(pt.Price))
             .ToList();
 
+        // Validate all required price elements are linked
+        var missingElements = SettlementValidator.ValidatePriceCompleteness(activePrices);
+        if (missingElements.Count > 0)
+        {
+            _logger.LogWarning(
+                "Skipping settlement for metering_point {MpId}, period {Start}: missing price elements: {Missing}",
+                timeSeries.MeteringPointId, timeSeries.Period.Start,
+                string.Join(", ", missingElements));
+            return;
+        }
+
+        // Validate price points exist for the period
+        var coverageIssues = SettlementValidator.ValidatePricePointCoverage(
+            activePrices, timeSeries.Period.Start, timeSeries.Period.End);
+        if (coverageIssues.Count > 0)
+        {
+            _logger.LogWarning(
+                "Skipping settlement for metering_point {MpId}, period {Start}: price point coverage issues: {Issues}",
+                timeSeries.MeteringPointId, timeSeries.Period.Start,
+                string.Join("; ", coverageIssues));
+            return;
+        }
+
         // Check if there's already an invoiced settlement for this period
         var existingInvoicedSettlement = await db.Settlements
             .Include(a => a.Lines)
