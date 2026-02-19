@@ -11,7 +11,7 @@ import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import type { PriceSummary, PriceDetail } from '../api/client';
 import { getPrices, getPrice, getSupplierIdentities } from '../api/client';
-import { formatDate, formatTime, formatTimeUtc, formatTimeUtcWithDay, formatPrice4 } from '../utils/format';
+import { formatDate, formatTime, formatTimeUtc, formatPrice4 } from '../utils/format';
 import api from '../api/client';
 
 const { Text, Title } = Typography;
@@ -22,37 +22,16 @@ const typeColors: Record<string, string> = {
   Abonnement: 'purple',
 };
 
-interface SpotPriceRecord {
-  hourUtc: string;
-  priceArea: string;
-  spotPriceDkkPerKwh: number;
-}
-
-interface SpotLatest {
-  totalRecords: number;
-  dk1: { hourUtc: string; spotPriceDkkPerKwh: number } | null;
-  dk2: { hourUtc: string; spotPriceDkkPerKwh: number } | null;
-}
-
-// Pivot spot prices: merge DK1+DK2 rows by time into one row
 interface SpotRow {
   hourUtc: string;
   dk1: number | null;
   dk2: number | null;
 }
 
-function pivotSpotPrices(records: SpotPriceRecord[]): SpotRow[] {
-  const map = new Map<string, SpotRow>();
-  for (const r of records) {
-    const key = r.hourUtc;
-    if (!map.has(key)) {
-      map.set(key, { hourUtc: r.hourUtc, dk1: null, dk2: null });
-    }
-    const row = map.get(key)!;
-    if (r.priceArea === 'DK1') row.dk1 = r.spotPriceDkkPerKwh;
-    if (r.priceArea === 'DK2') row.dk2 = r.spotPriceDkkPerKwh;
-  }
-  return Array.from(map.values()).sort((a, b) => a.hourUtc.localeCompare(b.hourUtc));
+interface SpotLatest {
+  totalRecords: number;
+  dk1: { hourUtc: string; spotPriceDkkPerKwh: number } | null;
+  dk2: { hourUtc: string; spotPriceDkkPerKwh: number } | null;
 }
 
 export default function PricesPage() {
@@ -68,7 +47,7 @@ export default function PricesPage() {
 
   // Spot prices
   const [spotLatest, setSpotLatest] = useState<SpotLatest | null>(null);
-  const [spotPrices, setSpotPrices] = useState<SpotPriceRecord[]>([]);
+  const [spotRows, setSpotRows] = useState<SpotRow[]>([]);
   const [spotLoading, setSpotLoading] = useState(false);
 
   // Initial load
@@ -76,7 +55,7 @@ export default function PricesPage() {
     Promise.all([
       getPrices(),
       getSupplierIdentities(),
-      api.get<SpotLatest>('/spot-prices/latest'),
+      api.get<SpotLatest>('/prices/spot/latest'),
     ])
       .then(([pricesRes, identitiesRes, latestRes]) => {
         setPrices(pricesRes.data);
@@ -91,9 +70,9 @@ export default function PricesPage() {
   const fetchSpotForDate = useCallback(async (date: Dayjs) => {
     setSpotLoading(true);
     try {
-      const res = await api.get<SpotPriceRecord[]>(`/spot-prices?date=${date.format('YYYY-MM-DD')}`);
-      setSpotPrices(res.data);
-    } catch { setSpotPrices([]); }
+      const res = await api.get<{ totalRecords: number; rows: SpotRow[] }>(`/prices/spot?date=${date.format('YYYY-MM-DD')}`);
+      setSpotRows(res.data.rows);
+    } catch { setSpotRows([]); }
     finally { setSpotLoading(false); }
   }, []);
 
@@ -102,10 +81,13 @@ export default function PricesPage() {
   if (loading) return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
   if (error) return <Alert type="error" message="Kunne ikke hente priser" description={error} />;
 
+  // Filter out spot prices from the general list (they have their own tab)
+  const isSpot = (p: PriceSummary) => p.chargeId.startsWith('SPOT-');
+  const nonSpotPrices = prices.filter(p => !isSpot(p));
+
   // Supplier prices = owned by our GLN(s); DataHub prices = owned by external parties
-  const supplierPrices = prices.filter(p => ourGlns.has(p.ownerGln));
-  const datahubPrices = prices.filter(p => !ourGlns.has(p.ownerGln));
-  const spotRows = pivotSpotPrices(spotPrices);
+  const supplierPrices = nonSpotPrices.filter(p => ourGlns.has(p.ownerGln));
+  const datahubPrices = nonSpotPrices.filter(p => !ourGlns.has(p.ownerGln));
 
   const handleExpand = async (expanded: boolean, record: PriceSummary) => {
     if (!expanded || expandedDetails[record.id]) return;
@@ -175,7 +157,6 @@ export default function PricesPage() {
     // Filter price points to the selected date (using Danish date from UTC)
     const dateStr = selectedDate.format('YYYY-MM-DD');
     const filtered = detail.pricePoints.filter(pp => {
-      // Compare Danish date using proper timezone conversion
       const dkDate = new Date(pp.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Europe/Copenhagen' });
       return dkDate === dateStr;
     });
@@ -257,18 +238,18 @@ export default function PricesPage() {
             <DollarOutlined style={{ fontSize: 24, color: '#0d9488' }} />
             <div>
               <Title level={3} style={{ margin: 0 }}>Priser</Title>
-              <Text type="secondary">Leverandørpriser, DataHub-priser og spotpriser</Text>
+              <Text type="secondary">Spotpriser, DataHub-priser og leverandørpriser</Text>
             </div>
           </Space>
         </Col>
       </Row>
 
-      {/* Stats — tighter spacing */}
+      {/* Stats */}
       <Row gutter={16} style={{ marginTop: -8 }}>
         {[
-          { title: 'Leverandørpriser', value: supplierPrices.length, icon: <BankOutlined />, color: '#7c3aed' },
-          { title: 'DataHub-priser', value: datahubPrices.length, icon: <ThunderboltOutlined />, color: '#0d9488' },
           { title: 'Spotpriser', value: spotLatest?.totalRecords ?? 0, icon: <AreaChartOutlined />, color: '#f59e0b' },
+          { title: 'DataHub-priser', value: datahubPrices.length, icon: <ThunderboltOutlined />, color: '#0d9488' },
+          { title: 'Leverandørpriser', value: supplierPrices.length, icon: <BankOutlined />, color: '#7c3aed' },
           { title: 'Priser i alt', value: prices.length, icon: <DollarOutlined />, color: '#5d7a91' },
         ].map(s => (
           <Col xs={12} sm={6} key={s.title}>
@@ -319,7 +300,6 @@ export default function PricesPage() {
               ),
               children: (
                 <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                  {/* Spot price table — DK1 + DK2 side by side */}
                   {spotLoading ? (
                     <Spin size="small" style={{ display: 'block', margin: '24px auto' }} />
                   ) : spotRows.length > 0 ? (

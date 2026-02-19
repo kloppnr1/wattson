@@ -22,7 +22,6 @@ public interface IWattsOnDbContext
     DbSet<PriceLink> PriceLinks { get; }
     DbSet<Settlement> Settlements { get; }
     DbSet<SettlementLine> SettlementLines { get; }
-    DbSet<SpotPrice> SpotPrices { get; }
     DbSet<BrsProcess> Processes { get; }
     DbSet<ProcessStateTransition> ProcessTransitions { get; }
     DbSet<AggregatedTimeSeries> AggregatedTimeSeriesCollection { get; }

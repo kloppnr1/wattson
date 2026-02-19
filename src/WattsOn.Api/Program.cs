@@ -70,7 +70,6 @@ app.MapTimeSeriesEndpoints();
 app.MapSettlementDocumentEndpoints();
 app.MapSimulationEndpoints();
 app.MapDashboardEndpoints();
-app.MapSpotPriceEndpoints();
 app.MapReconciliationEndpoints();
 
 app.Run();

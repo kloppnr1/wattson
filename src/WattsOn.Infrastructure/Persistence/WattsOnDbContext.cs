@@ -21,7 +21,6 @@ public class WattsOnDbContext : DbContext, IWattsOnDbContext
     public DbSet<PriceLink> PriceLinks => Set<PriceLink>();
     public DbSet<Settlement> Settlements => Set<Settlement>();
     public DbSet<SettlementLine> SettlementLines => Set<SettlementLine>();
-    public DbSet<SpotPrice> SpotPrices => Set<SpotPrice>();
     public DbSet<BrsProcess> Processes => Set<BrsProcess>();
     public DbSet<ProcessStateTransition> ProcessTransitions => Set<ProcessStateTransition>();
     public DbSet<AggregatedTimeSeries> AggregatedTimeSeriesCollection => Set<AggregatedTimeSeries>();

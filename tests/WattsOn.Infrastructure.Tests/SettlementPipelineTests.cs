@@ -122,30 +122,40 @@ public class SettlementPipelineTests
     }
 
     [Fact]
-    public async Task SpotPrices_CanPersistAndQuery()
+    public async Task SpotPrices_StoredAsPriceEntities()
     {
         await using var db = await _fixture.CreateCleanContext();
 
-        var spot1 = SpotPrice.Create(
-            new DateTimeOffset(2026, 1, 15, 12, 0, 0, TimeSpan.Zero),
-            new DateTimeOffset(2026, 1, 15, 13, 0, 0, TimeSpan.Zero),
-            "DK1", 690.50m, 92.50m);
+        // Spot prices are stored as regular Price entities with PricePoints
+        var spotDk1 = Price.Create(
+            chargeId: "SPOT-DK1",
+            ownerGln: GlnNumber.Create("5790000432752"),
+            type: PriceType.Tarif,
+            description: "Spotpris — DK1 (Day-Ahead, Nord Pool)",
+            validityPeriod: Period.From(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero)),
+            priceResolution: Resolution.PT15M,
+            isPassThrough: true);
 
-        var spot2 = SpotPrice.Create(
+        // Add price points in DKK/kWh (source is DKK/MWh ÷ 1000)
+        spotDk1.AddPricePoint(
             new DateTimeOffset(2026, 1, 15, 12, 0, 0, TimeSpan.Zero),
-            new DateTimeOffset(2026, 1, 15, 13, 0, 0, TimeSpan.Zero),
-            "DK2", 685.25m, 91.80m);
+            0.69050m); // 690.50 DKK/MWh = 0.69050 DKK/kWh
+        spotDk1.AddPricePoint(
+            new DateTimeOffset(2026, 1, 15, 12, 15, 0, TimeSpan.Zero),
+            0.68525m);
 
-        db.SpotPrices.AddRange(spot1, spot2);
+        db.Prices.Add(spotDk1);
         await db.SaveChangesAsync();
 
-        var dk1Prices = await db.SpotPrices.Where(sp => sp.PriceArea == "DK1").ToListAsync();
-        Assert.Single(dk1Prices);
-        Assert.Equal(690.50m, dk1Prices[0].SpotPriceDkkPerMwh);
-        Assert.Equal(0.69050m, dk1Prices[0].SpotPriceDkkPerKwh);
+        var persisted = await db.Prices
+            .Include(p => p.PricePoints)
+            .FirstAsync(p => p.ChargeId == "SPOT-DK1");
 
-        var allPrices = await db.SpotPrices.CountAsync();
-        Assert.Equal(2, allPrices);
+        Assert.Equal("SPOT-DK1", persisted.ChargeId);
+        Assert.Equal(PriceType.Tarif, persisted.Type);
+        Assert.Equal(Resolution.PT15M, persisted.PriceResolution);
+        Assert.Equal(2, persisted.PricePoints.Count);
+        Assert.Equal(0.69050m, persisted.PricePoints.First(pp => pp.Timestamp.Hour == 12 && pp.Timestamp.Minute == 0).Price);
     }
 
     [Fact]
