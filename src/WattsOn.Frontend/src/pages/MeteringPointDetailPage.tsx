@@ -10,6 +10,7 @@ import {
   HomeOutlined,
 } from '@ant-design/icons';
 import type { MeteringPointDetail } from '../api/client';
+import { formatDate, formatDateTime } from '../utils/format';
 
 const { Text, Title } = Typography;
 import {
@@ -131,13 +132,13 @@ export default function MeteringPointDetailPage() {
       title: 'Fra',
       dataIndex: 'supplyStart',
       key: 'supplyStart',
-      render: (d: string) => new Date(d).toLocaleDateString('da-DK'),
+      render: (d: string) => formatDate(d),
     },
     {
       title: 'Til',
       dataIndex: 'supplyEnd',
       key: 'supplyEnd',
-      render: (d: string | null) => d ? new Date(d).toLocaleDateString('da-DK') : '→',
+      render: (d: string | null) => d ? formatDate(d) : '→',
     },
     {
       title: 'Status',
@@ -153,11 +154,9 @@ export default function MeteringPointDetailPage() {
       key: 'period',
       render: (_: any, record: any) =>
         (() => {
-          const start = new Date(record.periodStart).toLocaleDateString('da-DK');
+          const start = formatDate(record.periodStart);
           if (!record.periodEnd) return `${start} → →`;
-          const end = new Date(record.periodEnd);
-          end.setDate(end.getDate() - 1);
-          return `${start} → ${end.toLocaleDateString('da-DK')}`;
+          return `${start} → ${formatDate(record.periodEnd)}`;
         })(),
     },
     { title: 'Opløsning', dataIndex: 'resolution', key: 'resolution' },
@@ -172,7 +171,7 @@ export default function MeteringPointDetailPage() {
       title: 'Modtaget',
       dataIndex: 'receivedAt',
       key: 'receivedAt',
-      render: (d: string) => new Date(d).toLocaleString('da-DK'),
+      render: (d: string) => formatDateTime(d),
     },
   ];
 
@@ -286,7 +285,7 @@ export default function MeteringPointDetailPage() {
               <div>
                 <div className="micro-label">OPRETTET</div>
                 <Text className="tnum" style={{ fontSize: 12 }}>
-                  {new Date(mp.createdAt).toLocaleString('da-DK')}
+                  {formatDateTime(mp.createdAt)}
                 </Text>
               </div>
             </Space>

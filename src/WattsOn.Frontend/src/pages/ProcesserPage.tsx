@@ -25,8 +25,7 @@ const statusMap: Record<string, { dot: string; label: string }> = {
   Failed: { dot: 'red', label: 'fejlet' },
 };
 
-const formatDateTime = (d: string) => new Date(d).toLocaleString('da-DK');
-const formatDate = (d: string) => new Date(d).toLocaleDateString('da-DK');
+import { formatDate, formatDateTime } from '../utils/format';
 
 type RequestModal = 'aggregated' | 'wholesale' | 'prices' | null;
 
@@ -335,7 +334,7 @@ export default function ProcesserPage() {
                       <Space>
                         <Text strong>{t.toState}</Text>
                         <Text className="tnum" style={{ color: '#9ca3af', fontSize: 11 }}>
-                          {new Date(t.transitionedAt).toLocaleTimeString('da-DK')}
+                          {formatDateTime(t.transitionedAt)}
                         </Text>
                       </Space>
                     ),

@@ -5,7 +5,7 @@ import { getInbox } from '../api/client';
 
 const { Text } = Typography;
 
-const formatDateTime = (d: string) => new Date(d).toLocaleString('da-DK');
+import { formatDateTime } from '../utils/format';
 
 export default function InboxPage() {
   const [data, setData] = useState<InboxMessage[]>([]);

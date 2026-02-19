@@ -11,13 +11,10 @@ import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import type { PriceSummary, PriceDetail } from '../api/client';
 import { getPrices, getPrice, getSupplierIdentities } from '../api/client';
-import { formatDate } from '../utils/format';
+import { formatDate, formatTime, formatTimeUtc, formatTimeUtcWithDay, formatPrice4 } from '../utils/format';
 import api from '../api/client';
 
 const { Text, Title } = Typography;
-
-const formatPrice4 = (v: number) =>
-  new Intl.NumberFormat('da-DK', { minimumFractionDigits: 4, maximumFractionDigits: 4 }).format(v);
 
 const typeColors: Record<string, string> = {
   Tarif: 'teal',
@@ -25,38 +22,21 @@ const typeColors: Record<string, string> = {
   Abonnement: 'purple',
 };
 
-const formatTimeUtc = (v: string) => {
-  const d = new Date(v);
-  const day = d.getUTCDate();
-  const hm = d.toISOString().slice(11, 16);
-  return { day, hm };
-};
-
-const formatTimeDk = (v: string) => {
-  // hourDk is stored with +00:00 offset but represents Danish time
-  // Extract time directly from the ISO string
-  return v.slice(11, 16);
-};
-
 interface SpotPriceRecord {
   hourUtc: string;
-  hourDk: string;
   priceArea: string;
-  spotPriceDkkPerMwh: number;
-  spotPriceEurPerMwh: number;
   spotPriceDkkPerKwh: number;
 }
 
 interface SpotLatest {
   totalRecords: number;
-  dk1: { hourUtc: string; hourDk: string; spotPriceDkkPerMwh: number; spotPriceDkkPerKwh: number } | null;
-  dk2: { hourUtc: string; hourDk: string; spotPriceDkkPerMwh: number; spotPriceDkkPerKwh: number } | null;
+  dk1: { hourUtc: string; spotPriceDkkPerKwh: number } | null;
+  dk2: { hourUtc: string; spotPriceDkkPerKwh: number } | null;
 }
 
 // Pivot spot prices: merge DK1+DK2 rows by time into one row
 interface SpotRow {
   hourUtc: string;
-  hourDk: string;
   dk1: number | null;
   dk2: number | null;
 }
@@ -66,7 +46,7 @@ function pivotSpotPrices(records: SpotPriceRecord[]): SpotRow[] {
   for (const r of records) {
     const key = r.hourUtc;
     if (!map.has(key)) {
-      map.set(key, { hourUtc: r.hourUtc, hourDk: r.hourDk, dk1: null, dk2: null });
+      map.set(key, { hourUtc: r.hourUtc, dk1: null, dk2: null });
     }
     const row = map.get(key)!;
     if (r.priceArea === 'DK1') row.dk1 = r.spotPriceDkkPerKwh;
@@ -192,13 +172,12 @@ export default function PricesPage() {
     if (expandLoading[record.id]) return <Spin size="small" style={{ margin: 16 }} />;
     if (!detail) return <Text type="secondary">Ingen detaildata</Text>;
 
-    // Filter price points to the selected date
+    // Filter price points to the selected date (using Danish date from UTC)
     const dateStr = selectedDate.format('YYYY-MM-DD');
     const filtered = detail.pricePoints.filter(pp => {
-      const ppDate = new Date(pp.timestamp);
-      // Compare Danish date (add 1h for CET approximation)
-      const dk = new Date(ppDate.getTime() + 3600000);
-      return dk.toISOString().slice(0, 10) === dateStr;
+      // Compare Danish date using proper timezone conversion
+      const dkDate = new Date(pp.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Europe/Copenhagen' });
+      return dkDate === dateStr;
     });
 
     const displayPoints = filtered.length > 0 ? filtered : detail.pricePoints.slice(0, 48);
@@ -219,10 +198,10 @@ export default function PricesPage() {
         <Table
           dataSource={displayPoints}
           columns={[
-            { title: 'UTC', dataIndex: 'timestamp', key: 'utc', width: 80,
-              render: (v: string) => { const { day, hm } = formatTimeUtc(v); return <Text className="tnum" type="secondary">{day}. {hm}</Text>; } },
-            { title: 'DK', dataIndex: 'timestamp', key: 'dk', width: 70,
-              render: (v: string) => <Text className="tnum">{v.slice(11, 16)}</Text> },
+            { title: 'DK-TID', dataIndex: 'timestamp', key: 'dk', width: 70,
+              render: (v: string) => <Text className="tnum" strong>{formatTime(v)}</Text> },
+            { title: 'UTC', dataIndex: 'timestamp', key: 'utc', width: 70,
+              render: (v: string) => <Text className="tnum" type="secondary">{formatTimeUtc(v)}</Text> },
             { title: 'DKK/kWh', dataIndex: 'price', key: 'price', align: 'right' as const,
               render: (v: number) => <Text className="tnum" strong>{formatPrice4(v)}</Text> },
           ]}
@@ -235,29 +214,20 @@ export default function PricesPage() {
   };
 
   // Spot price columns: DK1 + DK2 side by side
-  const selectedDay = selectedDate.date();
   const spotColumns = [
     {
       title: 'DK-TID',
-      dataIndex: 'hourDk',
+      dataIndex: 'hourUtc',
       key: 'dk',
       width: 60,
-      render: (v: string) => <Text className="tnum" strong style={{ fontSize: 13 }}>{formatTimeDk(v)}</Text>,
+      render: (v: string) => <Text className="tnum" strong style={{ fontSize: 13 }}>{formatTime(v)}</Text>,
     },
     {
       title: 'UTC',
       dataIndex: 'hourUtc',
       key: 'utc',
-      width: 80,
-      render: (v: string) => {
-        const { day, hm } = formatTimeUtc(v);
-        const diff = day !== selectedDay;
-        return (
-          <Text className="tnum" type="secondary" style={{ fontSize: 12 }}>
-            {diff ? <span style={{ opacity: 0.5 }}>{day}. </span> : null}{hm}
-          </Text>
-        );
-      },
+      width: 60,
+      render: (v: string) => <Text className="tnum" type="secondary" style={{ fontSize: 12 }}>{formatTimeUtc(v)}</Text>,
     },
     {
       title: <><Tag color="orange" style={{ marginRight: 0 }}>DK1</Tag> <Text type="secondary" style={{ fontSize: 11 }}>DKK/kWh</Text></>,

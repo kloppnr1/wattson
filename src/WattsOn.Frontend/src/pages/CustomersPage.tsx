@@ -4,6 +4,7 @@ import { SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { Customer } from '../api/client';
 import { getCustomers } from '../api/client';
+import { formatDate } from '../utils/format';
 
 const { Text } = Typography;
 
@@ -73,7 +74,7 @@ export default function CustomersPage() {
       key: 'createdAt',
       width: 120,
       render: (d: string) => (
-        <Text style={{ color: '#6b7280' }}>{new Date(d).toLocaleDateString('da-DK')}</Text>
+        <Text style={{ color: '#6b7280' }}>{formatDate(d)}</Text>
       ),
     },
   ];

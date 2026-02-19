@@ -8,7 +8,7 @@ const { Text } = Typography;
 
 const formatDKK = (amount: number) =>
   new Intl.NumberFormat('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
-const formatDate = (d: string) => new Date(d).toLocaleDateString('da-DK');
+import { formatDate } from '../utils/format';
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);

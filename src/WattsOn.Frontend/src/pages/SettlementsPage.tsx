@@ -7,7 +7,7 @@ import { getSettlementDocuments } from '../api/client';
 
 const { Text } = Typography;
 
-import { formatDate, formatPeriodEnd } from '../utils/format';
+import { formatDate, formatDateTime, formatPeriodEnd } from '../utils/format';
 
 const formatDKK = (amount: number) =>
   new Intl.NumberFormat('da-DK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
@@ -101,7 +101,7 @@ export default function SettlementsPage() {
       title: 'BEREGNET',
       dataIndex: 'calculatedAt',
       key: 'calculatedAt',
-      render: (d: string) => <Text style={{ color: '#6b7280' }}>{new Date(d).toLocaleString('da-DK')}</Text>,
+      render: (d: string) => <Text style={{ color: '#6b7280' }}>{formatDateTime(d)}</Text>,
     },
   ];
 

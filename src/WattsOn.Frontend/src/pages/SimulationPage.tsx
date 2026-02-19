@@ -19,6 +19,7 @@ import type { Dayjs } from 'dayjs';
 import api from '../api/client';
 import type { Supply, InvoicedSettlement, CorrectedMeteredDataResult, PriceSummary } from '../api/client';
 import { getSupplies, getInvoicedSettlements, simulateCorrectedMeteredData, getPrices, simulatePriceUpdate, getSupplierIdentities } from '../api/client';
+import { formatTime } from '../utils/format';
 
 const { Text, Title, Paragraph } = Typography;
 
@@ -957,7 +958,7 @@ export default function SimulationPage() {
                           <Text strong>Settlement Engine Result</Text>
                           <Tag color="green">Calculated</Tag>
                           <Text type="secondary" style={{ fontSize: 12 }}>
-                            {new Date(settlement.calculatedAt).toLocaleTimeString('da-DK')}
+                            {formatTime(settlement.calculatedAt)}
                           </Text>
                         </Space>
                       }

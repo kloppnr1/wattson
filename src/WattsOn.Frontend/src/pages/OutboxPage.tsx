@@ -12,7 +12,7 @@ import { getOutbox, retryOutboxMessage } from '../api/client';
 
 const { Text, Paragraph } = Typography;
 
-const formatDateTime = (d: string) => new Date(d).toLocaleString('da-DK');
+import { formatDateTime } from '../utils/format';
 
 const MAX_RETRIES = 5; // must match DataHubSettings.MaxRetries
 

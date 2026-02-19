@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { Supply } from '../api/client';
+import { formatDate } from '../utils/format';
 import {
   getSupplies, initiateEndOfSupply, initiateMoveOut,
   initiateIncorrectSwitch, initiateIncorrectMove,
@@ -116,13 +117,13 @@ export default function SuppliesPage() {
       title: 'Fra',
       dataIndex: 'supplyStart',
       key: 'supplyStart',
-      render: (d: string) => new Date(d).toLocaleDateString('da-DK'),
+      render: (d: string) => formatDate(d),
     },
     {
       title: 'Til',
       dataIndex: 'supplyEnd',
       key: 'supplyEnd',
-      render: (d: string | null) => d ? new Date(d).toLocaleDateString('da-DK') : '→',
+      render: (d: string | null) => d ? formatDate(d) : '→',
     },
     {
       title: 'Status',

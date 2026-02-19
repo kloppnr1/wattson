@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Card, Table, Button, Modal, Form, Input, Switch, Tag, Space, Statistic, Row, Col, message, Popconfirm } from 'antd';
 import { PlusOutlined, BankOutlined, DeleteOutlined, UndoOutlined, EditOutlined } from '@ant-design/icons';
+import { formatDate } from '../utils/format';
 
 export interface SupplierIdentity {
   id: string; gln: string; name: string; cvr: string | null; isActive: boolean; isArchived: boolean; createdAt: string;
@@ -17,10 +18,6 @@ const apiFetch = async (path: string, opts?: RequestInit) => {
   }
   return res.json();
 };
-
-const formatDate = (d: string) => new Date(d).toLocaleDateString('da-DK', {
-  year: 'numeric', month: 'short', day: 'numeric'
-});
 
 export default function AdminPage() {
   const [identities, setIdentities] = useState<SupplierIdentity[]>([]);

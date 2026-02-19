@@ -20,7 +20,7 @@ import {
 
 const { Text, Title } = Typography;
 
-import { formatDate, formatPeriodEnd, formatDKK } from '../utils/format';
+import { formatDate, formatDateTime, formatPeriodEnd, formatDKK } from '../utils/format';
 
 const statusColors: Record<string, string> = {
   Calculated: 'green', Invoiced: 'blue', Adjusted: 'orange',
@@ -396,7 +396,7 @@ export default function CustomerDetailPage() {
               <div>
                 <div className="micro-label">OPRETTET</div>
                 <Text className="tnum" style={{ fontSize: 12 }}>
-                  {new Date(customer.createdAt).toLocaleString('da-DK')}
+                  {formatDateTime(customer.createdAt)}
                 </Text>
               </div>
             </Space>
