@@ -28,6 +28,7 @@ public class MeteringPointConfiguration : IEntityTypeConfiguration<MeteringPoint
         builder.Property(m => m.ConnectionState).HasColumnName("connection_state").HasConversion<string>().HasMaxLength(50);
         builder.Property(m => m.GridArea).HasColumnName("grid_area").HasMaxLength(10).IsRequired();
         builder.Property(m => m.HasActiveSupply).HasColumnName("has_active_supply");
+        builder.Property(m => m.HasElectricalHeating).HasColumnName("has_electrical_heating");
 
         builder.OwnsOne(m => m.GridCompanyGln, gln =>
         {

@@ -16,6 +16,8 @@ public class CimDocumentBuilderTests
     [InlineData(RsmDocumentType.Rsm027, "RequestChangeCustomerCharacteristics_MarketDocument")]
     [InlineData(RsmDocumentType.Rsm032, "RequestChargeLinks_MarketDocument")]
     [InlineData(RsmDocumentType.Rsm035, "RequestPrices_MarketDocument")]
+    [InlineData(RsmDocumentType.Rsm016, "RequestAggregatedMeasureData_MarketDocument")]
+    [InlineData(RsmDocumentType.Rsm017, "RequestWholesaleSettlement_MarketDocument")]
     public void Build_HasCorrectRootElement(RsmDocumentType rsmType, string expectedRoot)
     {
         var json = CimDocumentBuilder
@@ -131,6 +133,8 @@ public class CimDocumentBuilderTests
     [InlineData(RsmDocumentType.Rsm027, "D15")]
     [InlineData(RsmDocumentType.Rsm032, "E0G")]
     [InlineData(RsmDocumentType.Rsm035, "E0G")]
+    [InlineData(RsmDocumentType.Rsm016, "E74")]
+    [InlineData(RsmDocumentType.Rsm017, "D21")]
     public void Build_TypeCodeIsCorrect(RsmDocumentType rsmType, string expectedTypeCode)
     {
         var json = CimDocumentBuilder
@@ -386,5 +390,138 @@ public class CimDocumentBuilderTests
 
         Assert.False(series.TryGetProperty("end_DateAndOrTime.dateTime", out _),
             "Null fields should be omitted from CIM JSON");
+    }
+
+    // ==================== RSM-016/017 Receiver Role ====================
+
+    [Fact]
+    public void Rsm016_ReceiverRoleIsDgl()
+    {
+        var json = CimDocumentBuilder
+            .Create(RsmDocumentType.Rsm016, "D04", TestSenderGln)
+            .Build();
+        var doc = JsonSerializer.Deserialize<JsonElement>(json)
+            .GetProperty("RequestAggregatedMeasureData_MarketDocument");
+        var role = doc.GetProperty("receiver_MarketParticipant.marketRole.type")
+            .GetProperty("value").GetString();
+        Assert.Equal("DGL", role);
+    }
+
+    [Fact]
+    public void Rsm017_ReceiverRoleIsDgl()
+    {
+        var json = CimDocumentBuilder
+            .Create(RsmDocumentType.Rsm017, "D05", TestSenderGln)
+            .Build();
+        var doc = JsonSerializer.Deserialize<JsonElement>(json)
+            .GetProperty("RequestWholesaleSettlement_MarketDocument");
+        var role = doc.GetProperty("receiver_MarketParticipant.marketRole.type")
+            .GetProperty("value").GetString();
+        Assert.Equal("DGL", role);
+    }
+
+    // ==================== RSM-016/017 Postman Structure ====================
+
+    [Fact]
+    public void Rsm016_AggregatedDataRequest_MatchesPostmanStructure()
+    {
+        // Verified against DataHub 3.0 Postman collection: RequestAggregatedMeasureData
+        var json = CimDocumentBuilder
+            .Create(RsmDocumentType.Rsm016, "D04", TestSenderGln)
+            .AddSeries(new Dictionary<string, object?>
+            {
+                ["start_DateAndOrTime.dateTime"] = "2023-02-01T23:00:00Z",
+                ["end_DateAndOrTime.dateTime"] = "2023-02-28T23:00:00Z",
+                ["marketEvaluationPoint.type"] = new CimDocumentBuilder.CimCodeValue("E18"),
+                ["meteringGridArea_Domain.mRID"] = new CimDocumentBuilder.CimCodedValue("NDK", "543"),
+            })
+            .Build();
+
+        var doc = JsonSerializer.Deserialize<JsonElement>(json)
+            .GetProperty("RequestAggregatedMeasureData_MarketDocument");
+
+        // Envelope verified against Postman
+        Assert.Equal("E74", doc.GetProperty("type").GetProperty("value").GetString());
+        Assert.Equal("D04", doc.GetProperty("process.processType").GetProperty("value").GetString());
+        Assert.Equal("23", doc.GetProperty("businessSector.type").GetProperty("value").GetString());
+        Assert.Equal("DGL", doc.GetProperty("receiver_MarketParticipant.marketRole.type").GetProperty("value").GetString());
+        Assert.Equal(DataHubGln, doc.GetProperty("receiver_MarketParticipant.mRID").GetProperty("value").GetString());
+
+        // Series structure verified against Postman
+        var series = doc.GetProperty("Series");
+        Assert.Equal(JsonValueKind.Array, series.ValueKind);
+        var s = series[0];
+        Assert.True(Guid.TryParse(s.GetProperty("mRID").GetString(), out _));
+        Assert.Equal("2023-02-01T23:00:00Z", s.GetProperty("start_DateAndOrTime.dateTime").GetString());
+        Assert.Equal("2023-02-28T23:00:00Z", s.GetProperty("end_DateAndOrTime.dateTime").GetString());
+        Assert.Equal("E18", s.GetProperty("marketEvaluationPoint.type").GetProperty("value").GetString());
+        Assert.Equal("NDK", s.GetProperty("meteringGridArea_Domain.mRID").GetProperty("codingScheme").GetString());
+        Assert.Equal("543", s.GetProperty("meteringGridArea_Domain.mRID").GetProperty("value").GetString());
+    }
+
+    [Fact]
+    public void Rsm017_WholesaleSettlementRequest_MatchesPostmanStructure()
+    {
+        // Verified against DataHub 3.0 Postman collection: RequestWholesaleSettlement
+        var json = CimDocumentBuilder
+            .Create(RsmDocumentType.Rsm017, "D05", TestSenderGln)
+            .AddSeries(new Dictionary<string, object?>
+            {
+                ["start_DateAndOrTime.dateTime"] = "2023-01-31T23:00:00Z",
+                ["end_DateAndOrTime.dateTime"] = "2023-02-28T23:00:00Z",
+                ["chargeTypeOwner_MarketParticipant.mRID"] = new CimDocumentBuilder.CimCodedValue("A10", "5790001330552"),
+                ["energySupplier_MarketParticipant.mRID"] = new CimDocumentBuilder.CimCodedValue("A10", "5790001687137"),
+                ["meteringGridArea_Domain.mRID"] = new CimDocumentBuilder.CimCodedValue("NDK", "804"),
+                ["ChargeType"] = new[] { new { mRID = "40000", type = new { value = "D03" } } },
+            })
+            .Build();
+
+        var doc = JsonSerializer.Deserialize<JsonElement>(json)
+            .GetProperty("RequestWholesaleSettlement_MarketDocument");
+
+        // Envelope
+        Assert.Equal("D21", doc.GetProperty("type").GetProperty("value").GetString());
+        Assert.Equal("D05", doc.GetProperty("process.processType").GetProperty("value").GetString());
+        Assert.Equal("DGL", doc.GetProperty("receiver_MarketParticipant.marketRole.type").GetProperty("value").GetString());
+
+        // Series
+        var s = doc.GetProperty("Series")[0];
+        Assert.Equal("2023-01-31T23:00:00Z", s.GetProperty("start_DateAndOrTime.dateTime").GetString());
+        Assert.Equal("NDK", s.GetProperty("meteringGridArea_Domain.mRID").GetProperty("codingScheme").GetString());
+        Assert.Equal("804", s.GetProperty("meteringGridArea_Domain.mRID").GetProperty("value").GetString());
+        Assert.Equal("5790001330552", s.GetProperty("chargeTypeOwner_MarketParticipant.mRID").GetProperty("value").GetString());
+        Assert.Equal("5790001687137", s.GetProperty("energySupplier_MarketParticipant.mRID").GetProperty("value").GetString());
+
+        // ChargeType array
+        var chargeTypes = s.GetProperty("ChargeType");
+        Assert.Equal(JsonValueKind.Array, chargeTypes.ValueKind);
+        Assert.Equal("40000", chargeTypes[0].GetProperty("mRID").GetString());
+        Assert.Equal("D03", chargeTypes[0].GetProperty("type").GetProperty("value").GetString());
+    }
+
+    [Fact]
+    public void Rsm016_TransactionElementIsSeries_NotMktActivityRecord()
+    {
+        var json = CimDocumentBuilder
+            .Create(RsmDocumentType.Rsm016, "D04", TestSenderGln)
+            .AddSeries(new Dictionary<string, object?> { ["test"] = "value" })
+            .Build();
+        var doc = JsonSerializer.Deserialize<JsonElement>(json)
+            .GetProperty("RequestAggregatedMeasureData_MarketDocument");
+        Assert.True(doc.TryGetProperty("Series", out _), "RSM-016 should use 'Series' not 'MktActivityRecord'");
+        Assert.False(doc.TryGetProperty("MktActivityRecord", out _));
+    }
+
+    [Fact]
+    public void Rsm017_TransactionElementIsSeries_NotMktActivityRecord()
+    {
+        var json = CimDocumentBuilder
+            .Create(RsmDocumentType.Rsm017, "D05", TestSenderGln)
+            .AddSeries(new Dictionary<string, object?> { ["test"] = "value" })
+            .Build();
+        var doc = JsonSerializer.Deserialize<JsonElement>(json)
+            .GetProperty("RequestWholesaleSettlement_MarketDocument");
+        Assert.True(doc.TryGetProperty("Series", out _), "RSM-017 should use 'Series' not 'MktActivityRecord'");
+        Assert.False(doc.TryGetProperty("MktActivityRecord", out _));
     }
 }

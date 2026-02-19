@@ -28,6 +28,9 @@ public class MeteringPoint : Entity
     /// <summary>Whether we are the current supplier for this metering point</summary>
     public bool HasActiveSupply { get; private set; }
 
+    /// <summary>Whether this metering point has electrical heating (affects tax tariffs)</summary>
+    public bool HasElectricalHeating { get; private set; }
+
     /// <summary>Supply agreements for this metering point</summary>
     private readonly List<Supply> _supplies = new();
     public IReadOnlyList<Supply> Supplies => _supplies.AsReadOnly();
@@ -109,6 +112,12 @@ public class MeteringPoint : Entity
     public void UpdateResolution(Resolution resolution)
     {
         Resolution = resolution;
+        MarkUpdated();
+    }
+
+    public void SetElectricalHeating(bool hasElectricalHeating)
+    {
+        HasElectricalHeating = hasElectricalHeating;
         MarkUpdated();
     }
 }

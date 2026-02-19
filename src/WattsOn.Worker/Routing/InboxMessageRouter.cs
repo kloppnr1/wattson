@@ -64,6 +64,30 @@ internal class InboxMessageRouter
                 await new Brs031InboxHandler(_logger).Handle(db, message, payload, ct);
                 break;
 
+            case "BRS-004":
+                await new Brs004InboxHandler(_logger).Handle(db, message, payload, ct);
+                break;
+
+            case "BRS-007":
+                await new Brs007InboxHandler(_logger).Handle(db, message, payload, ct);
+                break;
+
+            case "BRS-008":
+                await new Brs008InboxHandler(_logger).Handle(db, message, payload, ct);
+                break;
+
+            case "BRS-013":
+                await new Brs013InboxHandler(_logger).Handle(db, message, payload, ct);
+                break;
+
+            case "BRS-036":
+                await new Brs036InboxHandler(_logger).Handle(db, message, payload, ct);
+                break;
+
+            case "BRS-044":
+                await new Brs044InboxHandler(_logger).Handle(db, message, payload, ct);
+                break;
+
             case "BRS-003":
                 await new Brs003InboxHandler(_logger).Handle(db, message, payload, ct);
                 break;
@@ -78,6 +102,26 @@ internal class InboxMessageRouter
 
             case "BRS-038":
                 await new Brs038InboxHandler(_logger).Handle(db, message, payload, ct);
+                break;
+
+            case "BRS-005":
+                await new Brs005InboxHandler(_logger).Handle(db, message, payload, ct);
+                break;
+
+            case "BRS-024":
+                await new Brs024InboxHandler(_logger).Handle(db, message, payload, ct);
+                break;
+
+            case "BRS-025":
+                await new Brs025InboxHandler(_logger).Handle(db, message, payload, ct);
+                break;
+
+            case "BRS-039":
+                await new Brs039InboxHandler(_logger).Handle(db, message, payload, ct);
+                break;
+
+            case "BRS-041":
+                await new Brs041InboxHandler(_logger).Handle(db, message, payload, ct);
                 break;
 
             default:

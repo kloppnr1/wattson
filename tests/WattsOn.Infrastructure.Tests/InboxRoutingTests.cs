@@ -534,4 +534,410 @@ public class InboxRoutingTests
         var count = await db.TimeSeriesCollection.CountAsync();
         Assert.Equal(0, count);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // BRS-001 — Incoming supplier change creates customer and supply
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task BRS001_IncomingSupplierChange_ConfirmsProcessAndExecutes()
+    {
+        // When we're the INITIATOR (we requested the switch, DataHub confirms via RSM-001)
+        // The BRS-001 inbox handler should find the existing process and confirm it
+        await using var setupDb = await _fixture.CreateCleanContext();
+        var (mp, supply, customer) = await SetupMeteringPoint(setupDb);
+
+        // Pre-create the BRS-001 process as Initiator (simulating we already requested the switch)
+        var process = BrsProcess.Create(
+            ProcessType.Leverandørskift,
+            ProcessRole.Initiator,
+            "Created",
+            Gsrn.Create("571313100000000001"),
+            DateTimeOffset.UtcNow.AddDays(14));
+        process.MarkSubmitted("TX-SWITCH-001");
+        setupDb.Processes.Add(process);
+        await setupDb.SaveChangesAsync();
+        var processId = process.Id;
+
+        await using var db = _fixture.CreateContext();
+        var worker = CreateWorker();
+
+        var message = CreateInbox("BRS-001", "RSM-001", new
+        {
+            gsrn = "571313100000000001",
+            transactionId = "TX-SWITCH-001"
+        });
+
+        await worker.RouteMessage(db, message, CancellationToken.None);
+        await db.SaveChangesAsync();
+
+        var updated = await db.Processes.FirstAsync(p => p.Id == processId);
+        Assert.Equal(ProcessStatus.Completed, updated.Status);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // BRS-009 — Move-in confirmation completes process
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task BRS009_MoveInConfirmation_CompletesProcess()
+    {
+        await using var setupDb = await _fixture.CreateCleanContext();
+        var (mp, supply, customer) = await SetupMeteringPoint(setupDb);
+
+        var process = BrsProcess.Create(
+            ProcessType.Tilflytning,
+            ProcessRole.Initiator,
+            "Created",
+            Gsrn.Create("571313100000000001"),
+            DateTimeOffset.UtcNow.AddDays(7));
+        setupDb.Processes.Add(process);
+        await setupDb.SaveChangesAsync();
+        var processId = process.Id;
+
+        await using var db = _fixture.CreateContext();
+        var worker = CreateWorker();
+
+        var message = CreateInbox("BRS-009", "RSM-001", new
+        {
+            gsrn = "571313100000000001",
+            transactionId = "TX-MOVEIN-001"
+        });
+
+        await worker.RouteMessage(db, message, CancellationToken.None);
+        await db.SaveChangesAsync();
+
+        var updated = await db.Processes.FirstAsync(p => p.Id == processId);
+        Assert.Equal(ProcessStatus.Completed, updated.Status);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // BRS-009 — Move-out notification ends supply
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task BRS009_MoveOut_EndsSupply()
+    {
+        await using var db = await _fixture.CreateCleanContext();
+        var worker = CreateWorker();
+        var (mp, supply, _) = await SetupMeteringPoint(db);
+        var supplyId = supply.Id;
+
+        var message = CreateInbox("BRS-009", "RSM-004", new
+        {
+            gsrn = "571313100000000001",
+            effectiveDate = DateTimeOffset.UtcNow.AddDays(7).ToString("o")
+        });
+
+        await worker.RouteMessage(db, message, CancellationToken.None);
+        await db.SaveChangesAsync();
+
+        var updatedSupply = await db.Supplies.FirstAsync(s => s.Id == supplyId);
+        Assert.NotNull(updatedSupply.SupplyPeriod.End);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // BRS-003 — Correction accepted completes process
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task BRS003_CorrectionAccepted_CompletesProcess()
+    {
+        await using var setupDb = await _fixture.CreateCleanContext();
+        var (mp, supply, _) = await SetupMeteringPoint(setupDb);
+
+        var process = BrsProcess.Create(
+            ProcessType.FejlagtigtLeverandørskift,
+            ProcessRole.Initiator,
+            "Submitted",
+            Gsrn.Create("571313100000000001"),
+            DateTimeOffset.UtcNow.AddDays(-10));
+        process.MarkSubmitted("TX-003-REVERSE");
+        setupDb.Processes.Add(process);
+        await setupDb.SaveChangesAsync();
+        var processId = process.Id;
+
+        await using var db = _fixture.CreateContext();
+        var worker = CreateWorker();
+
+        var message = CreateInbox("BRS-003", "RSM-004", new
+        {
+            businessReason = "D34",
+            gsrn = "571313100000000001",
+            effectiveDate = DateTimeOffset.UtcNow.AddDays(-10).ToString("o")
+        });
+
+        await worker.RouteMessage(db, message, CancellationToken.None);
+        await db.SaveChangesAsync();
+
+        var updated = await db.Processes.FirstAsync(p => p.Id == processId);
+        Assert.Equal(ProcessStatus.Completed, updated.Status);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // BRS-003 — Correction rejected sets rejected status
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task BRS003_CorrectionRejected_SetsRejected()
+    {
+        await using var setupDb = await _fixture.CreateCleanContext();
+        var (mp, _, _) = await SetupMeteringPoint(setupDb);
+
+        var process = BrsProcess.Create(
+            ProcessType.FejlagtigtLeverandørskift,
+            ProcessRole.Initiator,
+            "Submitted",
+            Gsrn.Create("571313100000000001"),
+            DateTimeOffset.UtcNow.AddDays(-10));
+        process.MarkSubmitted("TX-003-REJ");
+        setupDb.Processes.Add(process);
+        await setupDb.SaveChangesAsync();
+        var processId = process.Id;
+
+        await using var db = _fixture.CreateContext();
+        var worker = CreateWorker();
+
+        var message = CreateInbox("BRS-003", "RSM-004", new
+        {
+            businessReason = "D35",
+            gsrn = "571313100000000001",
+            reason = "Not within allowed period"
+        });
+
+        await worker.RouteMessage(db, message, CancellationToken.None);
+        await db.SaveChangesAsync();
+
+        var updated = await db.Processes.FirstAsync(p => p.Id == processId);
+        Assert.Equal(ProcessStatus.Rejected, updated.Status);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // BRS-003 — Resume request creates new supply
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task BRS003_ResumeRequest_CreatesNewSupply()
+    {
+        await using var db = await _fixture.CreateCleanContext();
+        var worker = CreateWorker();
+        var (mp, supply, customer) = await SetupMeteringPoint(db);
+
+        // End existing supply first (simulating that the incorrect switch happened)
+        supply.EndSupply(DateTimeOffset.UtcNow.AddDays(-5));
+        await db.SaveChangesAsync();
+        var supplyCountBefore = await db.Supplies.CountAsync(s => s.MeteringPointId == mp.Id);
+
+        var message = CreateInbox("BRS-003", "RSM-003", new
+        {
+            businessReason = "D07",
+            gsrn = "571313100000000001",
+            resumeDate = DateTimeOffset.UtcNow.ToString("o"),
+            transactionId = "TX-003-RESUME",
+            currentSupplierGln = "5790000610099"
+        });
+
+        await worker.RouteMessage(db, message, CancellationToken.None);
+        await db.SaveChangesAsync();
+
+        var supplyCountAfter = await db.Supplies.CountAsync(s => s.MeteringPointId == mp.Id);
+        Assert.Equal(supplyCountBefore + 1, supplyCountAfter);
+
+        // Should also have a new process
+        var process = await db.Processes
+            .Where(p => p.ProcessType == ProcessType.FejlagtigtLeverandørskift)
+            .Where(p => p.Role == ProcessRole.Recipient)
+            .FirstOrDefaultAsync();
+        Assert.NotNull(process);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // BRS-011 — Correction accepted completes process
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task BRS011_CorrectionAccepted_CompletesProcess()
+    {
+        await using var setupDb = await _fixture.CreateCleanContext();
+        var (mp, supply, _) = await SetupMeteringPoint(setupDb);
+
+        var process = BrsProcess.Create(
+            ProcessType.FejlagtigFlytning,
+            ProcessRole.Initiator,
+            "Submitted",
+            Gsrn.Create("571313100000000001"),
+            DateTimeOffset.UtcNow.AddDays(-10));
+        process.MarkSubmitted("TX-011-REVERSE");
+        setupDb.Processes.Add(process);
+        await setupDb.SaveChangesAsync();
+        var processId = process.Id;
+
+        await using var db = _fixture.CreateContext();
+        var worker = CreateWorker();
+
+        var message = CreateInbox("BRS-011", "RSM-004", new
+        {
+            businessReason = "D34",
+            gsrn = "571313100000000001",
+            effectiveDate = DateTimeOffset.UtcNow.AddDays(-10).ToString("o")
+        });
+
+        await worker.RouteMessage(db, message, CancellationToken.None);
+        await db.SaveChangesAsync();
+
+        var updated = await db.Processes.FirstAsync(p => p.Id == processId);
+        Assert.Equal(ProcessStatus.Completed, updated.Status);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // BRS-034 — Rejection marks process rejected
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task BRS034_Rejection_MarksProcessRejected()
+    {
+        await using var setupDb = await _fixture.CreateCleanContext();
+
+        var process = BrsProcess.Create(
+            ProcessType.PrisAnmodning,
+            ProcessRole.Initiator,
+            "Submitted",
+            effectiveDate: DateTimeOffset.UtcNow);
+        process.MarkSubmitted("TX-034-REQ");
+        setupDb.Processes.Add(process);
+        await setupDb.SaveChangesAsync();
+        var processId = process.Id;
+
+        await using var db = _fixture.CreateContext();
+        var worker = CreateWorker();
+
+        var message = CreateInbox("BRS-034", "RSM-035", new
+        {
+            rejected = true,
+            reason = "No data available for requested period"
+        });
+
+        await worker.RouteMessage(db, message, CancellationToken.None);
+        await db.SaveChangesAsync();
+
+        var updated = await db.Processes.FirstAsync(p => p.Id == processId);
+        Assert.Equal(ProcessStatus.Rejected, updated.Status);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // BRS-034 — Data received routes to BRS-031 and completes process
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task BRS034_DataReceived_RoutesToBrs031AndCompletesProcess()
+    {
+        await using var setupDb = await _fixture.CreateCleanContext();
+
+        var process = BrsProcess.Create(
+            ProcessType.PrisAnmodning,
+            ProcessRole.Initiator,
+            "Submitted",
+            effectiveDate: DateTimeOffset.UtcNow);
+        process.MarkSubmitted("TX-034-DATA");
+        setupDb.Processes.Add(process);
+        await setupDb.SaveChangesAsync();
+        var processId = process.Id;
+
+        await using var db = _fixture.CreateContext();
+        var worker = CreateWorker();
+
+        // Response comes with D18 business reason (same format as BRS-031)
+        var message = CreateInbox("BRS-034", "RSM-034", new
+        {
+            businessReason = "D18",
+            chargeId = "REQUESTED-TARIF",
+            ownerGln = "5790000610099",
+            priceType = "Tarif",
+            description = "Requested Tariff from BRS-034",
+            effectiveDate = "2026-01-01T00:00:00Z",
+            resolution = "PT1H",
+            vatExempt = false,
+            isTax = false,
+            isPassThrough = true
+        });
+
+        await worker.RouteMessage(db, message, CancellationToken.None);
+        await db.SaveChangesAsync();
+
+        // Process should be completed
+        var updated = await db.Processes.FirstAsync(p => p.Id == processId);
+        Assert.Equal(ProcessStatus.Completed, updated.Status);
+
+        // Price should be created (routed to BRS-031)
+        var price = await db.Prices.FirstOrDefaultAsync(p => p.ChargeId == "REQUESTED-TARIF");
+        Assert.NotNull(price);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // BRS-038 — Rejection marks process rejected
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task BRS038_Rejection_MarksProcessRejected()
+    {
+        await using var setupDb = await _fixture.CreateCleanContext();
+
+        var process = BrsProcess.Create(
+            ProcessType.PristilknytningAnmodning,
+            ProcessRole.Initiator,
+            "Submitted",
+            effectiveDate: DateTimeOffset.UtcNow);
+        process.MarkSubmitted("TX-038-REQ");
+        setupDb.Processes.Add(process);
+        await setupDb.SaveChangesAsync();
+        var processId = process.Id;
+
+        await using var db = _fixture.CreateContext();
+        var worker = CreateWorker();
+
+        var message = CreateInbox("BRS-038", "RSM-032", new
+        {
+            rejected = true,
+            reason = "Unknown metering point"
+        });
+
+        await worker.RouteMessage(db, message, CancellationToken.None);
+        await db.SaveChangesAsync();
+
+        var updated = await db.Processes.FirstAsync(p => p.Id == processId);
+        Assert.Equal(ProcessStatus.Rejected, updated.Status);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // BRS-037 — Price link update routes to BRS-031
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task BRS037_PriceLinkUpdate_RoutesToBrs031()
+    {
+        await using var db = await _fixture.CreateCleanContext();
+        var worker = CreateWorker();
+
+        // BRS-037 uses the same D18/D08/D17 format as BRS-031
+        var message = CreateInbox("BRS-037", "RSM-033", new
+        {
+            businessReason = "D18",
+            chargeId = "BRS037-TARIF",
+            ownerGln = "5790000610099",
+            priceType = "Tarif",
+            description = "Price from BRS-037",
+            effectiveDate = "2026-01-01T00:00:00Z",
+            resolution = "PT1H",
+            vatExempt = false,
+            isTax = false,
+            isPassThrough = false
+        });
+
+        await worker.RouteMessage(db, message, CancellationToken.None);
+        await db.SaveChangesAsync();
+
+        var price = await db.Prices.FirstOrDefaultAsync(p => p.ChargeId == "BRS037-TARIF");
+        Assert.NotNull(price);
+        Assert.Equal("Price from BRS-037", price.Description);
+    }
 }

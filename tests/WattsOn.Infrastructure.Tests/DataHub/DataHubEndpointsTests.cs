@@ -55,11 +55,16 @@ public class DataHubEndpointsTests
         Assert.True(supported.Count >= 10, $"Expected at least 10 supported types, got {supported.Count}");
     }
 
-    [Fact]
-    public void AllSendPipelineDocTypes_HaveEndpoints()
+    [Theory]
+    [InlineData("RSM-001")]
+    [InlineData("RSM-005")]
+    [InlineData("RSM-016")]
+    [InlineData("RSM-017")]
+    [InlineData("RSM-027")]
+    [InlineData("RSM-032")]
+    [InlineData("RSM-035")]
+    public void AllOutboundDocTypes_HaveEndpoints(string docType)
     {
-        // BRS-002/010 use RSM-005, BRS-015 uses RSM-027
-        Assert.NotNull(DataHubEndpoints.GetEndpoint("RSM-005"));
-        Assert.NotNull(DataHubEndpoints.GetEndpoint("RSM-027"));
+        Assert.NotNull(DataHubEndpoints.GetEndpoint(docType));
     }
 }

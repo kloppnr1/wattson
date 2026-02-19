@@ -83,17 +83,21 @@ public class DataHubClientTests
         Assert.Contains("No POST endpoint mapped", result.Error);
     }
 
-    [Fact]
-    public async Task SendAsync_Simulation_AllSendPipelineTypes_Accepted()
+    [Theory]
+    [InlineData("RSM-001", "/requestchangeofsupplier")]     // BRS-001/003
+    [InlineData("RSM-005", "/requestendofsupply")]           // BRS-002/010/011
+    [InlineData("RSM-016", "/requestaggregatedmeasuredata")] // BRS-023 request
+    [InlineData("RSM-017", "/requestwholesalesettlement")]   // BRS-027 request
+    [InlineData("RSM-027", "/requestservice")]               // BRS-015
+    [InlineData("RSM-032", "/requestservice")]               // BRS-038
+    [InlineData("RSM-035", "/requestservice")]               // BRS-034
+    public async Task SendAsync_Simulation_AllOutboundTypes_Accepted(string docType, string expectedEndpoint)
     {
         var client = CreateSimulationClient();
-        var docTypes = new[] { "RSM-001", "RSM-005", "RSM-027" };
-
-        foreach (var docType in docTypes)
-        {
-            var result = await client.SendAsync(docType, "{\"test\":true}");
-            Assert.Equal(DataHubSendStatus.Accepted, result.Status);
-        }
+        var result = await client.SendAsync(docType, "{\"test\":true}");
+        Assert.Equal(DataHubSendStatus.Accepted, result.Status);
+        Assert.NotNull(result.ResponseBody);
+        Assert.Contains(expectedEndpoint, result.ResponseBody);
     }
 
     [Fact]

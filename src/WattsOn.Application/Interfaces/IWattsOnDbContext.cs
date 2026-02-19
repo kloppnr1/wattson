@@ -29,6 +29,8 @@ public interface IWattsOnDbContext
     DbSet<WholesaleSettlement> WholesaleSettlements { get; }
     DbSet<InboxMessage> InboxMessages { get; }
     DbSet<OutboxMessage> OutboxMessages { get; }
+    DbSet<ReconciliationResult> ReconciliationResults { get; }
+    DbSet<ReconciliationLine> ReconciliationLines { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

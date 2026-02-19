@@ -116,3 +116,35 @@ record RequestChargeLinksRequest(
     string Gsrn,
     DateTimeOffset StartDate,
     DateTimeOffset? EndDate = null);
+
+record RequestAggregatedDataRequest(
+    string GridArea,
+    DateTimeOffset StartDate,
+    DateTimeOffset EndDate,
+    string MeteringPointType = "E17",   // E17=consumption, E18=production
+    string ProcessType = "D04");        // D04=balance, D05=wholesale, D32=correction
+
+record RequestWholesaleSettlementRequest(
+    string GridArea,
+    DateTimeOffset StartDate,
+    DateTimeOffset EndDate,
+    string? EnergySupplierGln = null,
+    string? ChargeTypeOwnerGln = null,
+    List<ChargeTypeFilterDto>? ChargeTypes = null);
+
+record ChargeTypeFilterDto(string ChargeId, string Type);
+
+record RunReconciliationRequest(
+    string GridArea,
+    DateTimeOffset StartDate,
+    DateTimeOffset EndDate);
+
+record RequestMasterDataRequest(string Gsrn);
+
+record RequestYearlySumRequest(string Gsrn);
+
+record RequestMeteredDataRequest(string Gsrn, DateTimeOffset StartDate, DateTimeOffset EndDate);
+
+record ServiceRequestDto(string Gsrn, string ServiceType, DateTimeOffset RequestedDate, string? Reason);
+
+record ElectricalHeatingRequest(string Gsrn, string Action, DateTimeOffset EffectiveDate);

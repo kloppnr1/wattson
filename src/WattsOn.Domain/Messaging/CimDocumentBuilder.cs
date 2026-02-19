@@ -181,6 +181,18 @@ public enum RsmDocumentType
 
     /// <summary>RSM-035: Request prices (BRS-034)</summary>
     Rsm035,
+
+    /// <summary>RSM-016: Request aggregated measure data (BRS-023 outbound)</summary>
+    Rsm016,
+
+    /// <summary>RSM-017: Request wholesale settlement (BRS-027 outbound)</summary>
+    Rsm017,
+
+    /// <summary>RSM-015: Request validated measure data (BRS-024/BRS-025 outbound)</summary>
+    Rsm015,
+
+    /// <summary>RSM-020: Request service (BRS-005/BRS-039 outbound)</summary>
+    Rsm020,
 }
 
 /// <summary>
@@ -210,6 +222,22 @@ public static class RsmDocumentConfig
 
         // RSM-035: Request prices — pending verification from RSM-035 PDF
         [RsmDocumentType.Rsm035] = new("RequestPrices_MarketDocument", "E0G", "MktActivityRecord", "DDZ"),
+
+        // RSM-016: Request aggregated measure data — BRS-023 outbound
+        // MarketDocument type E74, transaction=Series, receiver=DGL (metered data aggregator)
+        [RsmDocumentType.Rsm016] = new("RequestAggregatedMeasureData_MarketDocument", "E74", "Series", "DGL"),
+
+        // RSM-017: Request wholesale settlement — BRS-027 outbound
+        // MarketDocument type D21, transaction=Series, receiver=DGL (metered data aggregator)
+        [RsmDocumentType.Rsm017] = new("RequestWholesaleSettlement_MarketDocument", "D21", "Series", "DGL"),
+
+        // RSM-015: Request validated measure data — BRS-024/BRS-025 outbound
+        // MarketDocument type E73, transaction=Series, receiver=DGL (metered data aggregator)
+        [RsmDocumentType.Rsm015] = new("RequestValidatedMeasureData_MarketDocument", "E73", "Series", "DGL"),
+
+        // RSM-020: Request service — BRS-005/BRS-039 outbound
+        // MarketDocument type D42, transaction=MktActivityRecord, receiver=DDZ
+        [RsmDocumentType.Rsm020] = new("RequestService_MarketDocument", "D42", "MktActivityRecord", "DDZ"),
     };
 
     public static RsmConfig Get(RsmDocumentType type) => Configs[type];

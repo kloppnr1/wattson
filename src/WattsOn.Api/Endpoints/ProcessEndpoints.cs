@@ -297,6 +297,206 @@ public static class ProcessEndpoints
             });
         }).WithName("RequestChargeLinks");
 
+        // ==================== BRS-023: REQUEST AGGREGATED DATA ====================
+
+        app.MapPost("/api/processes/request-aggregated-data", async (RequestAggregatedDataRequest req, WattsOnDbContext db) =>
+        {
+            var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive);
+            if (identity is null) return Results.BadRequest(new { error = "No active supplier identity" });
+
+            var supplierGln = GlnNumber.Create(identity.Gln.Value);
+            var result = Brs023RequestHandler.RequestAggregatedData(
+                supplierGln, req.GridArea, req.StartDate, req.EndDate,
+                req.MeteringPointType, req.ProcessType);
+
+            db.Processes.Add(result.Process);
+            db.OutboxMessages.Add(result.OutboxMessage);
+            await db.SaveChangesAsync();
+
+            return Results.Created($"/api/processes/{result.Process.Id}", new
+            {
+                result.Process.Id,
+                ProcessType = result.Process.ProcessType.ToString(),
+                Status = result.Process.Status.ToString(),
+                result.Process.CurrentState,
+                GridArea = req.GridArea,
+                MeteringPointType = req.MeteringPointType
+            });
+        }).WithName("RequestAggregatedData");
+
+        // ==================== BRS-027: REQUEST WHOLESALE SETTLEMENT ====================
+
+        app.MapPost("/api/processes/request-wholesale-settlement", async (RequestWholesaleSettlementRequest req, WattsOnDbContext db) =>
+        {
+            var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive);
+            if (identity is null) return Results.BadRequest(new { error = "No active supplier identity" });
+
+            var supplierGln = GlnNumber.Create(identity.Gln.Value);
+            var chargeTypes = req.ChargeTypes?.Select(ct =>
+                new Brs027RequestHandler.ChargeTypeFilter(ct.ChargeId, ct.Type)).ToList();
+
+            var result = Brs027RequestHandler.RequestWholesaleSettlement(
+                supplierGln, req.GridArea, req.StartDate, req.EndDate,
+                req.EnergySupplierGln, req.ChargeTypeOwnerGln, chargeTypes);
+
+            db.Processes.Add(result.Process);
+            db.OutboxMessages.Add(result.OutboxMessage);
+            await db.SaveChangesAsync();
+
+            return Results.Created($"/api/processes/{result.Process.Id}", new
+            {
+                result.Process.Id,
+                ProcessType = result.Process.ProcessType.ToString(),
+                Status = result.Process.Status.ToString(),
+                result.Process.CurrentState,
+                GridArea = req.GridArea
+            });
+        }).WithName("RequestWholesaleSettlement");
+
+        // ==================== BRS-005: REQUEST MASTER DATA ====================
+
+        app.MapPost("/api/processes/request-master-data", async (RequestMasterDataRequest req, WattsOnDbContext db) =>
+        {
+            var gsrn = Gsrn.Create(req.Gsrn);
+            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn);
+            if (mp is null) return Results.BadRequest(new { error = "Metering point not found" });
+
+            var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive);
+            if (identity is null) return Results.BadRequest(new { error = "No active supplier identity" });
+
+            var supplierGln = GlnNumber.Create(identity.Gln.Value);
+            var result = Brs005Handler.RequestMasterData(gsrn, supplierGln);
+
+            db.Processes.Add(result.Process);
+            db.OutboxMessages.Add(result.OutboxMessage);
+            await db.SaveChangesAsync();
+
+            return Results.Created($"/api/processes/{result.Process.Id}", new
+            {
+                result.Process.Id,
+                ProcessType = result.Process.ProcessType.ToString(),
+                Status = result.Process.Status.ToString(),
+                result.Process.CurrentState,
+                Gsrn = req.Gsrn
+            });
+        }).WithName("RequestMasterData");
+
+        // ==================== BRS-024: REQUEST YEARLY SUM ====================
+
+        app.MapPost("/api/processes/request-yearly-sum", async (RequestYearlySumRequest req, WattsOnDbContext db) =>
+        {
+            var gsrn = Gsrn.Create(req.Gsrn);
+            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn);
+            if (mp is null) return Results.BadRequest(new { error = "Metering point not found" });
+
+            var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive);
+            if (identity is null) return Results.BadRequest(new { error = "No active supplier identity" });
+
+            var supplierGln = GlnNumber.Create(identity.Gln.Value);
+            var result = Brs024Handler.RequestYearlySum(gsrn, supplierGln);
+
+            db.Processes.Add(result.Process);
+            db.OutboxMessages.Add(result.OutboxMessage);
+            await db.SaveChangesAsync();
+
+            return Results.Created($"/api/processes/{result.Process.Id}", new
+            {
+                result.Process.Id,
+                ProcessType = result.Process.ProcessType.ToString(),
+                Status = result.Process.Status.ToString(),
+                result.Process.CurrentState,
+                Gsrn = req.Gsrn
+            });
+        }).WithName("RequestYearlySum");
+
+        // ==================== BRS-025: REQUEST METERED DATA ====================
+
+        app.MapPost("/api/processes/request-metered-data", async (RequestMeteredDataRequest req, WattsOnDbContext db) =>
+        {
+            var gsrn = Gsrn.Create(req.Gsrn);
+            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn);
+            if (mp is null) return Results.BadRequest(new { error = "Metering point not found" });
+
+            var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive);
+            if (identity is null) return Results.BadRequest(new { error = "No active supplier identity" });
+
+            var supplierGln = GlnNumber.Create(identity.Gln.Value);
+            var result = Brs025Handler.RequestMeteredData(gsrn, supplierGln, req.StartDate, req.EndDate);
+
+            db.Processes.Add(result.Process);
+            db.OutboxMessages.Add(result.OutboxMessage);
+            await db.SaveChangesAsync();
+
+            return Results.Created($"/api/processes/{result.Process.Id}", new
+            {
+                result.Process.Id,
+                ProcessType = result.Process.ProcessType.ToString(),
+                Status = result.Process.Status.ToString(),
+                result.Process.CurrentState,
+                Gsrn = req.Gsrn,
+                StartDate = req.StartDate,
+                EndDate = req.EndDate
+            });
+        }).WithName("RequestMeteredData");
+
+        // ==================== BRS-039: SERVICE REQUEST ====================
+
+        app.MapPost("/api/processes/service-request", async (ServiceRequestDto req, WattsOnDbContext db) =>
+        {
+            var gsrn = Gsrn.Create(req.Gsrn);
+            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn);
+            if (mp is null) return Results.BadRequest(new { error = "Metering point not found" });
+
+            var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive);
+            if (identity is null) return Results.BadRequest(new { error = "No active supplier identity" });
+
+            var supplierGln = GlnNumber.Create(identity.Gln.Value);
+            var result = Brs039Handler.RequestService(gsrn, supplierGln, req.ServiceType, req.RequestedDate, req.Reason);
+
+            db.Processes.Add(result.Process);
+            db.OutboxMessages.Add(result.OutboxMessage);
+            await db.SaveChangesAsync();
+
+            return Results.Created($"/api/processes/{result.Process.Id}", new
+            {
+                result.Process.Id,
+                ProcessType = result.Process.ProcessType.ToString(),
+                Status = result.Process.Status.ToString(),
+                result.Process.CurrentState,
+                Gsrn = req.Gsrn,
+                ServiceType = req.ServiceType
+            });
+        }).WithName("ServiceRequest");
+
+        // ==================== BRS-041: ELECTRICAL HEATING ====================
+
+        app.MapPost("/api/processes/electrical-heating", async (ElectricalHeatingRequest req, WattsOnDbContext db) =>
+        {
+            var gsrn = Gsrn.Create(req.Gsrn);
+            var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn == gsrn);
+            if (mp is null) return Results.BadRequest(new { error = "Metering point not found" });
+
+            var identity = await db.SupplierIdentities.FirstOrDefaultAsync(s => s.IsActive);
+            if (identity is null) return Results.BadRequest(new { error = "No active supplier identity" });
+
+            var supplierGln = GlnNumber.Create(identity.Gln.Value);
+            var result = Brs041Handler.RequestElectricalHeatingChange(gsrn, supplierGln, req.Action, req.EffectiveDate);
+
+            db.Processes.Add(result.Process);
+            db.OutboxMessages.Add(result.OutboxMessage);
+            await db.SaveChangesAsync();
+
+            return Results.Created($"/api/processes/{result.Process.Id}", new
+            {
+                result.Process.Id,
+                ProcessType = result.Process.ProcessType.ToString(),
+                Status = result.Process.Status.ToString(),
+                result.Process.CurrentState,
+                Gsrn = req.Gsrn,
+                Action = req.Action
+            });
+        }).WithName("ElectricalHeating");
+
         return app;
     }
 }

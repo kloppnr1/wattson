@@ -28,6 +28,8 @@ public class WattsOnDbContext : DbContext, IWattsOnDbContext
     public DbSet<WholesaleSettlement> WholesaleSettlements => Set<WholesaleSettlement>();
     public DbSet<InboxMessage> InboxMessages => Set<InboxMessage>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
+    public DbSet<ReconciliationResult> ReconciliationResults => Set<ReconciliationResult>();
+    public DbSet<ReconciliationLine> ReconciliationLines => Set<ReconciliationLine>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
