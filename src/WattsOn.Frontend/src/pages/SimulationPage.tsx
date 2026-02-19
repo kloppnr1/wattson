@@ -11,7 +11,7 @@ import {
   ReloadOutlined, ExperimentOutlined, LoginOutlined,
   LogoutOutlined, UserDeleteOutlined,
 } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useBlocker } from 'react-router-dom';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import api from '../api/client';
@@ -184,6 +184,28 @@ export default function SimulationPage() {
   const [settlement, setSettlement] = useState<SettlementPollResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef(false);
+
+  // Block navigation while simulation is running
+  const blocker = useBlocker(running);
+  useEffect(() => {
+    if (blocker.state === 'blocked') {
+      const leave = window.confirm('En simulation kører — vil du forlade siden? Data der allerede er oprettet vil ikke blive rullet tilbage.');
+      if (leave) {
+        abortRef.current = true;
+        blocker.proceed();
+      } else {
+        blocker.reset();
+      }
+    }
+  }, [blocker]);
+
+  // Block browser refresh/close while running
+  useEffect(() => {
+    if (!running) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [running]);
 
   // Load active supplies for outgoing scenarios
   useEffect(() => {
@@ -932,6 +954,26 @@ function CorrectionSimulation({ navigate }: { navigate: ReturnType<typeof useNav
   const [selectedSettlementId, setSelectedSettlementId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
+
+  // Block navigation while correction simulation is running
+  const blocker = useBlocker(running);
+  useEffect(() => {
+    if (blocker.state === 'blocked') {
+      const leave = window.confirm('En simulation kører — vil du forlade siden? Data der allerede er oprettet vil ikke blive rullet tilbage.');
+      if (leave) {
+        blocker.proceed();
+      } else {
+        blocker.reset();
+      }
+    }
+  }, [blocker]);
+
+  useEffect(() => {
+    if (!running) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [running]);
   const [steps, setSteps] = useState<CorrectionStep[]>([]);
   const [corrResult, setCorrResult] = useState<CorrectedMeteredDataResult | null>(null);
   const [adjustmentFound, setAdjustmentFound] = useState<{ id: string; amount: number; energy: number } | null>(null);
