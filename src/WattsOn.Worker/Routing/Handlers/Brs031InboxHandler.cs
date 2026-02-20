@@ -166,9 +166,9 @@ internal class Brs031InboxHandler
         if (isTax && priceType == PriceType.Tarif)
             return PriceCategory.Elafgift;
 
-        // 3. Owner matches recipient (the supplier themselves) → supplier margin
-        if (ownerGln == recipientGln)
-            return PriceCategory.Leverandørtillæg;
+        // 3. Owner matches recipient (the supplier themselves) → Andet
+        //    (Supplier margin is a separate entity, not a DataHub charge.
+        //     If a supplier sends a charge via DataHub, it's still categorised separately.)
 
         // 4. Subscription from a grid company → NetAbonnement
         if (priceType == PriceType.Abonnement)

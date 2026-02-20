@@ -41,7 +41,7 @@ public static class SettlementDocumentEndpoints
             var settlements = await query.OrderBy(a => a.DocumentNumber).ToListAsync();
 
             // Load price VAT info for all referenced prices
-            var priceIds = settlements.SelectMany(a => a.Lines).Select(l => l.PriceId).Distinct().ToList();
+            var priceIds = settlements.SelectMany(a => a.Lines).Where(l => l.PriceId.HasValue).Select(l => l.PriceId!.Value).Distinct().ToList();
             var prisVatMap = await db.Prices
                 .Where(p => priceIds.Contains(p.Id))
                 .AsNoTracking()
@@ -71,7 +71,7 @@ public static class SettlementDocumentEndpoints
 
                 var lines = a.Lines.Select((line, idx) =>
                 {
-                    var prisInfo = prisVatMap.GetValueOrDefault(line.PriceId);
+                    var prisInfo = line.PriceId.HasValue ? prisVatMap.GetValueOrDefault(line.PriceId.Value) : null;
                     var vatExempt = prisInfo?.VatExempt ?? false;
                     var taxPercent = vatExempt ? 0m : DanishVatRate;
                     var taxAmount = vatExempt ? 0m : Math.Round(line.Amount.Amount * taxPercent / 100m, 2);
@@ -181,7 +181,7 @@ public static class SettlementDocumentEndpoints
 
             if (a is null) return Results.NotFound();
 
-            var priceIds = a.Lines.Select(l => l.PriceId).Distinct().ToList();
+            var priceIds = a.Lines.Where(l => l.PriceId.HasValue).Select(l => l.PriceId!.Value).Distinct().ToList();
             var prisVatMap = await db.Prices
                 .Where(p => priceIds.Contains(p.Id))
                 .AsNoTracking()
@@ -220,7 +220,7 @@ public static class SettlementDocumentEndpoints
 
             var lines = a.Lines.Select((line, idx) =>
             {
-                var prisInfo = prisVatMap.GetValueOrDefault(line.PriceId);
+                var prisInfo = line.PriceId.HasValue ? prisVatMap.GetValueOrDefault(line.PriceId.Value) : null;
                 var vatExempt = prisInfo?.VatExempt ?? false;
                 var taxPercent = vatExempt ? 0m : DanishVatRate;
                 var taxAmount = vatExempt ? 0m : Math.Round(line.Amount.Amount * taxPercent / 100m, 2);

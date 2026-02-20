@@ -80,7 +80,8 @@ public class SettlementLineConfiguration : IEntityTypeConfiguration<SettlementLi
         builder.Property(l => l.UpdatedAt).HasColumnName("updated_at");
 
         builder.Property(l => l.SettlementId).HasColumnName("settlement_id").IsRequired();
-        builder.Property(l => l.PriceId).HasColumnName("pris_id").IsRequired();
+        builder.Property(l => l.Source).HasColumnName("source").HasConversion<string>().HasMaxLength(30);
+        builder.Property(l => l.PriceId).HasColumnName("pris_id").IsRequired(false);
         builder.Property(l => l.Description).HasColumnName("description").HasMaxLength(500);
         builder.Property(l => l.UnitPrice).HasColumnName("unit_price").HasPrecision(18, 6);
 

@@ -72,7 +72,7 @@ public class SettlementPipelineTests
             .ToListAsync();
         var activePrices = priceLinks.Select(pl => new PriceWithPoints(pl.Price)).ToList();
 
-        var settlement = SettlementCalculator.Calculate(ts, supply, activePrices);
+        var settlement = SettlementCalculator.Calculate(ts, supply, activePrices, Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
         db.Settlements.Add(settlement);
         await db.SaveChangesAsync();
 
@@ -100,7 +100,7 @@ public class SettlementPipelineTests
 
         // === Step 5: Calculate correction (delta settlement) ===
         settlement.MarkAdjusted();
-        var correction = SettlementCalculator.CalculateCorrection(correctedTs, supply, settlement, activePrices);
+        var correction = SettlementCalculator.CalculateCorrection(correctedTs, supply, settlement, activePrices, Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
         db.Settlements.Add(correction);
         await db.SaveChangesAsync();
 

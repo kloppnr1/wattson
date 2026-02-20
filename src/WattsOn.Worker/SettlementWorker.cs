@@ -92,6 +92,7 @@ public class SettlementWorker : BackgroundService
 
         // Find the active supply for this metering_point at the start of the settlement period
         var supply = await db.Supplies
+            .Include(l => l.Customer)
             .Where(l => l.MeteringPointId == timeSeries.MeteringPointId)
             .Where(l => l.SupplyPeriod.Start <= timeSeries.Period.Start)
             .Where(l => l.SupplyPeriod.End == null || l.SupplyPeriod.End > timeSeries.Period.Start)
@@ -104,7 +105,7 @@ public class SettlementWorker : BackgroundService
             return;
         }
 
-        // Get active price links for this metering_point in this period
+        // Get DataHub charge links for this metering point
         var priceLinks = await db.PriceLinks
             .Include(pt => pt.Price)
                 .ThenInclude(p => p.PricePoints)
@@ -113,43 +114,49 @@ public class SettlementWorker : BackgroundService
             .Where(pt => pt.LinkPeriod.End == null || pt.LinkPeriod.End > timeSeries.Period.Start)
             .ToListAsync(ct);
 
-        var activePrices = priceLinks
+        var datahubPrices = priceLinks
             .Select(pt => new PriceWithPoints(pt.Price))
             .ToList();
 
-        // Validate all required price elements are linked
-        var missingElements = SettlementValidator.ValidatePriceCompleteness(activePrices);
-        if (missingElements.Count > 0)
+        // Get metering point for grid area
+        var meteringPoint = await db.MeteringPoints
+            .FirstOrDefaultAsync(m => m.Id == timeSeries.MeteringPointId, ct);
+        if (meteringPoint is null) return;
+
+        // Get spot prices for the period + grid area
+        var periodEnd = timeSeries.Period.End ?? timeSeries.Period.Start.AddMonths(1);
+        var spotPrices = await db.SpotPrices
+            .Where(sp => sp.PriceArea == meteringPoint.GridArea)
+            .Where(sp => sp.Timestamp >= timeSeries.Period.Start && sp.Timestamp < periodEnd)
+            .OrderBy(sp => sp.Timestamp)
+            .ToListAsync(ct);
+
+        // Get supplier margin for the period
+        var supplierMargins = await db.SupplierMargins
+            .Where(m => m.SupplierIdentityId == supply.Customer!.SupplierIdentityId)
+            .Where(m => m.Timestamp >= timeSeries.Period.Start && m.Timestamp < periodEnd)
+            .OrderBy(m => m.Timestamp)
+            .ToListAsync(ct);
+
+        // Validate all price sources
+        var validationIssues = SettlementValidator.Validate(
+            datahubPrices, spotPrices, supplierMargins,
+            timeSeries.Period.Start, periodEnd, timeSeries.Resolution);
+
+        if (validationIssues.Count > 0)
         {
             _logger.LogWarning(
-                "Settlement blocked for metering_point {MpId}, period {Start}: missing price elements: {Missing}",
+                "Settlement blocked for metering_point {MpId}, period {Start}: {Issues}",
                 timeSeries.MeteringPointId, timeSeries.Period.Start,
-                string.Join(", ", missingElements));
+                string.Join("; ", validationIssues));
 
             await PersistIssue(db, timeSeries, SettlementIssue.CreateMissingPrices(
                 timeSeries.MeteringPointId, timeSeries.Id, timeSeries.Version,
-                timeSeries.Period, missingElements), ct);
+                timeSeries.Period, validationIssues), ct);
             return;
         }
 
-        // Validate price points exist for the period
-        var coverageIssues = SettlementValidator.ValidatePricePointCoverage(
-            activePrices, timeSeries.Period.Start, timeSeries.Period.End);
-        if (coverageIssues.Count > 0)
-        {
-            _logger.LogWarning(
-                "Settlement blocked for metering_point {MpId}, period {Start}: price point coverage issues: {Issues}",
-                timeSeries.MeteringPointId, timeSeries.Period.Start,
-                string.Join("; ", coverageIssues));
-
-            await PersistIssue(db, timeSeries, SettlementIssue.CreatePriceCoverageGap(
-                timeSeries.MeteringPointId, timeSeries.Id, timeSeries.Version,
-                timeSeries.Period, coverageIssues), ct);
-            return;
-        }
-
-        // Resolve any prior open issues for this metering point + time series
-        // (prices were fixed since last attempt)
+        // Resolve any prior open issues
         var priorIssues = await db.SettlementIssues
             .Where(i => i.MeteringPointId == timeSeries.MeteringPointId
                 && i.TimeSeriesId == timeSeries.Id
@@ -184,7 +191,7 @@ public class SettlementWorker : BackgroundService
             existingInvoicedSettlement.MarkAdjusted();
 
             var correction = SettlementCalculator.CalculateCorrection(
-                timeSeries, supply, existingInvoicedSettlement, activePrices);
+                timeSeries, supply, existingInvoicedSettlement, datahubPrices, spotPrices, supplierMargins);
 
             db.Settlements.Add(correction);
 
@@ -198,7 +205,7 @@ public class SettlementWorker : BackgroundService
         {
             // Normal flow: calculate new settlement
             var settlement = SettlementCalculator.Calculate(
-                timeSeries, supply, activePrices);
+                timeSeries, supply, datahubPrices, spotPrices, supplierMargins);
 
             db.Settlements.Add(settlement);
 

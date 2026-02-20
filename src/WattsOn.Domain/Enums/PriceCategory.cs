@@ -1,36 +1,30 @@
 namespace WattsOn.Domain.Enums;
 
 /// <summary>
-/// Classifies the role a price/charge plays in the Danish electricity settlement.
-/// Used by SettlementValidator to verify all mandatory cost components are present —
-/// independent of charge ID format (which differs between DataHub and simulation).
+/// Classifies a DataHub charge's role in the Danish electricity settlement.
+/// Only applies to prices received from DataHub via BRS-031/037.
+/// Spot prices and supplier margins are separate entities — not DataHub charges.
 /// </summary>
 public enum PriceCategory
 {
     /// <summary>Unclassified / other charge</summary>
     Andet = 0,
 
-    /// <summary>Wholesale spot price (from Energi Data Service / Nord Pool)</summary>
-    SpotPris = 1,
-
     /// <summary>Grid company distribution tariff (nettarif)</summary>
-    Nettarif = 2,
+    Nettarif = 1,
 
     /// <summary>Energinet system tariff</summary>
-    Systemtarif = 3,
+    Systemtarif = 2,
 
     /// <summary>Energinet transmission tariff</summary>
-    Transmissionstarif = 4,
+    Transmissionstarif = 3,
 
     /// <summary>Electricity tax (elafgift)</summary>
-    Elafgift = 5,
+    Elafgift = 4,
 
     /// <summary>Energinet balance tariff</summary>
-    Balancetarif = 6,
+    Balancetarif = 5,
 
     /// <summary>Grid company subscription fee (net abonnement)</summary>
-    NetAbonnement = 7,
-
-    /// <summary>Supplier margin / mark-up</summary>
-    Leverandørtillæg = 8,
+    NetAbonnement = 6,
 }

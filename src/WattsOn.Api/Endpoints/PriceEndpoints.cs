@@ -105,46 +105,30 @@ public static class PriceEndpoints
         // ==================== SPOTPRISER ====================
 
         /// <summary>
-        /// Get spot prices for a specific date. Returns SPOT-DK1 and SPOT-DK2 price points
-        /// pivoted into rows with DK time, UTC time, DK1 price, DK2 price.
+        /// Get spot prices for a specific date. Returns DK1 and DK2 prices
+        /// pivoted into rows with UTC timestamp, DK1 price, DK2 price.
         /// </summary>
         app.MapGet("/api/prices/spot", async (string? date, int? days, WattsOnDbContext db) =>
         {
-            // Find spot price entities
-            var spotPrices = await db.Prices
-                .AsNoTracking()
-                .Where(p => p.Category == PriceCategory.SpotPris)
-                .Select(p => new { p.Id, p.ChargeId })
-                .ToListAsync();
-
-            if (spotPrices.Count == 0)
-                return Results.Ok(new { totalRecords = 0, rows = Array.Empty<object>() });
-
-            var spotIds = spotPrices.ToDictionary(p => p.Id, p => p.ChargeId);
-
-            // Build time range filter
-            IQueryable<PricePoint> query = db.PricePoints
-                .Where(pp => spotIds.Keys.Contains(pp.PriceId));
+            IQueryable<SpotPrice> query = db.SpotPrices.AsNoTracking();
 
             if (!string.IsNullOrEmpty(date) && DateTimeOffset.TryParse(date, out var parsedDate))
             {
-                // Convert Danish date to UTC range: date 00:00 CET = date-1 23:00 UTC
                 var startUtc = new DateTimeOffset(parsedDate.Year, parsedDate.Month, parsedDate.Day, 0, 0, 0, TimeSpan.FromHours(1)).ToUniversalTime();
                 var endUtc = startUtc.AddDays(1);
-                query = query.Where(pp => pp.Timestamp >= startUtc && pp.Timestamp < endUtc);
+                query = query.Where(sp => sp.Timestamp >= startUtc && sp.Timestamp < endUtc);
             }
             else
             {
                 var since = DateTimeOffset.UtcNow.AddDays(-(days ?? 2));
-                query = query.Where(pp => pp.Timestamp >= since);
+                query = query.Where(sp => sp.Timestamp >= since);
             }
 
             var points = await query
-                .OrderBy(pp => pp.Timestamp)
-                .Select(pp => new { pp.PriceId, pp.Timestamp, pp.Price })
+                .OrderBy(sp => sp.Timestamp)
+                .Select(sp => new { sp.PriceArea, sp.Timestamp, sp.PriceDkkPerKwh })
                 .ToListAsync();
 
-            // Pivot: merge DK1 + DK2 by timestamp
             var pivoted = points
                 .GroupBy(p => p.Timestamp)
                 .Select(g =>
@@ -152,19 +136,15 @@ public static class PriceEndpoints
                     decimal? dk1 = null, dk2 = null;
                     foreach (var p in g)
                     {
-                        var chargeId = spotIds[p.PriceId];
-                        if (chargeId == "SPOT-DK1") dk1 = p.Price;
-                        else if (chargeId == "SPOT-DK2") dk2 = p.Price;
+                        if (p.PriceArea == "DK1") dk1 = p.PriceDkkPerKwh;
+                        else if (p.PriceArea == "DK2") dk2 = p.PriceDkkPerKwh;
                     }
                     return new { hourUtc = g.Key, dk1, dk2 };
                 })
                 .OrderBy(r => r.hourUtc)
                 .ToList();
 
-            // Total count across both areas
-            var totalRecords = spotPrices.Count > 0
-                ? await db.PricePoints.CountAsync(pp => spotIds.Keys.Contains(pp.PriceId))
-                : 0;
+            var totalRecords = await db.SpotPrices.CountAsync();
 
             return Results.Ok(new { totalRecords, rows = pivoted });
         }).WithName("GetSpotPrices");
@@ -174,37 +154,23 @@ public static class PriceEndpoints
         /// </summary>
         app.MapGet("/api/prices/spot/latest", async (WattsOnDbContext db) =>
         {
-            var spotPrices = await db.Prices
-                .AsNoTracking()
-                .Where(p => p.Category == PriceCategory.SpotPris)
-                .Select(p => new { p.Id, p.ChargeId })
-                .ToListAsync();
-
-            if (spotPrices.Count == 0)
+            var totalRecords = await db.SpotPrices.CountAsync();
+            if (totalRecords == 0)
                 return Results.Ok(new { totalRecords = 0, dk1 = (object?)null, dk2 = (object?)null });
 
-            var totalRecords = 0;
-            object? dk1Latest = null, dk2Latest = null;
+            var dk1Latest = await db.SpotPrices
+                .Where(sp => sp.PriceArea == "DK1")
+                .OrderByDescending(sp => sp.Timestamp)
+                .Select(sp => new { hourUtc = sp.Timestamp, spotPriceDkkPerKwh = sp.PriceDkkPerKwh })
+                .FirstOrDefaultAsync();
 
-            foreach (var sp in spotPrices)
-            {
-                var count = await db.PricePoints.CountAsync(pp => pp.PriceId == sp.Id);
-                totalRecords += count;
+            var dk2Latest = await db.SpotPrices
+                .Where(sp => sp.PriceArea == "DK2")
+                .OrderByDescending(sp => sp.Timestamp)
+                .Select(sp => new { hourUtc = sp.Timestamp, spotPriceDkkPerKwh = sp.PriceDkkPerKwh })
+                .FirstOrDefaultAsync();
 
-                var latest = await db.PricePoints
-                    .Where(pp => pp.PriceId == sp.Id)
-                    .OrderByDescending(pp => pp.Timestamp)
-                    .Select(pp => new { pp.Timestamp, pp.Price })
-                    .FirstOrDefaultAsync();
-
-                if (latest == null) continue;
-
-                var data = new { hourUtc = latest.Timestamp, spotPriceDkkPerKwh = latest.Price };
-                if (sp.ChargeId == "SPOT-DK1") dk1Latest = data;
-                else if (sp.ChargeId == "SPOT-DK2") dk2Latest = data;
-            }
-
-            return Results.Ok(new { totalRecords, dk1 = dk1Latest, dk2 = dk2Latest });
+            return Results.Ok(new { totalRecords, dk1 = (object?)dk1Latest, dk2 = (object?)dk2Latest });
         }).WithName("GetLatestSpotPrices");
 
         // ==================== PRISTILKNYTNINGER (Price Links) ====================

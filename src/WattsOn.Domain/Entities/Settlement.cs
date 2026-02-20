@@ -158,7 +158,13 @@ public class Settlement : Entity
 public class SettlementLine : Entity
 {
     public Guid SettlementId { get; private set; }
-    public Guid PriceId { get; private set; }
+
+    /// <summary>Source of this line (DataHub charge, spot price, or supplier margin)</summary>
+    public SettlementLineSource Source { get; private set; }
+
+    /// <summary>Reference to the DataHub Price entity (null for spot/margin lines)</summary>
+    public Guid? PriceId { get; private set; }
+
     public string Description { get; private set; } = null!;
     public EnergyQuantity Quantity { get; private set; } = null!;
     public decimal UnitPrice { get; private set; }
@@ -177,7 +183,46 @@ public class SettlementLine : Entity
         return new SettlementLine
         {
             SettlementId = settlementId,
+            Source = SettlementLineSource.DataHubCharge,
             PriceId = priceId,
+            Description = description,
+            Quantity = quantity,
+            UnitPrice = unitPrice,
+            Amount = amount
+        };
+    }
+
+    public static SettlementLine CreateSpot(
+        Guid settlementId,
+        string description,
+        EnergyQuantity quantity,
+        decimal unitPrice)
+    {
+        var amount = Money.DKK(quantity.Value * unitPrice);
+        return new SettlementLine
+        {
+            SettlementId = settlementId,
+            Source = SettlementLineSource.SpotPrice,
+            PriceId = null,
+            Description = description,
+            Quantity = quantity,
+            UnitPrice = unitPrice,
+            Amount = amount
+        };
+    }
+
+    public static SettlementLine CreateMargin(
+        Guid settlementId,
+        string description,
+        EnergyQuantity quantity,
+        decimal unitPrice)
+    {
+        var amount = Money.DKK(quantity.Value * unitPrice);
+        return new SettlementLine
+        {
+            SettlementId = settlementId,
+            Source = SettlementLineSource.SupplierMargin,
+            PriceId = null,
             Description = description,
             Quantity = quantity,
             UnitPrice = unitPrice,

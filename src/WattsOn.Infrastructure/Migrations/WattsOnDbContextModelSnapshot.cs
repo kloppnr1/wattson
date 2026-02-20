@@ -666,13 +666,19 @@ namespace WattsOn.Infrastructure.Migrations
                         .HasColumnType("character varying(500)")
                         .HasColumnName("description");
 
-                    b.Property<Guid>("PriceId")
+                    b.Property<Guid?>("PriceId")
                         .HasColumnType("uuid")
                         .HasColumnName("pris_id");
 
                     b.Property<Guid>("SettlementId")
                         .HasColumnType("uuid")
                         .HasColumnName("settlement_id");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("source");
 
                     b.Property<decimal>("UnitPrice")
                         .HasPrecision(18, 6)
@@ -688,6 +694,44 @@ namespace WattsOn.Infrastructure.Migrations
                     b.HasIndex("SettlementId");
 
                     b.ToTable("settlement_lines", (string)null);
+                });
+
+            modelBuilder.Entity("WattsOn.Domain.Entities.SpotPrice", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("PriceArea")
+                        .IsRequired()
+                        .HasMaxLength(5)
+                        .HasColumnType("character varying(5)")
+                        .HasColumnName("price_area");
+
+                    b.Property<decimal>("PriceDkkPerKwh")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("price_dkk_per_kwh");
+
+                    b.Property<DateTimeOffset>("Timestamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("timestamp");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PriceArea", "Timestamp")
+                        .IsUnique();
+
+                    b.ToTable("spot_prices", (string)null);
                 });
 
             modelBuilder.Entity("WattsOn.Domain.Entities.SupplierIdentity", b =>
@@ -724,6 +768,42 @@ namespace WattsOn.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("supplier_identities", (string)null);
+                });
+
+            modelBuilder.Entity("WattsOn.Domain.Entities.SupplierMargin", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<decimal>("PriceDkkPerKwh")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("price_dkk_per_kwh");
+
+                    b.Property<Guid>("SupplierIdentityId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("supplier_identity_id");
+
+                    b.Property<DateTimeOffset>("Timestamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("timestamp");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SupplierIdentityId", "Timestamp")
+                        .IsUnique();
+
+                    b.ToTable("supplier_margins", (string)null);
                 });
 
             modelBuilder.Entity("WattsOn.Domain.Entities.Supply", b =>
@@ -1907,6 +1987,17 @@ namespace WattsOn.Infrastructure.Migrations
 
                     b.Navigation("Gln")
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("WattsOn.Domain.Entities.SupplierMargin", b =>
+                {
+                    b.HasOne("WattsOn.Domain.Entities.SupplierIdentity", "SupplierIdentity")
+                        .WithMany()
+                        .HasForeignKey("SupplierIdentityId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("SupplierIdentity");
                 });
 
             modelBuilder.Entity("WattsOn.Domain.Entities.Supply", b =>

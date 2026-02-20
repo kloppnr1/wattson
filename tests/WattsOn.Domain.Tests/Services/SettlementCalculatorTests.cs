@@ -74,7 +74,7 @@ public class SettlementCalculatorTests
         var supply = CreateSupply();
         var nettarif = CreateFlatTariff("NT-001", "Nettarif", 0.25m);
 
-        var settlement = SettlementCalculator.Calculate(ts, supply, [nettarif]);
+        var settlement = SettlementCalculator.Calculate(ts, supply, [nettarif], Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
 
         // 744 hours × 1.0 kWh × 0.25 DKK = 186.00 DKK
         Assert.Equal(186.00m, settlement.TotalAmount.Amount);
@@ -95,7 +95,7 @@ public class SettlementCalculatorTests
             CreateFlatTariff("EA-001", "Elafgift", 0.763m),
         };
 
-        var settlement = SettlementCalculator.Calculate(ts, supply, prices);
+        var settlement = SettlementCalculator.Calculate(ts, supply, prices, Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
 
         // 744h × 2.0 kWh = 1488 kWh total
         // Nettarif:    1488 × 0.25  = 372.00
@@ -116,7 +116,7 @@ public class SettlementCalculatorTests
         var supply = CreateSupply();
         var subscription = CreateSubscription("AB-001", "Net Abonnement", 2.50m);
 
-        var settlement = SettlementCalculator.Calculate(ts, supply, [subscription]);
+        var settlement = SettlementCalculator.Calculate(ts, supply, [subscription], Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
 
         // January = 31 days × 2.50 DKK = 77.50 DKK
         Assert.Equal(77.50m, settlement.TotalAmount.Amount);
@@ -134,7 +134,7 @@ public class SettlementCalculatorTests
             CreateSubscription("AB-001", "Net Abonnement", 2.50m),
         };
 
-        var settlement = SettlementCalculator.Calculate(ts, supply, prices);
+        var settlement = SettlementCalculator.Calculate(ts, supply, prices, Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
 
         // Nettarif: 744 × 1.0 × 0.25 = 186.00
         // Abonnement: 31 × 2.50 = 77.50
@@ -152,7 +152,7 @@ public class SettlementCalculatorTests
         var supply = CreateSupply();
         var nettarif = CreateFlatTariff("NT-001", "Nettarif", 0.10m);
 
-        var settlement = SettlementCalculator.Calculate(ts, supply, [nettarif]);
+        var settlement = SettlementCalculator.Calculate(ts, supply, [nettarif], Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
 
         Assert.Equal(MpId, settlement.MeteringPointId);
         Assert.Equal(supply.Id, settlement.SupplyId);
@@ -171,7 +171,7 @@ public class SettlementCalculatorTests
         var supply = CreateSupply();
         var nettarif = CreateFlatTariff("NT-001", "Nettarif", 0.10m);
 
-        var settlement = SettlementCalculator.Calculate(ts, supply, [nettarif]);
+        var settlement = SettlementCalculator.Calculate(ts, supply, [nettarif], Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
 
         // 744 hours × 3.5 kWh = 2604.0
         Assert.Equal(2604.000m, settlement.TotalEnergy.Value);
@@ -202,7 +202,7 @@ public class SettlementCalculatorTests
         var priceLink = new PriceWithPoints(pris);
 
         var supply = CreateSupply();
-        var settlement = SettlementCalculator.Calculate(ts, supply, [priceLink]);
+        var settlement = SettlementCalculator.Calculate(ts, supply, [priceLink], Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
 
         // 2 × 1.0 × 0.10 + 2 × 1.0 × 0.30 = 0.20 + 0.60 = 0.80
         Assert.Equal(0.80m, settlement.TotalAmount.Amount);
@@ -218,7 +218,7 @@ public class SettlementCalculatorTests
         var nettarif = CreateFlatTariff("NT-001", "Nettarif", 0.25m);
 
         Assert.Throws<InvalidOperationException>(() =>
-            SettlementCalculator.Calculate(ts, supply, [nettarif]));
+            SettlementCalculator.Calculate(ts, supply, [nettarif], Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>()));
     }
 
     [Fact]
@@ -227,7 +227,7 @@ public class SettlementCalculatorTests
         var ts = CreateJanuaryTimeSeries();
         var supply = CreateSupply();
 
-        var settlement = SettlementCalculator.Calculate(ts, supply, []);
+        var settlement = SettlementCalculator.Calculate(ts, supply, [], Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
 
         Assert.Equal(0m, settlement.TotalAmount.Amount);
         Assert.Empty(settlement.Lines);
@@ -245,7 +245,7 @@ public class SettlementCalculatorTests
         pris.AddPricePoint(new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero), 500m);
         var fee = new PriceWithPoints(pris);
 
-        var settlement = SettlementCalculator.Calculate(ts, supply, [fee]);
+        var settlement = SettlementCalculator.Calculate(ts, supply, [fee], Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
 
         Assert.Equal(0m, settlement.TotalAmount.Amount);
         Assert.Empty(settlement.Lines);
@@ -261,14 +261,14 @@ public class SettlementCalculatorTests
 
         // Original: 1.0 kWh/h for January
         var originalTs = CreateJanuaryTimeSeries(kwhPerHour: 1.0m, version: 1);
-        var originalSettlement = SettlementCalculator.Calculate(originalTs, supply, [nettarif]);
+        var originalSettlement = SettlementCalculator.Calculate(originalTs, supply, [nettarif], Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
         // Original: 744 × 1.0 × 0.25 = 186.00
 
         // Corrected data: 1.5 kWh/h (50% more consumption)
         var correctedTs = CreateJanuaryTimeSeries(kwhPerHour: 1.5m, version: 2);
 
         var correction = SettlementCalculator.CalculateCorrection(
-            correctedTs, supply, originalSettlement, [nettarif]);
+            correctedTs, supply, originalSettlement, [nettarif], Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
 
         Assert.True(correction.IsCorrection);
         Assert.Equal(originalSettlement.Id, correction.PreviousSettlementId);
@@ -290,13 +290,13 @@ public class SettlementCalculatorTests
 
         // Original: 2.0 kWh/h
         var originalTs = CreateJanuaryTimeSeries(kwhPerHour: 2.0m, version: 1);
-        var originalSettlement = SettlementCalculator.Calculate(originalTs, supply, [nettarif]);
+        var originalSettlement = SettlementCalculator.Calculate(originalTs, supply, [nettarif], Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
 
         // Corrected: 1.5 kWh/h (lower — customer overpaid)
         var correctedTs = CreateJanuaryTimeSeries(kwhPerHour: 1.5m, version: 2);
 
         var correction = SettlementCalculator.CalculateCorrection(
-            correctedTs, supply, originalSettlement, [nettarif]);
+            correctedTs, supply, originalSettlement, [nettarif], Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
 
         // Delta: (744 × 1.5 × 0.25) - (744 × 2.0 × 0.25) = 279.00 - 372.00 = -93.00
         Assert.Equal(-93.00m, correction.TotalAmount.Amount);
@@ -310,13 +310,13 @@ public class SettlementCalculatorTests
         var nettarif = CreateFlatTariff("NT-001", "Nettarif", 0.25m);
 
         var originalTs = CreateJanuaryTimeSeries(kwhPerHour: 1.0m, version: 1);
-        var originalSettlement = SettlementCalculator.Calculate(originalTs, supply, [nettarif]);
+        var originalSettlement = SettlementCalculator.Calculate(originalTs, supply, [nettarif], Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
 
         // Same data, new version — nothing changed
         var sameTs = CreateJanuaryTimeSeries(kwhPerHour: 1.0m, version: 2);
 
         var correction = SettlementCalculator.CalculateCorrection(
-            sameTs, supply, originalSettlement, [nettarif]);
+            sameTs, supply, originalSettlement, [nettarif], Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
 
         Assert.True(correction.IsCorrection);
         Assert.Equal(0m, correction.TotalAmount.Amount);
@@ -360,7 +360,7 @@ public class SettlementCalculatorTests
         ts.AddObservation(Jan1.AddHours(1), EnergyQuantity.Create(1.0m), QuantityQuality.Measured);
 
         var supply = CreateSupply();
-        var settlement = SettlementCalculator.Calculate(ts, supply, new[] { spotPriceWithPoints });
+        var settlement = SettlementCalculator.Calculate(ts, supply, new[] { spotPriceWithPoints }, Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
 
         Assert.Single(settlement.Lines);
         var spotLine = settlement.Lines.First();
@@ -381,13 +381,13 @@ public class SettlementCalculatorTests
         var prices = new List<PriceWithPoints> { nettarif, systemtarif };
 
         var originalTs = CreateJanuaryTimeSeries(kwhPerHour: 1.0m, version: 1);
-        var originalSettlement = SettlementCalculator.Calculate(originalTs, supply, prices);
+        var originalSettlement = SettlementCalculator.Calculate(originalTs, supply, prices, Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
 
         // 10% more consumption
         var correctedTs = CreateJanuaryTimeSeries(kwhPerHour: 1.1m, version: 2);
 
         var correction = SettlementCalculator.CalculateCorrection(
-            correctedTs, supply, originalSettlement, prices);
+            correctedTs, supply, originalSettlement, prices, Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
 
         Assert.Equal(2, correction.Lines.Count);
 

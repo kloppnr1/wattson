@@ -4,43 +4,59 @@ using WattsOn.Domain.Enums;
 namespace WattsOn.Domain.Services;
 
 /// <summary>
-/// Validates that all required price elements are linked to a metering point
-/// before settlement calculation. A settlement missing mandatory price elements
-/// would produce incorrect amounts for invoicing.
-///
-/// Validates by PriceCategory — independent of charge ID format.
-/// Works identically whether charge IDs are simulation-style ("NET-T-DK1")
-/// or production DataHub-style ("40000").
+/// Validates that all required price components are present before settlement.
+/// Three separate checks for three separate price sources:
+/// 1. DataHub charges — required categories must be linked
+/// 2. Spot prices — must cover every interval in the period
+/// 3. Supplier margin — must cover every interval in the period
 /// </summary>
 public static class SettlementValidator
 {
     /// <summary>
-    /// Required price categories for a valid settlement.
-    /// A metering point must have at least one linked price in each category.
+    /// Required DataHub charge categories for a valid settlement.
     /// </summary>
-    private static readonly (PriceCategory Category, string Name)[] RequiredPriceCategories =
+    private static readonly (PriceCategory Category, string Name)[] RequiredDataHubCategories =
     [
-        (PriceCategory.SpotPris, "Spotpris"),
         (PriceCategory.Nettarif, "Nettarif"),
         (PriceCategory.Systemtarif, "Systemtarif"),
         (PriceCategory.Transmissionstarif, "Transmissionstarif"),
         (PriceCategory.Elafgift, "Elafgift"),
         (PriceCategory.Balancetarif, "Balancetarif"),
-        (PriceCategory.Leverandørtillæg, "Leverandørtillæg"),
     ];
 
     /// <summary>
-    /// Validate that all required price categories are present in the linked prices.
-    /// Returns a list of missing element names (empty = all good).
+    /// Validate all three price sources. Returns a combined list of issues (empty = all good).
     /// </summary>
-    public static IReadOnlyList<string> ValidatePriceCompleteness(IReadOnlyList<PriceWithPoints> activePrices)
+    public static IReadOnlyList<string> Validate(
+        IReadOnlyList<PriceWithPoints> datahubPrices,
+        IReadOnlyList<SpotPrice> spotPrices,
+        IReadOnlyList<SupplierMargin> supplierMargins,
+        DateTimeOffset periodStart,
+        DateTimeOffset periodEnd,
+        Resolution resolution)
+    {
+        var issues = new List<string>();
+
+        issues.AddRange(ValidateDataHubCategories(datahubPrices));
+        issues.AddRange(ValidateDataHubCoverage(datahubPrices, periodStart, periodEnd));
+        issues.AddRange(ValidateIntervalCoverage("Spotpris", spotPrices.Select(s => s.Timestamp).ToHashSet(),
+            periodStart, periodEnd, resolution));
+        issues.AddRange(ValidateIntervalCoverage("Leverandørmargin", supplierMargins.Select(m => m.Timestamp).ToHashSet(),
+            periodStart, periodEnd, resolution));
+
+        return issues;
+    }
+
+    /// <summary>
+    /// Validate that all required DataHub charge categories are present.
+    /// </summary>
+    public static IReadOnlyList<string> ValidateDataHubCategories(IReadOnlyList<PriceWithPoints> datahubPrices)
     {
         var missing = new List<string>();
 
-        foreach (var (category, name) in RequiredPriceCategories)
+        foreach (var (category, name) in RequiredDataHubCategories)
         {
-            var hasElement = activePrices.Any(p => p.Price.Category == category);
-            if (!hasElement)
+            if (!datahubPrices.Any(p => p.Price.Category == category))
                 missing.Add(name);
         }
 
@@ -48,22 +64,20 @@ public static class SettlementValidator
     }
 
     /// <summary>
-    /// Validate that prices have actual price points covering the settlement period.
-    /// A linked price with no points in the period is effectively missing.
+    /// Validate that DataHub prices have actual price points for the period.
     /// </summary>
-    public static IReadOnlyList<string> ValidatePricePointCoverage(
-        IReadOnlyList<PriceWithPoints> activePrices,
+    public static IReadOnlyList<string> ValidateDataHubCoverage(
+        IReadOnlyList<PriceWithPoints> datahubPrices,
         DateTimeOffset periodStart,
         DateTimeOffset? periodEnd)
     {
         var incomplete = new List<string>();
         var end = periodEnd ?? periodStart.AddMonths(1);
 
-        foreach (var priceWithPoints in activePrices)
+        foreach (var priceWithPoints in datahubPrices)
         {
             var price = priceWithPoints.Price;
 
-            // Subscriptions only need 1 price point
             if (price.Type == PriceType.Abonnement)
             {
                 if (priceWithPoints.GetPriceAt(periodStart) is null)
@@ -71,11 +85,45 @@ public static class SettlementValidator
                 continue;
             }
 
-            // Tariffs: check that at least one price point exists in the period
             if (priceWithPoints.GetPriceAt(periodStart) is null)
                 incomplete.Add($"{price.Description} ({price.ChargeId}): ingen prispunkter i perioden");
         }
 
         return incomplete;
+    }
+
+    /// <summary>
+    /// Validate that a time-varying price source covers every interval in the settlement period.
+    /// Spot prices and supplier margins must have a value for every hour (or 15-min) being settled.
+    /// </summary>
+    public static IReadOnlyList<string> ValidateIntervalCoverage(
+        string sourceName,
+        HashSet<DateTimeOffset> timestamps,
+        DateTimeOffset periodStart,
+        DateTimeOffset periodEnd,
+        Resolution resolution)
+    {
+        if (timestamps.Count == 0)
+            return [$"{sourceName}: ingen priser fundet for perioden"];
+
+        var interval = resolution switch
+        {
+            Resolution.PT15M => TimeSpan.FromMinutes(15),
+            _ => TimeSpan.FromHours(1), // PT1H, P1D, P1M → check hourly
+        };
+
+        var missingCount = 0;
+        var current = periodStart;
+        while (current < periodEnd)
+        {
+            if (!timestamps.Contains(current))
+                missingCount++;
+            current = current.Add(interval);
+        }
+
+        if (missingCount > 0)
+            return [$"{sourceName}: mangler priser for {missingCount} intervaller i perioden"];
+
+        return [];
     }
 }

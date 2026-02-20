@@ -8,37 +8,51 @@ namespace WattsOn.Domain.Services;
 /// Pure domain service that calculates settlements from time series + prices.
 /// No side effects, no persistence — just math.
 ///
-/// Input: a time series (with observations) + a list of active price links (with prices + price points)
-/// Output: an Settlement with SettlementLiner
+/// Takes three separate price sources:
+/// 1. DataHub charges (nettarif, systemtarif, etc.) — via PriceWithPoints
+/// 2. Spot prices — flat list of (timestamp, price) from Energi Data Service
+/// 3. Supplier margin — flat list of (timestamp, price) from supplier config
 /// </summary>
 public static class SettlementCalculator
 {
     /// <summary>
-    /// Calculate a settlement for the given time series and linked prices.
-    /// Each price produces one SettlementLine.
+    /// Calculate a settlement for the given time series and price sources.
     /// </summary>
     public static Settlement Calculate(
-        TimeSeries time_series,
+        TimeSeries timeSeries,
         Supply supply,
-        IReadOnlyList<PriceWithPoints> activePrices)
+        IReadOnlyList<PriceWithPoints> datahubPrices,
+        IReadOnlyList<SpotPrice> spotPrices,
+        IReadOnlyList<SupplierMargin> supplierMargins)
     {
-        if (time_series.Observations.Count == 0)
+        if (timeSeries.Observations.Count == 0)
             throw new InvalidOperationException("Cannot settle a time series with no observations.");
 
         var settlement = Settlement.Create(
-            time_series.MeteringPointId,
+            timeSeries.MeteringPointId,
             supply.Id,
-            time_series.Period,
-            time_series.Id,
-            time_series.Version,
-            time_series.TotalEnergy);
+            timeSeries.Period,
+            timeSeries.Id,
+            timeSeries.Version,
+            timeSeries.TotalEnergy);
 
-        foreach (var priceLink in activePrices)
+        // DataHub charge lines
+        foreach (var priceLink in datahubPrices)
         {
-            var line = CalculateLine(settlement.Id, time_series, priceLink);
+            var line = CalculateDataHubLine(settlement.Id, timeSeries, priceLink);
             if (line is not null)
                 settlement.AddLine(line);
         }
+
+        // Spot price line
+        var spotLine = CalculateSpotLine(settlement.Id, timeSeries, spotPrices);
+        if (spotLine is not null)
+            settlement.AddLine(spotLine);
+
+        // Supplier margin line
+        var marginLine = CalculateMarginLine(settlement.Id, timeSeries, supplierMargins);
+        if (marginLine is not null)
+            settlement.AddLine(marginLine);
 
         return settlement;
     }
@@ -52,13 +66,15 @@ public static class SettlementCalculator
         TimeSeries newTimeSeries,
         Supply supply,
         Settlement originalSettlement,
-        IReadOnlyList<PriceWithPoints> activePrices)
+        IReadOnlyList<PriceWithPoints> datahubPrices,
+        IReadOnlyList<SpotPrice> spotPrices,
+        IReadOnlyList<SupplierMargin> supplierMargins)
     {
         if (newTimeSeries.Observations.Count == 0)
             throw new InvalidOperationException("Cannot settle a time series with no observations.");
 
         // Calculate what the full settlement would be with the new data
-        var fullNewSettlement = Calculate(newTimeSeries, supply, activePrices);
+        var fullNewSettlement = Calculate(newTimeSeries, supply, datahubPrices, spotPrices, supplierMargins);
 
         // The correction is a delta: new total - original total
         var deltaEnergy = newTimeSeries.TotalEnergy - originalSettlement.TotalEnergy;
@@ -72,48 +88,63 @@ public static class SettlementCalculator
             deltaEnergy,
             originalSettlement.Id);
 
-        // Create delta lines: new line amount - original line amount per price
+        // Create delta lines: match by (Source, PriceId) composite key
         foreach (var newLine in fullNewSettlement.Lines)
         {
-            // Find matching original line by PriceId
             var originalLine = originalSettlement.Lines
-                .FirstOrDefault(l => l.PriceId == newLine.PriceId);
+                .FirstOrDefault(l => l.Source == newLine.Source && l.PriceId == newLine.PriceId);
 
             var originalAmount = originalLine?.Amount.Amount ?? 0m;
             var delta = newLine.Amount.Amount - originalAmount;
 
-            if (delta == 0m) continue; // No change for this charge
+            if (delta == 0m) continue;
 
             var originalQty = originalLine?.Quantity.Value ?? 0m;
             var deltaQty = newLine.Quantity.Value - originalQty;
 
-            // Effective unit price from the new calculation
             var effectiveUnitPrice = deltaQty != 0m
                 ? delta / deltaQty
                 : newLine.UnitPrice;
 
-            correction.AddLine(SettlementLine.Create(
-                correction.Id,
-                newLine.PriceId,
-                $"{newLine.Description} (justering)",
-                EnergyQuantity.Create(deltaQty),
-                effectiveUnitPrice));
+            var correctionLine = newLine.Source switch
+            {
+                SettlementLineSource.SpotPrice => SettlementLine.CreateSpot(
+                    correction.Id,
+                    $"{newLine.Description} (justering)",
+                    EnergyQuantity.Create(deltaQty),
+                    effectiveUnitPrice),
+                SettlementLineSource.SupplierMargin => SettlementLine.CreateMargin(
+                    correction.Id,
+                    $"{newLine.Description} (justering)",
+                    EnergyQuantity.Create(deltaQty),
+                    effectiveUnitPrice),
+                _ => SettlementLine.Create(
+                    correction.Id,
+                    newLine.PriceId!.Value,
+                    $"{newLine.Description} (justering)",
+                    EnergyQuantity.Create(deltaQty),
+                    effectiveUnitPrice),
+            };
+
+            correction.AddLine(correctionLine);
         }
 
         return correction;
     }
 
-    private static SettlementLine? CalculateLine(
+    // --- DataHub charges ---
+
+    private static SettlementLine? CalculateDataHubLine(
         Guid settlementId,
-        TimeSeries time_series,
+        TimeSeries timeSeries,
         PriceWithPoints priceLink)
     {
-        var pris = priceLink.Price;
+        var price = priceLink.Price;
 
-        return pris.Type switch
+        return price.Type switch
         {
-            PriceType.Tarif => CalculateTariffLine(settlementId, time_series, priceLink),
-            PriceType.Abonnement => CalculateSubscriptionLine(settlementId, time_series, priceLink),
+            PriceType.Tarif => CalculateTariffLine(settlementId, timeSeries, priceLink),
+            PriceType.Abonnement => CalculateSubscriptionLine(settlementId, timeSeries, priceLink),
             PriceType.Gebyr => null, // Fees are event-based, not settlement-based
             _ => null
         };
@@ -127,26 +158,21 @@ public static class SettlementCalculator
     /// </summary>
     private static SettlementLine CalculateTariffLine(
         Guid settlementId,
-        TimeSeries time_series,
+        TimeSeries timeSeries,
         PriceWithPoints priceLink)
     {
         var totalAmount = 0m;
         var totalEnergy = 0m;
-        var needsAveraging = time_series.Resolution == Resolution.PT1H
+        var needsAveraging = timeSeries.Resolution == Resolution.PT1H
             && priceLink.Price.PriceResolution == Resolution.PT15M;
 
-        foreach (var obs in time_series.Observations)
+        foreach (var obs in timeSeries.Observations)
         {
             decimal? price;
             if (needsAveraging)
-            {
-                // Average the 4 quarter-hour prices within this hour
                 price = priceLink.GetAveragePriceInHour(obs.Timestamp);
-            }
             else
-            {
                 price = priceLink.GetPriceAt(obs.Timestamp);
-            }
 
             if (price is null) continue;
 
@@ -154,7 +180,6 @@ public static class SettlementCalculator
             totalEnergy += obs.Quantity.Value;
         }
 
-        // Average unit price across the period
         var avgUnitPrice = totalEnergy != 0m ? totalAmount / totalEnergy : 0m;
 
         return SettlementLine.Create(
@@ -167,27 +192,138 @@ public static class SettlementCalculator
 
     /// <summary>
     /// Subscription: flat daily fee × number of days in the settlement period.
-    /// Not energy-based — uses count of days instead of kWh.
     /// </summary>
     private static SettlementLine CalculateSubscriptionLine(
         Guid settlementId,
-        TimeSeries time_series,
+        TimeSeries timeSeries,
         PriceWithPoints priceLink)
     {
-        var period = time_series.Period;
+        var period = timeSeries.Period;
         var days = period.End.HasValue
             ? (decimal)(period.End.Value - period.Start).TotalDays
-            : 30m; // Fallback for open-ended (shouldn't happen in settlement)
+            : 30m;
 
         var dailyPrice = priceLink.GetPriceAt(period.Start) ?? 0m;
 
-        // For subscriptions, quantity represents days (not kWh)
         return SettlementLine.Create(
             settlementId,
             priceLink.Price.Id,
             priceLink.Price.Description,
-            EnergyQuantity.Create(days), // Using quantity field for day count
+            EnergyQuantity.Create(days),
             dailyPrice);
+    }
+
+    // --- Spot prices ---
+
+    /// <summary>
+    /// Spot price: for each observation, multiply energy × spot price at that timestamp.
+    /// Averages sub-hourly (PT15M) prices into hourly when time series is PT1H.
+    /// </summary>
+    private static SettlementLine? CalculateSpotLine(
+        Guid settlementId,
+        TimeSeries timeSeries,
+        IReadOnlyList<SpotPrice> spotPrices)
+    {
+        if (spotPrices.Count == 0) return null;
+
+        var lookup = spotPrices.ToDictionary(s => s.Timestamp);
+        var totalAmount = 0m;
+        var totalEnergy = 0m;
+
+        foreach (var obs in timeSeries.Observations)
+        {
+            decimal price;
+            if (timeSeries.Resolution == Resolution.PT1H)
+            {
+                // Average 4 quarter-hour spots within this hour
+                var sum = 0m;
+                var count = 0;
+                for (var i = 0; i < 4; i++)
+                {
+                    if (lookup.TryGetValue(obs.Timestamp.AddMinutes(i * 15), out var sp))
+                    {
+                        sum += sp.PriceDkkPerKwh;
+                        count++;
+                    }
+                }
+                price = count > 0 ? sum / count : 0m;
+            }
+            else
+            {
+                price = lookup.TryGetValue(obs.Timestamp, out var sp) ? sp.PriceDkkPerKwh : 0m;
+            }
+
+            totalAmount += obs.Quantity.Value * price;
+            totalEnergy += obs.Quantity.Value;
+        }
+
+        var avgUnitPrice = totalEnergy != 0m ? totalAmount / totalEnergy : 0m;
+
+        return SettlementLine.CreateSpot(
+            settlementId,
+            "Spotpris",
+            EnergyQuantity.Create(totalEnergy),
+            avgUnitPrice);
+    }
+
+    // --- Supplier margin ---
+
+    /// <summary>
+    /// Supplier margin: for each observation, multiply energy × margin at that timestamp.
+    /// Same averaging logic as spot prices.
+    /// </summary>
+    private static SettlementLine? CalculateMarginLine(
+        Guid settlementId,
+        TimeSeries timeSeries,
+        IReadOnlyList<SupplierMargin> supplierMargins)
+    {
+        if (supplierMargins.Count == 0) return null;
+
+        var lookup = supplierMargins.ToDictionary(m => m.Timestamp);
+        var totalAmount = 0m;
+        var totalEnergy = 0m;
+
+        foreach (var obs in timeSeries.Observations)
+        {
+            decimal price;
+            if (timeSeries.Resolution == Resolution.PT1H)
+            {
+                var sum = 0m;
+                var count = 0;
+                for (var i = 0; i < 4; i++)
+                {
+                    if (lookup.TryGetValue(obs.Timestamp.AddMinutes(i * 15), out var m))
+                    {
+                        sum += m.PriceDkkPerKwh;
+                        count++;
+                    }
+                }
+                // Fall back to hourly lookup if no quarter-hour points
+                if (count == 0 && lookup.TryGetValue(obs.Timestamp, out var hourly))
+                {
+                    price = hourly.PriceDkkPerKwh;
+                }
+                else
+                {
+                    price = count > 0 ? sum / count : 0m;
+                }
+            }
+            else
+            {
+                price = lookup.TryGetValue(obs.Timestamp, out var m) ? m.PriceDkkPerKwh : 0m;
+            }
+
+            totalAmount += obs.Quantity.Value * price;
+            totalEnergy += obs.Quantity.Value;
+        }
+
+        var avgUnitPrice = totalEnergy != 0m ? totalAmount / totalEnergy : 0m;
+
+        return SettlementLine.CreateMargin(
+            settlementId,
+            "Leverandørmargin",
+            EnergyQuantity.Create(totalEnergy),
+            avgUnitPrice);
     }
 }
 
@@ -200,20 +336,15 @@ public class PriceWithPoints
     public Price Price { get; }
     private readonly List<(DateTimeOffset Timestamp, decimal Price)> _sortedPoints;
 
-    public PriceWithPoints(Price pris)
+    public PriceWithPoints(Price price)
     {
-        Price = pris;
-        _sortedPoints = pris.PricePoints
+        Price = price;
+        _sortedPoints = price.PricePoints
             .OrderBy(pp => pp.Timestamp)
             .Select(pp => (pp.Timestamp, pp.Price))
             .ToList();
     }
 
-    /// <summary>
-    /// Get the effective price at a specific timestamp.
-    /// For tariffs: finds the most recent price point at or before the timestamp.
-    /// For subscriptions: returns the single price.
-    /// </summary>
     public decimal? GetPriceAt(DateTimeOffset timestamp)
     {
         if (_sortedPoints.Count == 0) return null;
@@ -221,7 +352,6 @@ public class PriceWithPoints
         if (Price.Type == PriceType.Abonnement)
             return _sortedPoints[0].Price;
 
-        // Binary search for the latest point <= timestamp
         decimal? result = null;
         foreach (var point in _sortedPoints)
         {
@@ -232,12 +362,6 @@ public class PriceWithPoints
         return result;
     }
 
-    /// <summary>
-    /// Get the average price within a one-hour window starting at the given timestamp.
-    /// Used when time series is PT1H but price is PT15M (e.g. spot prices).
-    /// Averages up to 4 quarter-hour price points within [timestamp, timestamp+1h).
-    /// Falls back to GetPriceAt if no sub-hourly points found.
-    /// </summary>
     public decimal? GetAveragePriceInHour(DateTimeOffset hourStart)
     {
         if (_sortedPoints.Count == 0) return null;
@@ -248,7 +372,7 @@ public class PriceWithPoints
             .ToList();
 
         if (pointsInHour.Count == 0)
-            return GetPriceAt(hourStart); // Fallback
+            return GetPriceAt(hourStart);
 
         return pointsInHour.Average(p => p.Price);
     }
