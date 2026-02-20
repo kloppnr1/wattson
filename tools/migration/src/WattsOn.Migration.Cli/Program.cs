@@ -37,6 +37,11 @@ var includeTimeSeriesOption = new Option<bool>(
     description: "Include historical time series data",
     getDefaultValue: () => false);
 
+var includeSettlementsOption = new Option<bool>(
+    name: "--include-settlements",
+    description: "Include historical settlements from FlexBillingHistory",
+    getDefaultValue: () => false);
+
 var timeSeriesStartOption = new Option<DateTime?>(
     name: "--timeseries-start",
     description: "Time series start date (default: 2 years ago)");
@@ -55,6 +60,7 @@ var rootCommand = new RootCommand("WattsOn Migration Tool — migrate customers 
     supplierNameOption,
     includeTimeSeriesOption,
     timeSeriesStartOption,
+    includeSettlementsOption,
     dryRunOption
 };
 
@@ -67,6 +73,7 @@ rootCommand.SetHandler(async (context) =>
     var supplierName = context.ParseResult.GetValueForOption(supplierNameOption)!;
     var includeTimeSeries = context.ParseResult.GetValueForOption(includeTimeSeriesOption);
     var timeSeriesStart = context.ParseResult.GetValueForOption(timeSeriesStartOption);
+    var includeSettlements = context.ParseResult.GetValueForOption(includeSettlementsOption);
     var dryRun = context.ParseResult.GetValueForOption(dryRunOption);
 
     // Setup DI
@@ -237,6 +244,42 @@ rootCommand.SetHandler(async (context) =>
                 result.TimeSeriesCreated = tsResult.GetProperty("seriesCreated").GetInt32();
                 result.ObservationsCreated = tsResult.GetProperty("observationsCreated").GetInt32();
                 result.TimeSeriesSkipped = tsResult.GetProperty("skipped").GetInt32();
+            }
+        }
+
+        // Step 8: Settlements (if requested)
+        if (includeSettlements)
+        {
+            logger.LogInformation("Extracting settlements from FlexBillingHistory...");
+            var allGsrns = customers.SelectMany(c => c.MeteringPoints).Select(mp => mp.Gsrn).ToList();
+            var settlements = await extraction.ExtractSettlementsAsync(allGsrns);
+
+            if (settlements.Count > 0)
+            {
+                logger.LogInformation("Migrating {Count} settlements...", settlements.Count);
+                var settlementResult = await wattsOn.MigrateSettlements(new
+                {
+                    settlements = settlements.Select(s => new
+                    {
+                        gsrn = s.Gsrn,
+                        periodStart = s.PeriodStart,
+                        periodEnd = s.PeriodEnd,
+                        billingLogNum = s.BillingLogNum,
+                        externalInvoiceReference = s.HistKeyNumber,
+                        totalEnergyKwh = s.TotalEnergyKwh,
+                        spotAmountDkk = s.SpotAmountDkk,
+                        marginAmountDkk = s.MarginAmountDkk,
+                        tariffLines = s.TariffLines.Select(t => new
+                        {
+                            chargeId = t.PartyChargeTypeId,
+                            description = t.Description,
+                            energyKwh = t.EnergyKwh,
+                            avgUnitPrice = t.AvgUnitPrice
+                        }).ToList()
+                    }).ToList()
+                });
+                result.SettlementsCreated = settlementResult.GetProperty("created").GetInt32();
+                result.SettlementsSkipped = settlementResult.GetProperty("skipped").GetInt32();
             }
         }
 

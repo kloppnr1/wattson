@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using WattsOn.Migration.Core.Models;
+using WattsOn.Migration.XellentData.Entities;
 
 namespace WattsOn.Migration.XellentData;
 
@@ -216,6 +217,133 @@ public class XellentExtractionService
         _logger.LogInformation("Extracted {Count} time series for {GsrnCount} metering points",
             result.Count, gsrns.Count);
         return result;
+    }
+
+    /// <summary>
+    /// Extract invoiced settlements from FlexBillingHistory.
+    /// Each billing period = one settlement with status Invoiced.
+    /// </summary>
+    public async Task<List<ExtractedSettlement>> ExtractSettlementsAsync(List<string> gsrns)
+    {
+        var result = new List<ExtractedSettlement>();
+
+        foreach (var gsrn in gsrns)
+        {
+            // Get billing history entries for this metering point
+            var historyEntries = await _db.FlexBillingHistoryTables
+                .Where(h => h.DataAreaId == DataAreaId
+                    && h.MeteringPoint == gsrn
+                    && h.DeliveryCategory == DeliveryCategory)
+                .OrderBy(h => h.ReqStartDate)
+                .ToListAsync();
+
+            foreach (var entry in historyEntries)
+            {
+                // Get hourly lines for this billing period
+                var lines = await _db.FlexBillingHistoryLines
+                    .Where(l => l.DataAreaId == DataAreaId
+                        && l.HistKeyNumber == entry.HistKeyNumber)
+                    .OrderBy(l => l.DateTime24Hour)
+                    .ToListAsync();
+
+                if (lines.Count == 0) continue;
+
+                var totalEnergy = lines.Sum(l => l.TimeValue);
+                var electricityAmount = lines.Sum(l => l.TimeValue * l.CalculatedPrice);
+                var spotAmount = lines.Sum(l => l.TimeValue * l.PowerExchangePrice);
+                var marginAmount = electricityAmount - spotAmount;
+
+                // Get tariffs for this metering point and period
+                var tariffLines = await ExtractTariffLinesAsync(gsrn, entry.ReqStartDate, lines);
+
+                var totalAmount = electricityAmount + tariffLines.Sum(t => t.AmountDkk);
+
+                result.Add(new ExtractedSettlement
+                {
+                    Gsrn = gsrn,
+                    PeriodStart = entry.ReqStartDate,
+                    PeriodEnd = entry.ReqEndDate,
+                    BillingLogNum = entry.BillingLogNum,
+                    HistKeyNumber = entry.HistKeyNumber,
+                    TotalEnergyKwh = totalEnergy,
+                    ElectricityAmountDkk = electricityAmount,
+                    SpotAmountDkk = spotAmount,
+                    MarginAmountDkk = marginAmount,
+                    TariffLines = tariffLines,
+                    TotalAmountDkk = totalAmount
+                });
+            }
+        }
+
+        _logger.LogInformation("Extracted {Count} settlements for {GsrnCount} metering points",
+            result.Count, gsrns.Count);
+        return result;
+    }
+
+    private async Task<List<ExtractedTariffLine>> ExtractTariffLinesAsync(
+        string gsrn, DateTime forDate, List<FlexBillingHistoryLine> hourlyData)
+    {
+        var tariffLines = new List<ExtractedTariffLine>();
+
+        // Get active tariff assignments for this metering point
+        var tariffAssignments = await (
+            from pec in _db.PriceElementChecks
+            join pecd in _db.PriceElementCheckData
+                on new { pec.DataAreaId, RefRecId = pec.RecId }
+                equals new { pecd.DataAreaId, RefRecId = pecd.PriceElementCheckRefRecId }
+            join pet in _db.PriceElementTables
+                on new { pecd.DataAreaId, pecd.PartyChargeTypeId }
+                equals new { pet.DataAreaId, pet.PartyChargeTypeId }
+            where pec.DataAreaId == DataAreaId
+                && pec.MeteringPointId == gsrn
+                && pec.DeliveryCategory == DeliveryCategory
+                && pet.ChargeTypeCode == 3 // Tariff only
+                && pecd.StartDate <= forDate
+                && (pecd.EndDate == NoEndDate || pecd.EndDate >= forDate)
+            select new { pecd.PartyChargeTypeId, pet.Description }
+        ).Distinct().ToListAsync();
+
+        foreach (var tariff in tariffAssignments)
+        {
+            // Get the active rate
+            var rate = await _db.PriceElementRates
+                .Where(r => r.DataAreaId == DataAreaId
+                    && r.PartyChargeTypeId == tariff.PartyChargeTypeId
+                    && r.StartDate <= forDate)
+                .OrderByDescending(r => r.StartDate)
+                .FirstOrDefaultAsync();
+
+            if (rate == null) continue;
+
+            // Calculate tariff amount using hourly rates
+            decimal totalTariffAmount = 0m;
+            decimal totalTariffEnergy = 0m;
+
+            foreach (var line in hourlyData)
+            {
+                var hourNum = line.DateTime24Hour.Hour + 1; // Convert 0-23 to 1-24
+                var hourlyRate = rate.GetPriceForHour(hourNum);
+                var effectiveRate = hourlyRate > 0 ? hourlyRate : rate.Price;
+
+                if (effectiveRate <= 0) continue;
+
+                totalTariffAmount += line.TimeValue * effectiveRate;
+                totalTariffEnergy += line.TimeValue;
+            }
+
+            if (totalTariffAmount == 0) continue;
+
+            tariffLines.Add(new ExtractedTariffLine
+            {
+                PartyChargeTypeId = tariff.PartyChargeTypeId,
+                Description = tariff.Description,
+                AmountDkk = totalTariffAmount,
+                EnergyKwh = totalTariffEnergy,
+                AvgUnitPrice = totalTariffEnergy != 0 ? totalTariffAmount / totalTariffEnergy : 0
+            });
+        }
+
+        return tariffLines;
     }
 
     private static string MapGridArea(string powerExchangeArea)

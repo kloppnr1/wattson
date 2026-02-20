@@ -15,6 +15,14 @@ public class XellentDbContext : DbContext
     public DbSet<ExuRateTable> ExuRateTables => Set<ExuRateTable>();
     public DbSet<EmsTimeseries> EmsTimeseries => Set<EmsTimeseries>();
     public DbSet<EmsTimeseriesValues> EmsTimeseriesValues => Set<EmsTimeseriesValues>();
+    public DbSet<FlexBillingHistoryTable> FlexBillingHistoryTables => Set<FlexBillingHistoryTable>();
+    public DbSet<FlexBillingHistoryLine> FlexBillingHistoryLines => Set<FlexBillingHistoryLine>();
+    public DbSet<PriceElementCheck> PriceElementChecks => Set<PriceElementCheck>();
+    public DbSet<PriceElementCheckData> PriceElementCheckData => Set<PriceElementCheckData>();
+    public DbSet<PriceElementTable> PriceElementTables => Set<PriceElementTable>();
+    public DbSet<PriceElementRates> PriceElementRates => Set<PriceElementRates>();
+    public DbSet<ExuProductExtendTable> ExuProductExtendTables => Set<ExuProductExtendTable>();
+    public DbSet<InventTable> InventTables => Set<InventTable>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

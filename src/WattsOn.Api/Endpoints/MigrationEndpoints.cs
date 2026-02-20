@@ -424,6 +424,117 @@ public static class MigrationEndpoints
             });
         }).WithName("MigratePriceLinks");
 
+        // ==================== AFREGNINGER (Settlements) ====================
+
+        /// <summary>
+        /// Import pre-computed settlements (from FlexBillingHistory).
+        /// Creates settlements with Status = Invoiced for correction detection baseline.
+        /// </summary>
+        app.MapPost("/api/migration/settlements", async (MigrationSettlementBatchRequest req, WattsOnDbContext db) =>
+        {
+            int created = 0, skipped = 0;
+
+            foreach (var s in req.Settlements)
+            {
+                // Find metering point by GSRN
+                var mp = await db.MeteringPoints
+                    .FirstOrDefaultAsync(m => m.Gsrn.Value == s.Gsrn);
+                if (mp is null) { skipped++; continue; }
+
+                // Find active supply for the period
+                var supply = await db.Supplies
+                    .Where(l => l.MeteringPointId == mp.Id)
+                    .Where(l => l.SupplyPeriod.Start <= s.PeriodStart)
+                    .Where(l => l.SupplyPeriod.End == null || l.SupplyPeriod.End > s.PeriodStart)
+                    .FirstOrDefaultAsync();
+                if (supply is null) { skipped++; continue; }
+
+                // Check if settlement already exists for this period
+                var existing = await db.Settlements
+                    .AnyAsync(a => a.MeteringPointId == mp.Id
+                        && a.SettlementPeriod.Start == s.PeriodStart
+                        && a.SettlementPeriod.End == s.PeriodEnd);
+                if (existing) { skipped++; continue; }
+
+                // Find or create a time series for this period (settlements need a TS reference)
+                var timeSeries = await db.TimeSeriesCollection
+                    .Where(ts => ts.MeteringPointId == mp.Id)
+                    .Where(ts => ts.Period.Start == s.PeriodStart)
+                    .Where(ts => ts.Period.End == s.PeriodEnd)
+                    .FirstOrDefaultAsync();
+
+                if (timeSeries is null)
+                {
+                    // Create a placeholder time series — the actual observations may come from time series migration
+                    timeSeries = TimeSeries.Create(mp.Id,
+                        Period.Create(s.PeriodStart, s.PeriodEnd),
+                        Resolution.PT1H, 1);
+                    db.TimeSeriesCollection.Add(timeSeries);
+                    await db.SaveChangesAsync();
+                }
+
+                // Create settlement
+                var settlement = Settlement.Create(
+                    mp.Id, supply.Id,
+                    Period.Create(s.PeriodStart, s.PeriodEnd),
+                    timeSeries.Id, timeSeries.Version,
+                    EnergyQuantity.Create(s.TotalEnergyKwh));
+
+                // Add spot line
+                if (s.SpotAmountDkk != 0)
+                {
+                    var spotLine = SettlementLine.CreateSpot(
+                        settlement.Id, "Spotpris (migreret)",
+                        EnergyQuantity.Create(s.TotalEnergyKwh),
+                        s.TotalEnergyKwh != 0 ? s.SpotAmountDkk / s.TotalEnergyKwh : 0);
+                    settlement.AddLine(spotLine);
+                }
+
+                // Add margin line
+                if (s.MarginAmountDkk != 0)
+                {
+                    var marginLine = SettlementLine.CreateMargin(
+                        settlement.Id, "Leverandørmargin (migreret)",
+                        EnergyQuantity.Create(s.TotalEnergyKwh),
+                        s.TotalEnergyKwh != 0 ? s.MarginAmountDkk / s.TotalEnergyKwh : 0);
+                    settlement.AddLine(marginLine);
+                }
+
+                // Add tariff lines (matched to imported Price entities by ChargeId)
+                if (s.TariffLines != null)
+                {
+                    foreach (var tariff in s.TariffLines)
+                    {
+                        var price = await db.Prices
+                            .FirstOrDefaultAsync(p => p.ChargeId == tariff.ChargeId);
+                        if (price is null) continue;
+
+                        var tariffLine = SettlementLine.Create(
+                            settlement.Id, price.Id,
+                            $"{tariff.Description} (migreret)",
+                            EnergyQuantity.Create(tariff.EnergyKwh),
+                            tariff.AvgUnitPrice);
+                        settlement.AddLine(tariffLine);
+                    }
+                }
+
+                // Mark as invoiced with Xellent reference
+                settlement.MarkInvoiced(s.ExternalInvoiceReference ?? s.BillingLogNum);
+
+                db.Settlements.Add(settlement);
+                created++;
+            }
+
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new
+            {
+                created,
+                skipped,
+                message = $"Migrering: {created} afregninger oprettet (faktureret), {skipped} sprunget over."
+            });
+        }).WithName("MigrateSettlements");
+
         return app;
     }
 
@@ -533,3 +644,23 @@ record MigrationPriceLinkDto(
     string ChargeId,
     string OwnerGln,
     DateTimeOffset EffectiveDate);
+
+record MigrationSettlementBatchRequest(
+    List<MigrationSettlementDto> Settlements);
+
+record MigrationSettlementDto(
+    string Gsrn,
+    DateTimeOffset PeriodStart,
+    DateTimeOffset PeriodEnd,
+    string BillingLogNum,
+    string? ExternalInvoiceReference,
+    decimal TotalEnergyKwh,
+    decimal SpotAmountDkk,
+    decimal MarginAmountDkk,
+    List<MigrationSettlementTariffLineDto>? TariffLines);
+
+record MigrationSettlementTariffLineDto(
+    string ChargeId,
+    string Description,
+    decimal EnergyKwh,
+    decimal AvgUnitPrice);

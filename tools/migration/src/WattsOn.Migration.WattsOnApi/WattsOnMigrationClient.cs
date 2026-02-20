@@ -58,6 +58,9 @@ public class WattsOnMigrationClient
     public Task<JsonElement> MigratePriceLinks(object payload)
         => PostAsync("/api/migration/price-links", payload);
 
+    public Task<JsonElement> MigrateSettlements(object payload)
+        => PostAsync("/api/migration/settlements", payload);
+
     /// <summary>Get or create the supplier identity. Returns its ID.</summary>
     public async Task<Guid> EnsureSupplierIdentity(string gln, string name)
     {

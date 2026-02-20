@@ -19,6 +19,8 @@ public class MigrationResult
     public int TimeSeriesSkipped { get; set; }
     public int PriceLinksCreated { get; set; }
     public int PriceLinksSkipped { get; set; }
+    public int SettlementsCreated { get; set; }
+    public int SettlementsSkipped { get; set; }
     public List<string> Errors { get; set; } = new();
     public List<string> Warnings { get; set; } = new();
     public TimeSpan Duration { get; set; }
@@ -35,6 +37,7 @@ public class MigrationResult
               Margins:         {MarginsCreated} created
               Time Series:     {TimeSeriesCreated} created ({ObservationsCreated} observations), {TimeSeriesSkipped} skipped
               Price Links:     {PriceLinksCreated} created, {PriceLinksSkipped} skipped
+              Settlements:     {SettlementsCreated} created, {SettlementsSkipped} skipped
               Errors:          {Errors.Count}
               Warnings:        {Warnings.Count}
             """;
