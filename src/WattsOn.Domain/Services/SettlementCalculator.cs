@@ -11,7 +11,11 @@ namespace WattsOn.Domain.Services;
 /// Takes three separate price sources:
 /// 1. DataHub charges (nettarif, systemtarif, etc.) — via PriceWithPoints
 /// 2. Spot prices — flat list of (timestamp, price) from Energi Data Service
-/// 3. Supplier margin — flat list of (timestamp, price) from supplier config
+/// 3. Supplier margin — single active rate (from ValidFrom) for the product
+///
+/// PricingModel determines how electricity cost is calculated:
+/// - SpotAddon: spot line (hourly) + margin addon line (flat)
+/// - Fixed: single electricity line at fixed rate (no spot)
 /// </summary>
 public static class SettlementCalculator
 {
@@ -23,7 +27,8 @@ public static class SettlementCalculator
         Supply supply,
         IReadOnlyList<PriceWithPoints> datahubPrices,
         IReadOnlyList<SpotPrice> spotPrices,
-        IReadOnlyList<SupplierMargin> supplierMargins)
+        SupplierMargin? activeMargin = null,
+        PricingModel pricingModel = PricingModel.SpotAddon)
     {
         if (timeSeries.Observations.Count == 0)
             throw new InvalidOperationException("Cannot settle a time series with no observations.");
@@ -36,7 +41,7 @@ public static class SettlementCalculator
             timeSeries.Version,
             timeSeries.TotalEnergy);
 
-        // DataHub charge lines
+        // DataHub charge lines (same regardless of pricing model)
         foreach (var priceLink in datahubPrices)
         {
             var line = CalculateDataHubLine(settlement.Id, timeSeries, priceLink);
@@ -44,15 +49,28 @@ public static class SettlementCalculator
                 settlement.AddLine(line);
         }
 
-        // Spot price line
-        var spotLine = CalculateSpotLine(settlement.Id, timeSeries, spotPrices);
-        if (spotLine is not null)
-            settlement.AddLine(spotLine);
+        // Electricity cost lines — depend on pricing model
+        switch (pricingModel)
+        {
+            case PricingModel.Fixed:
+                // Fixed: single line at fixed rate, no spot prices
+                var fixedLine = CalculateFixedElectricityLine(settlement.Id, timeSeries, activeMargin);
+                if (fixedLine is not null)
+                    settlement.AddLine(fixedLine);
+                break;
 
-        // Supplier margin line
-        var marginLine = CalculateMarginLine(settlement.Id, timeSeries, supplierMargins);
-        if (marginLine is not null)
-            settlement.AddLine(marginLine);
+            case PricingModel.SpotAddon:
+            default:
+                // Spot + addon margin
+                var spotLine = CalculateSpotLine(settlement.Id, timeSeries, spotPrices);
+                if (spotLine is not null)
+                    settlement.AddLine(spotLine);
+
+                var marginLine = CalculateMarginAddonLine(settlement.Id, timeSeries, activeMargin);
+                if (marginLine is not null)
+                    settlement.AddLine(marginLine);
+                break;
+        }
 
         return settlement;
     }
@@ -68,13 +86,14 @@ public static class SettlementCalculator
         Settlement originalSettlement,
         IReadOnlyList<PriceWithPoints> datahubPrices,
         IReadOnlyList<SpotPrice> spotPrices,
-        IReadOnlyList<SupplierMargin> supplierMargins)
+        SupplierMargin? activeMargin = null,
+        PricingModel pricingModel = PricingModel.SpotAddon)
     {
         if (newTimeSeries.Observations.Count == 0)
             throw new InvalidOperationException("Cannot settle a time series with no observations.");
 
         // Calculate what the full settlement would be with the new data
-        var fullNewSettlement = Calculate(newTimeSeries, supply, datahubPrices, spotPrices, supplierMargins);
+        var fullNewSettlement = Calculate(newTimeSeries, supply, datahubPrices, spotPrices, activeMargin, pricingModel);
 
         // The correction is a delta: new total - original total
         var deltaEnergy = newTimeSeries.TotalEnergy - originalSettlement.TotalEnergy;
@@ -213,7 +232,7 @@ public static class SettlementCalculator
             dailyPrice);
     }
 
-    // --- Spot prices ---
+    // --- Spot prices (SpotAddon products only) ---
 
     /// <summary>
     /// Spot price: for each observation, multiply energy × spot price at that timestamp.
@@ -266,64 +285,44 @@ public static class SettlementCalculator
             avgUnitPrice);
     }
 
-    // --- Supplier margin ---
+    // --- Fixed electricity price (Fixed products only) ---
 
     /// <summary>
-    /// Supplier margin: for each observation, multiply energy × margin at that timestamp.
-    /// Same averaging logic as spot prices.
+    /// Fixed electricity: total energy × fixed rate.
+    /// The margin IS the full electricity price — no spot component.
     /// </summary>
-    private static SettlementLine? CalculateMarginLine(
+    private static SettlementLine? CalculateFixedElectricityLine(
         Guid settlementId,
         TimeSeries timeSeries,
-        IReadOnlyList<SupplierMargin> supplierMargins)
+        SupplierMargin? activeMargin)
     {
-        if (supplierMargins.Count == 0) return null;
+        if (activeMargin is null) return null;
 
-        var lookup = supplierMargins.ToDictionary(m => m.Timestamp);
-        var totalAmount = 0m;
-        var totalEnergy = 0m;
+        return SettlementLine.CreateMargin(
+            settlementId,
+            "Elpris (fast)",
+            timeSeries.TotalEnergy,
+            activeMargin.PriceDkkPerKwh);
+    }
 
-        foreach (var obs in timeSeries.Observations)
-        {
-            decimal price;
-            if (timeSeries.Resolution == Resolution.PT1H)
-            {
-                var sum = 0m;
-                var count = 0;
-                for (var i = 0; i < 4; i++)
-                {
-                    if (lookup.TryGetValue(obs.Timestamp.AddMinutes(i * 15), out var m))
-                    {
-                        sum += m.PriceDkkPerKwh;
-                        count++;
-                    }
-                }
-                // Fall back to hourly lookup if no quarter-hour points
-                if (count == 0 && lookup.TryGetValue(obs.Timestamp, out var hourly))
-                {
-                    price = hourly.PriceDkkPerKwh;
-                }
-                else
-                {
-                    price = count > 0 ? sum / count : 0m;
-                }
-            }
-            else
-            {
-                price = lookup.TryGetValue(obs.Timestamp, out var m) ? m.PriceDkkPerKwh : 0m;
-            }
+    // --- Supplier margin addon (SpotAddon products only) ---
 
-            totalAmount += obs.Quantity.Value * price;
-            totalEnergy += obs.Quantity.Value;
-        }
-
-        var avgUnitPrice = totalEnergy != 0m ? totalAmount / totalEnergy : 0m;
+    /// <summary>
+    /// Supplier margin addon: total energy × flat margin rate.
+    /// Added on top of spot price for SpotAddon products.
+    /// </summary>
+    private static SettlementLine? CalculateMarginAddonLine(
+        Guid settlementId,
+        TimeSeries timeSeries,
+        SupplierMargin? activeMargin)
+    {
+        if (activeMargin is null) return null;
 
         return SettlementLine.CreateMargin(
             settlementId,
             "Leverandørmargin",
-            EnergyQuantity.Create(totalEnergy),
-            avgUnitPrice);
+            timeSeries.TotalEnergy,
+            activeMargin.PriceDkkPerKwh);
     }
 }
 

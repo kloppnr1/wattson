@@ -5,10 +5,11 @@ namespace WattsOn.Domain.Services;
 
 /// <summary>
 /// Validates that all required price components are present before settlement.
-/// Three separate checks for three separate price sources:
-/// 1. DataHub charges — required categories must be linked
-/// 2. Spot prices — must cover every interval in the period
-/// 3. Supplier margin — must cover every interval in the period
+///
+/// Three checks (conditional on PricingModel):
+/// 1. DataHub charges — required categories must be linked (always)
+/// 2. Spot prices — must cover every interval (SpotAddon only)
+/// 3. Supplier margin — active rate must exist (always)
 /// </summary>
 public static class SettlementValidator
 {
@@ -25,24 +26,37 @@ public static class SettlementValidator
     ];
 
     /// <summary>
-    /// Validate all three price sources. Returns a combined list of issues (empty = all good).
+    /// Validate all price sources. Returns a combined list of issues (empty = all good).
+    /// PricingModel determines whether spot prices are required.
     /// </summary>
     public static IReadOnlyList<string> Validate(
         IReadOnlyList<PriceWithPoints> datahubPrices,
         IReadOnlyList<SpotPrice> spotPrices,
-        IReadOnlyList<SupplierMargin> supplierMargins,
+        SupplierMargin? activeMargin,
+        PricingModel pricingModel,
         DateTimeOffset periodStart,
         DateTimeOffset periodEnd,
         Resolution resolution)
     {
         var issues = new List<string>();
 
+        // DataHub charges always required
         issues.AddRange(ValidateDataHubCategories(datahubPrices));
         issues.AddRange(ValidateDataHubCoverage(datahubPrices, periodStart, periodEnd));
-        issues.AddRange(ValidateIntervalCoverage("Spotpris", spotPrices.Select(s => s.Timestamp).ToHashSet(),
-            periodStart, periodEnd, resolution));
-        issues.AddRange(ValidateIntervalCoverage("Leverandørmargin", supplierMargins.Select(m => m.Timestamp).ToHashSet(),
-            periodStart, periodEnd, resolution));
+
+        // Spot prices only required for SpotAddon products
+        if (pricingModel == PricingModel.SpotAddon)
+        {
+            issues.AddRange(ValidateIntervalCoverage("Spotpris",
+                spotPrices.Select(s => s.Timestamp).ToHashSet(),
+                periodStart, periodEnd, resolution));
+        }
+
+        // Supplier margin always required (it's either the fixed price or the addon)
+        if (activeMargin is null)
+        {
+            issues.Add("Leverandørmargin: ingen aktiv sats fundet for perioden");
+        }
 
         return issues;
     }
@@ -94,7 +108,7 @@ public static class SettlementValidator
 
     /// <summary>
     /// Validate that a time-varying price source covers every interval in the settlement period.
-    /// Spot prices and supplier margins must have a value for every hour (or 15-min) being settled.
+    /// Spot prices must have a value for every hour (or 15-min) being settled.
     /// </summary>
     public static IReadOnlyList<string> ValidateIntervalCoverage(
         string sourceName,

@@ -16,12 +16,12 @@ public class SupplierMarginConfiguration : IEntityTypeConfiguration<SupplierMarg
         builder.Property(m => m.UpdatedAt).HasColumnName("updated_at");
 
         builder.Property(m => m.SupplierProductId).HasColumnName("supplier_product_id").IsRequired();
-        builder.Property(m => m.Timestamp).HasColumnName("timestamp").IsRequired();
+        builder.Property(m => m.ValidFrom).HasColumnName("valid_from").IsRequired();
         builder.Property(m => m.PriceDkkPerKwh).HasColumnName("price_dkk_per_kwh").HasPrecision(18, 6);
 
         builder.HasOne(m => m.SupplierProduct).WithMany().HasForeignKey(m => m.SupplierProductId).OnDelete(DeleteBehavior.Restrict);
 
-        builder.HasIndex(m => new { m.SupplierProductId, m.Timestamp }).IsUnique();
+        builder.HasIndex(m => new { m.SupplierProductId, m.ValidFrom }).IsUnique();
 
         builder.Ignore(m => m.DomainEvents);
     }

@@ -1035,21 +1035,22 @@ public static class SimulationEndpoints
                 .FirstOrDefaultAsync(p => p.SupplierIdentityId == identity.Id && p.Name == "Simulation Spot");
             if (defaultProduct is null)
             {
-                defaultProduct = SupplierProduct.Create(identity.Id, "Simulation Spot", "Simuleret spotprodukt");
+                defaultProduct = SupplierProduct.Create(identity.Id, "Simulation Spot",
+                    Domain.Enums.PricingModel.SpotAddon, "Simuleret spotprodukt");
                 db.SupplierProducts.Add(defaultProduct);
                 await db.SaveChangesAsync(); // Need ID for margin FK
             }
 
-            var marginPoints = new List<(DateTimeOffset Timestamp, decimal PriceDkkPerKwh)>();
-            for (int h = 0; h < totalHours; h++)
+            // Single rate effective from the period start (not hourly expansion)
+            var marginRates = new List<(DateTimeOffset ValidFrom, decimal PriceDkkPerKwh)>
             {
-                marginPoints.Add((effectiveDate.AddHours(h), 0.15m)); // 15 øre/kWh
-            }
+                (effectiveDate, 0.15m) // 15 øre/kWh addon
+            };
 
             var existingMargins = await db.SupplierMargins
-                .Where(m => m.SupplierProductId == defaultProduct.Id && m.Timestamp >= effectiveDate && m.Timestamp < endDate)
-                .ToDictionaryAsync(m => m.Timestamp);
-            var marginResult = SupplierMarginService.Upsert(defaultProduct.Id, marginPoints, existingMargins, e => db.SupplierMargins.Add(e));
+                .Where(m => m.SupplierProductId == defaultProduct.Id)
+                .ToDictionaryAsync(m => m.ValidFrom);
+            var marginResult = SupplierMarginService.Upsert(defaultProduct.Id, marginRates, existingMargins, e => db.SupplierMargins.Add(e));
 
             await db.SaveChangesAsync();
 

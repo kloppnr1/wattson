@@ -127,7 +127,9 @@ public static class MigrationEndpoints
                     .FirstOrDefaultAsync(x => x.SupplierIdentityId == req.SupplierIdentityId && x.Name == p.Name);
                 if (existing is not null) { skipped++; continue; }
 
-                var product = SupplierProduct.Create(req.SupplierIdentityId, p.Name, p.Description);
+                var pricingModel = Enum.TryParse<Domain.Enums.PricingModel>(p.PricingModel, true, out var pm)
+                    ? pm : Domain.Enums.PricingModel.SpotAddon;
+                var product = SupplierProduct.Create(req.SupplierIdentityId, p.Name, pricingModel, p.Description);
                 if (!p.IsActive) product.Deactivate();
                 db.SupplierProducts.Add(product);
                 created++;
@@ -309,17 +311,17 @@ public static class MigrationEndpoints
             if (product is null)
                 return Results.BadRequest(new { error = "SupplierProduct not found" });
 
-            var timestamps = req.Points.Select(p => p.Timestamp).ToList();
-            if (timestamps.Count == 0)
-                return Results.BadRequest(new { error = "Points required" });
+            if (req.Rates == null || req.Rates.Count == 0)
+                return Results.BadRequest(new { error = "Rates required" });
 
+            var validFroms = req.Rates.Select(r => r.ValidFrom).ToList();
             var existing = await db.SupplierMargins
                 .Where(m => m.SupplierProductId == req.SupplierProductId &&
-                             m.Timestamp >= timestamps.Min() && m.Timestamp <= timestamps.Max())
-                .ToDictionaryAsync(m => m.Timestamp);
+                             m.ValidFrom >= validFroms.Min() && m.ValidFrom <= validFroms.Max())
+                .ToDictionaryAsync(m => m.ValidFrom);
 
-            var points = req.Points.Select(p => (p.Timestamp, p.PriceDkkPerKwh)).ToList();
-            var result = SupplierMarginService.Upsert(req.SupplierProductId, points, existing, e => db.SupplierMargins.Add(e));
+            var rates = req.Rates.Select(r => (r.ValidFrom, r.PriceDkkPerKwh)).ToList();
+            var result = SupplierMarginService.Upsert(req.SupplierProductId, rates, existing, e => db.SupplierMargins.Add(e));
 
             await db.SaveChangesAsync();
 
@@ -468,6 +470,7 @@ record MigrationSupplierProductBatchRequest(
 record MigrationSupplierProductDto(
     string Name,
     string? Description,
+    string PricingModel = "SpotAddon",
     bool IsActive = true);
 
 record MigrationSupplyProductPeriodBatchRequest(
@@ -504,7 +507,7 @@ record MigrationSpotPriceBatchDto(
 
 record MigrationSupplierMarginBatchRequest(
     Guid SupplierProductId,
-    List<MarginPointDto> Points);
+    List<MarginRateDto> Rates);
 
 record MigrationTimeSeriesBatchRequest(
     List<MigrationTimeSeriesDto> TimeSeries);

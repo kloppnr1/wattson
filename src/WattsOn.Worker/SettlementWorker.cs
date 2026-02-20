@@ -138,15 +138,22 @@ public class SettlementWorker : BackgroundService
             .Where(pp => pp.Period.End == null || pp.Period.End > timeSeries.Period.Start)
             .FirstOrDefaultAsync(ct);
 
-        var supplierMargins = activeProductPeriod is not null
-            ? await db.SupplierMargins
-                .Where(m => m.SupplierProductId == activeProductPeriod.SupplierProductId)
-                .Where(m => m.Timestamp >= timeSeries.Period.Start && m.Timestamp < periodEnd)
-                .OrderBy(m => m.Timestamp)
-                .ToListAsync(ct)
-            : new List<SupplierMargin>();
+        SupplierMargin? activeMargin = null;
+        var pricingModel = PricingModel.SpotAddon;
 
-        if (activeProductPeriod is null)
+        if (activeProductPeriod is not null)
+        {
+            var product = await db.SupplierProducts.FindAsync(activeProductPeriod.SupplierProductId, ct);
+            pricingModel = product?.PricingModel ?? PricingModel.SpotAddon;
+
+            // Find the active margin rate: latest ValidFrom <= settlement period start
+            activeMargin = await db.SupplierMargins
+                .Where(m => m.SupplierProductId == activeProductPeriod.SupplierProductId)
+                .Where(m => m.ValidFrom <= timeSeries.Period.Start)
+                .OrderByDescending(m => m.ValidFrom)
+                .FirstOrDefaultAsync(ct);
+        }
+        else
         {
             _logger.LogWarning("No active product on supply {SupplyId} at {PeriodStart} — settlement will have no margin",
                 supply.Id, timeSeries.Period.Start);
@@ -154,7 +161,7 @@ public class SettlementWorker : BackgroundService
 
         // Validate all price sources
         var validationIssues = SettlementValidator.Validate(
-            datahubPrices, spotPrices, supplierMargins,
+            datahubPrices, spotPrices, activeMargin, pricingModel,
             timeSeries.Period.Start, periodEnd, timeSeries.Resolution);
 
         if (validationIssues.Count > 0)
@@ -205,7 +212,7 @@ public class SettlementWorker : BackgroundService
             existingInvoicedSettlement.MarkAdjusted();
 
             var correction = SettlementCalculator.CalculateCorrection(
-                timeSeries, supply, existingInvoicedSettlement, datahubPrices, spotPrices, supplierMargins);
+                timeSeries, supply, existingInvoicedSettlement, datahubPrices, spotPrices, activeMargin, pricingModel);
 
             db.Settlements.Add(correction);
 
@@ -219,7 +226,7 @@ public class SettlementWorker : BackgroundService
         {
             // Normal flow: calculate new settlement
             var settlement = SettlementCalculator.Calculate(
-                timeSeries, supply, datahubPrices, spotPrices, supplierMargins);
+                timeSeries, supply, datahubPrices, spotPrices, activeMargin, pricingModel);
 
             db.Settlements.Add(settlement);
 

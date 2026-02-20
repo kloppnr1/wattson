@@ -111,38 +111,25 @@ public static class SpotPriceEndpoints
 
         // ==================== LEVERANDØRMARGIN ====================
 
-        app.MapGet("/api/supplier-margins", async (Guid? supplierProductId, string? date, int? days, WattsOnDbContext db) =>
+        app.MapGet("/api/supplier-margins", async (Guid? supplierProductId, WattsOnDbContext db) =>
         {
             IQueryable<SupplierMargin> query = db.SupplierMargins.AsNoTracking();
 
             if (supplierProductId.HasValue)
                 query = query.Where(m => m.SupplierProductId == supplierProductId.Value);
 
-            if (!string.IsNullOrEmpty(date) && DateTimeOffset.TryParse(date, out var parsedDate))
-            {
-                var startUtc = new DateTimeOffset(parsedDate.Year, parsedDate.Month, parsedDate.Day,
-                    0, 0, 0, TimeSpan.FromHours(1)).ToUniversalTime();
-                var endUtc = startUtc.AddDays(1);
-                query = query.Where(m => m.Timestamp >= startUtc && m.Timestamp < endUtc);
-            }
-            else
-            {
-                var since = DateTimeOffset.UtcNow.AddDays(-(days ?? 30));
-                query = query.Where(m => m.Timestamp >= since);
-            }
-
-            var points = await query
-                .OrderBy(m => m.Timestamp)
-                .Select(m => new { m.SupplierProductId, m.Timestamp, m.PriceDkkPerKwh })
-                .Take(5000)
+            var rows = await query
+                .OrderBy(m => m.ValidFrom)
+                .Select(m => new { m.Id, m.SupplierProductId, m.ValidFrom, m.PriceDkkPerKwh })
                 .ToListAsync();
 
-            return Results.Ok(new { totalRecords = await query.CountAsync(), rows = points });
+            return Results.Ok(new { totalRecords = rows.Count, rows });
         }).WithName("GetSupplierMargins");
 
         /// <summary>
         /// Bulk upsert supplier margins for a supplier product.
-        /// Inserts new points, updates existing ones (matched by product + timestamp).
+        /// Inserts new rates, updates existing ones (matched by product + validFrom).
+        /// Each entry represents a rate effective from that date until the next entry.
         /// </summary>
         app.MapPost("/api/supplier-margins", async (UpsertSupplierMarginsRequest req, WattsOnDbContext db) =>
         {
@@ -150,16 +137,16 @@ public static class SpotPriceEndpoints
             if (product is null)
                 return Results.BadRequest(new { error = "SupplierProduct not found" });
 
-            if (req.Points == null || req.Points.Count == 0)
-                return Results.BadRequest(new { error = "Points required" });
+            if (req.Rates == null || req.Rates.Count == 0)
+                return Results.BadRequest(new { error = "Rates required" });
 
-            var timestamps = req.Points.Select(p => p.Timestamp).ToList();
+            var validFroms = req.Rates.Select(r => r.ValidFrom).ToList();
             var existing = await db.SupplierMargins
-                .Where(m => m.SupplierProductId == req.SupplierProductId && m.Timestamp >= timestamps.Min() && m.Timestamp <= timestamps.Max())
-                .ToDictionaryAsync(m => m.Timestamp);
+                .Where(m => m.SupplierProductId == req.SupplierProductId && m.ValidFrom >= validFroms.Min() && m.ValidFrom <= validFroms.Max())
+                .ToDictionaryAsync(m => m.ValidFrom);
 
-            var points = req.Points.Select(p => (p.Timestamp, p.PriceDkkPerKwh)).ToList();
-            var result = SupplierMarginService.Upsert(req.SupplierProductId, points, existing, e => db.SupplierMargins.Add(e));
+            var rates = req.Rates.Select(r => (r.ValidFrom, r.PriceDkkPerKwh)).ToList();
+            var result = SupplierMarginService.Upsert(req.SupplierProductId, rates, existing, e => db.SupplierMargins.Add(e));
 
             await db.SaveChangesAsync();
 

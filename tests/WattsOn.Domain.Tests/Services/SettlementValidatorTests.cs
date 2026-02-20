@@ -49,16 +49,9 @@ public class SettlementValidatorTests
         return prices;
     }
 
-    private static List<SupplierMargin> CreateHourlyMargins(Guid supplierProductId, DateTimeOffset start, DateTimeOffset end)
+    private static SupplierMargin CreateActiveMargin(decimal priceDkkPerKwh = 0.15m)
     {
-        var margins = new List<SupplierMargin>();
-        var current = start;
-        while (current < end)
-        {
-            margins.Add(SupplierMargin.Create(supplierProductId, current, 0.15m));
-            current = current.AddHours(1);
-        }
-        return margins;
+        return SupplierMargin.Create(Guid.NewGuid(), Jan1.AddMonths(-1), priceDkkPerKwh);
     }
 
     // --- DataHub category validation ---
@@ -90,7 +83,6 @@ public class SettlementValidatorTests
     [Fact]
     public void ValidateDataHubCategories_ProductionChargeIds_WorksByCategory()
     {
-        // Prove it works with any charge ID — validation is by category, not prefix
         var prices = AllRequiredDataHubPrices();
         var missing = SettlementValidator.ValidateDataHubCategories(prices);
         Assert.Empty(missing);
@@ -131,42 +123,85 @@ public class SettlementValidatorTests
     [Fact]
     public void ValidateIntervalCoverage_MissingHours_ReportsCount()
     {
-        // Only first 12 hours covered
         var partial = CreateHourlySpotPrices(Jan1, Jan1.AddHours(12))
             .Select(s => s.Timestamp).ToHashSet();
         var issues = SettlementValidator.ValidateIntervalCoverage(
-            "Leverandørmargin", partial, Jan1, Jan2, Resolution.PT1H);
+            "Spotpris", partial, Jan1, Jan2, Resolution.PT1H);
         Assert.Single(issues);
-        Assert.Contains("12 intervaller", issues[0]); // 24 hours - 12 covered = 12 missing
+        Assert.Contains("12 intervaller", issues[0]);
     }
 
-    // --- Full validation ---
+    // --- Full validation (SpotAddon) ---
 
     [Fact]
-    public void Validate_AllPresent_ReturnsEmpty()
+    public void Validate_SpotAddon_AllPresent_ReturnsEmpty()
     {
         var datahubPrices = AllRequiredDataHubPrices();
         var spotPrices = CreateHourlySpotPrices(Jan1, Jan2);
-        var margins = CreateHourlyMargins(Guid.NewGuid(), Jan1, Jan2);
+        var activeMargin = CreateActiveMargin();
 
         var issues = SettlementValidator.Validate(
-            datahubPrices, spotPrices, margins, Jan1, Jan2, Resolution.PT1H);
+            datahubPrices, spotPrices, activeMargin, PricingModel.SpotAddon,
+            Jan1, Jan2, Resolution.PT1H);
         Assert.Empty(issues);
     }
 
     [Fact]
-    public void Validate_MissingSpotAndDataHub_ReturnsMultipleIssues()
+    public void Validate_SpotAddon_MissingSpotAndDataHub_ReturnsMultipleIssues()
     {
-        var margins = CreateHourlyMargins(Guid.NewGuid(), Jan1, Jan2);
+        var activeMargin = CreateActiveMargin();
 
         var issues = SettlementValidator.Validate(
             Array.Empty<PriceWithPoints>(),
             Array.Empty<SpotPrice>(),
-            margins,
+            activeMargin,
+            PricingModel.SpotAddon,
             Jan1, Jan2, Resolution.PT1H);
 
         // 5 missing DataHub categories + 1 spot coverage issue
         Assert.True(issues.Count >= 6);
+    }
+
+    [Fact]
+    public void Validate_SpotAddon_MissingMargin_ReportsIssue()
+    {
+        var datahubPrices = AllRequiredDataHubPrices();
+        var spotPrices = CreateHourlySpotPrices(Jan1, Jan2);
+
+        var issues = SettlementValidator.Validate(
+            datahubPrices, spotPrices, null, PricingModel.SpotAddon,
+            Jan1, Jan2, Resolution.PT1H);
+
+        Assert.Single(issues);
+        Assert.Contains("Leverandørmargin", issues[0]);
+    }
+
+    // --- Full validation (Fixed) ---
+
+    [Fact]
+    public void Validate_Fixed_NoSpotRequired_ReturnsEmpty()
+    {
+        var datahubPrices = AllRequiredDataHubPrices();
+        var activeMargin = CreateActiveMargin(0.85m); // 85 øre/kWh fixed price
+
+        var issues = SettlementValidator.Validate(
+            datahubPrices, Array.Empty<SpotPrice>(), activeMargin, PricingModel.Fixed,
+            Jan1, Jan2, Resolution.PT1H);
+
+        Assert.Empty(issues); // No spot prices needed for fixed products
+    }
+
+    [Fact]
+    public void Validate_Fixed_MissingMargin_ReportsIssue()
+    {
+        var datahubPrices = AllRequiredDataHubPrices();
+
+        var issues = SettlementValidator.Validate(
+            datahubPrices, Array.Empty<SpotPrice>(), null, PricingModel.Fixed,
+            Jan1, Jan2, Resolution.PT1H);
+
+        Assert.Single(issues);
+        Assert.Contains("Leverandørmargin", issues[0]);
     }
 
     // --- DataHub price point coverage ---

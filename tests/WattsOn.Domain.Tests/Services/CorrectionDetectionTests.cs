@@ -94,7 +94,7 @@ public class CorrectionDetectionTests
 
         // Step 1: Original settlement (1.0 kWh/h)
         var originalTs = CreateTimeSeries(1.0m, version: 1);
-        var original = SettlementCalculator.Calculate(originalTs, supply, prices, Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
+        var original = SettlementCalculator.Calculate(originalTs, supply, prices, Array.Empty<SpotPrice>());
 
         Assert.Equal(SettlementStatus.Calculated, original.Status);
         Assert.False(original.IsCorrection);
@@ -117,7 +117,7 @@ public class CorrectionDetectionTests
 
         // Step 5: Calculate correction
         var correction = SettlementCalculator.CalculateCorrection(
-            correctedTs, supply, original, prices, Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
+            correctedTs, supply, original, prices, Array.Empty<SpotPrice>());
 
         Assert.True(correction.IsCorrection);
         Assert.Equal(original.Id, correction.PreviousSettlementId);
@@ -140,7 +140,7 @@ public class CorrectionDetectionTests
 
         // Original: 1.5 kWh/h
         var originalTs = CreateTimeSeries(1.5m, version: 1);
-        var original = SettlementCalculator.Calculate(originalTs, supply, prices, Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
+        var original = SettlementCalculator.Calculate(originalTs, supply, prices, Array.Empty<SpotPrice>());
         original.MarkInvoiced("INV-2026-0043");
         original.MarkAdjusted();
 
@@ -148,7 +148,7 @@ public class CorrectionDetectionTests
         var correctedTs = CreateTimeSeries(1.2m, version: 2);
 
         var correction = SettlementCalculator.CalculateCorrection(
-            correctedTs, supply, original, prices, Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
+            correctedTs, supply, original, prices, Array.Empty<SpotPrice>());
 
         // Delta should be negative (lower consumption → credit note)
         Assert.True(correction.TotalAmount.Amount < 0);
@@ -163,14 +163,14 @@ public class CorrectionDetectionTests
 
         // Original: 1.0 kWh/h
         var originalTs = CreateTimeSeries(1.0m, version: 1);
-        var original = SettlementCalculator.Calculate(originalTs, supply, prices, Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
+        var original = SettlementCalculator.Calculate(originalTs, supply, prices, Array.Empty<SpotPrice>());
         original.MarkInvoiced("INV-2026-0044");
 
         // Correction: 1.1 kWh/h — only tariff-based lines should have deltas
         var correctedTs = CreateTimeSeries(1.1m, version: 2);
 
         var correction = SettlementCalculator.CalculateCorrection(
-            correctedTs, supply, original, prices, Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
+            correctedTs, supply, original, prices, Array.Empty<SpotPrice>());
 
         // All correction lines should be tariff adjustments (subscription has no energy delta)
         // Subscription uses days, not kWh — so its delta should be zero and excluded
@@ -189,7 +189,7 @@ public class CorrectionDetectionTests
         var prices = new List<PriceWithPoints> { CreateNettarif() };
 
         var originalTs = CreateTimeSeries(1.0m, version: 1);
-        var original = SettlementCalculator.Calculate(originalTs, supply, prices, Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
+        var original = SettlementCalculator.Calculate(originalTs, supply, prices, Array.Empty<SpotPrice>());
         original.MarkInvoiced("INV-ORIGINAL-REF");
         original.MarkAdjusted();
 
@@ -203,7 +203,7 @@ public class CorrectionDetectionTests
     {
         var supply = CreateSupply();
         var original = SettlementCalculator.Calculate(
-            CreateTimeSeries(1.0m, 1), supply, new List<PriceWithPoints> { CreateNettarif() }, Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
+            CreateTimeSeries(1.0m, 1), supply, new List<PriceWithPoints> { CreateNettarif() }, Array.Empty<SpotPrice>());
 
         // Cannot mark as adjusted without being invoiced first
         Assert.Throws<InvalidOperationException>(() => original.MarkAdjusted());
@@ -233,14 +233,14 @@ public class CorrectionDetectionTests
 
         // Original: 1.0 kWh/h for February (672 hours)
         var originalTs = CreateTimeSeries(1.0m, version: 1);
-        var original = SettlementCalculator.Calculate(originalTs, supply, prices, Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
+        var original = SettlementCalculator.Calculate(originalTs, supply, prices, Array.Empty<SpotPrice>());
         original.MarkInvoiced("INV-MULTI");
 
         // Correction: 1.2 kWh/h (20% more)
         var correctedTs = CreateTimeSeries(1.2m, version: 2);
 
         var correction = SettlementCalculator.CalculateCorrection(
-            correctedTs, supply, original, prices, Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
+            correctedTs, supply, original, prices, Array.Empty<SpotPrice>());
 
         Assert.Equal(2, correction.Lines.Count);
 
@@ -267,7 +267,7 @@ public class CorrectionDetectionTests
     {
         var supply = CreateSupply();
         var ts = CreateTimeSeries(1.0m, 1);
-        var settlement = SettlementCalculator.Calculate(ts, supply, AllPrices(), Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
+        var settlement = SettlementCalculator.Calculate(ts, supply, AllPrices(), Array.Empty<SpotPrice>());
 
         var before = DateTimeOffset.UtcNow;
         settlement.MarkInvoiced("INV-2026-0001");
@@ -284,7 +284,7 @@ public class CorrectionDetectionTests
     {
         var supply = CreateSupply();
         var ts = CreateTimeSeries(1.0m, 1);
-        var settlement = SettlementCalculator.Calculate(ts, supply, new List<PriceWithPoints> { CreateNettarif() }, Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
+        var settlement = SettlementCalculator.Calculate(ts, supply, new List<PriceWithPoints> { CreateNettarif() }, Array.Empty<SpotPrice>());
 
         settlement.MarkInvoiced("INV-FIRST");
 
@@ -299,13 +299,13 @@ public class CorrectionDetectionTests
         var prices = new List<PriceWithPoints> { CreateNettarif() };
 
         var originalTs = CreateTimeSeries(1.0m, version: 1);
-        var original = SettlementCalculator.Calculate(originalTs, supply, prices, Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
+        var original = SettlementCalculator.Calculate(originalTs, supply, prices, Array.Empty<SpotPrice>());
         original.MarkInvoiced("INV-ORIG");
         original.MarkAdjusted();
 
         var correctedTs = CreateTimeSeries(1.1m, version: 2);
         var correction = SettlementCalculator.CalculateCorrection(
-            correctedTs, supply, original, prices, Array.Empty<SpotPrice>(), Array.Empty<SupplierMargin>());
+            correctedTs, supply, original, prices, Array.Empty<SpotPrice>());
 
         // Correction starts as Calculated — can be invoiced by external system
         Assert.Equal(SettlementStatus.Calculated, correction.Status);
