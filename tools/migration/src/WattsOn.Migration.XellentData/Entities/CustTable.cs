@@ -89,6 +89,7 @@ public class CustTable
     [StringLength(8)]
     public string ExuCvrDisponent2 { get; set; } = null!;
 
+    [Key]
     [Column("RECID")]
     public long Recid { get; set; }
 

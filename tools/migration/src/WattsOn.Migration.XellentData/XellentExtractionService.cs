@@ -17,6 +17,7 @@ public class XellentExtractionService
     private const string DataAreaId = "hol";
     private const string DeliveryCategory = "El-ekstern";
     private static readonly DateTime NoEndDate = new(1900, 1, 1);
+    private static readonly TimeZoneInfo DanishTz = TimeZoneInfo.FindSystemTimeZoneById("Central European Standard Time");
 
     public XellentExtractionService(XellentDbContext db, ILogger<XellentExtractionService> logger)
     {
@@ -75,21 +76,21 @@ public class XellentExtractionService
                     Phone = NullIfEmpty(first.Customer.Phone) ?? NullIfEmpty(first.Customer.Cellularphone),
                 };
 
-                // Group metering points
+                // Group metering points — use GSRN if available, fall back to METERINGPOINT
                 var mps = g
-                    .GroupBy(d => d.Delpoint.Gsrn)
+                    .GroupBy(d => GetGsrn(d.Delpoint))
                     .Where(mg => !string.IsNullOrEmpty(mg.Key))
                     .Select(mg =>
                     {
                         var firstMp = mg.First();
                         var mp = new ExtractedMeteringPoint
                         {
-                            Gsrn = firstMp.Delpoint.Gsrn,
+                            Gsrn = GetGsrn(firstMp.Delpoint),
                             GridArea = MapGridArea(firstMp.Delpoint.Powerexchangearea),
-                            SupplyStart = firstMp.Contract.Contractstartdate,
+                            SupplyStart = ToUtc(firstMp.Contract.Contractstartdate),
                             SupplyEnd = firstMp.Contract.Contractenddate == NoEndDate
                                 ? null
-                                : firstMp.Contract.Contractenddate,
+                                : ToUtc(firstMp.Contract.Contractenddate),
                         };
 
                         // Product periods from contract parts
@@ -98,8 +99,8 @@ public class XellentExtractionService
                             .Select(d => new ExtractedProductPeriod
                             {
                                 ProductName = d.ContractPart.Productnum,
-                                Start = d.ContractPart.Startdate,
-                                End = d.ContractPart.Enddate == NoEndDate ? null : d.ContractPart.Enddate,
+                                Start = ToUtc(d.ContractPart.Startdate),
+                                End = d.ContractPart.Enddate == NoEndDate ? null : ToUtc(d.ContractPart.Enddate),
                             })
                             .DistinctBy(pp => (pp.ProductName, pp.Start))
                             .OrderBy(pp => pp.Start)
@@ -161,7 +162,7 @@ public class XellentExtractionService
                 Name = productNum,
                 Rates = rates.Select(r => new ExtractedRate
                 {
-                    StartDate = r.Startdate,
+                    StartDate = ToUtc(r.Startdate),
                     RateDkkPerKwh = r.Rate,
                 }).ToList()
             });
@@ -201,12 +202,12 @@ public class XellentExtractionService
                 result.Add(new ExtractedTimeSeries
                 {
                     Gsrn = gsrn,
-                    PeriodStart = values.First().Timeofvalue,
-                    PeriodEnd = values.Last().Timeofvalue.AddHours(1),
+                    PeriodStart = ToUtc(values.First().Timeofvalue),
+                    PeriodEnd = ToUtc(values.Last().Timeofvalue.AddHours(1)),
                     Resolution = ts.Timeresolution == 60 ? "PT1H" : "PT15M",
                     Observations = values.Select(v => new ExtractedObservation
                     {
-                        Timestamp = v.Timeofvalue,
+                        Timestamp = ToUtc(v.Timeofvalue),
                         Kwh = v.Value,
                         Quality = MapQuality(v.Qualityofvalue)
                     }).ToList()
@@ -346,11 +347,24 @@ public class XellentExtractionService
         return tariffLines;
     }
 
+    /// <summary>
+    /// Get the GSRN — prefer the GSRN column, fall back to METERINGPOINT.
+    /// Xellent stores the 18-digit number in METERINGPOINT for older records.
+    /// </summary>
+    private static string GetGsrn(ExuDelpoint delpoint)
+    {
+        var gsrn = delpoint.Gsrn?.Trim();
+        if (!string.IsNullOrEmpty(gsrn)) return gsrn;
+        return delpoint.Meteringpoint?.Trim() ?? "";
+    }
+
     private static string MapGridArea(string powerExchangeArea)
         => powerExchangeArea?.Trim() switch
         {
             "DK1" => "DK1",
             "DK2" => "DK2",
+            "DK Vest" => "DK1",
+            "DK Øst" => "DK2",
             _ => "DK1" // Default
         };
 
@@ -361,6 +375,17 @@ public class XellentExtractionService
             56 => "A02",  // Estimated
             _ => "A01"
         };
+
+    /// <summary>
+    /// Convert a Danish local DateTime to UTC DateTimeOffset.
+    /// Xellent stores all dates in Danish local time (CET/CEST).
+    /// </summary>
+    private static DateTimeOffset ToUtc(DateTime localDate)
+    {
+        if (localDate.Kind == DateTimeKind.Utc) return localDate;
+        var offset = DanishTz.GetUtcOffset(localDate);
+        return new DateTimeOffset(DateTime.SpecifyKind(localDate, DateTimeKind.Unspecified), offset).ToUniversalTime();
+    }
 
     private static string? NullIfEmpty(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

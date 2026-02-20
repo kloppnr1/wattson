@@ -81,7 +81,7 @@ rootCommand.SetHandler(async (context) =>
     services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Information));
 
     services.AddDbContext<XellentDbContext>(options =>
-        options.UseSqlServer(xellentConnection));
+        options.UseSqlServer(xellentConnection, o => o.UseCompatibilityLevel(110)));
 
     services.AddHttpClient<WattsOnMigrationClient>(client =>
         client.BaseAddress = new Uri(wattsOnUrl));
@@ -159,12 +159,13 @@ rootCommand.SetHandler(async (context) =>
                 meteringPoints = c.MeteringPoints.Select(mp => new
                 {
                     gsrn = mp.Gsrn,
-                    type = "Consumption",
-                    art = "Physical",
-                    settlementMethod = mp.SettlementMethod,
+                    type = "Forbrug",
+                    art = "Fysisk",
+                    settlementMethod = "Flex",
                     gridArea = mp.GridArea,
                     gridOperatorGln = mp.GridOperatorGln,
-                    supplyStart = mp.SupplyStart
+                    supplyStart = mp.SupplyStart,
+                    supplyEnd = mp.SupplyEnd
                 }).ToList()
             }).ToList()
         };

@@ -85,8 +85,10 @@ public static class MigrationEndpoints
 
                     if (mp.SupplyStart.HasValue)
                     {
-                        var supply = Supply.Create(meteringPoint.Id, customer.Id,
-                            Period.From(mp.SupplyStart.Value));
+                        var period = mp.SupplyEnd.HasValue
+                            ? Period.Create(mp.SupplyStart.Value, mp.SupplyEnd.Value)
+                            : Period.From(mp.SupplyStart.Value);
+                        var supply = Supply.Create(meteringPoint.Id, customer.Id, period);
                         db.Supplies.Add(supply);
                         suppliesCreated++;
                     }
@@ -572,7 +574,8 @@ record MigrationMeteringPointDto(
     string? Resolution,       // PT1H, PT15M — defaults to PT1H
     string? GridArea,
     string? GridOperatorGln,
-    DateTimeOffset? SupplyStart);
+    DateTimeOffset? SupplyStart,
+    DateTimeOffset? SupplyEnd = null);
 
 record MigrationSupplierProductBatchRequest(
     Guid SupplierIdentityId,
