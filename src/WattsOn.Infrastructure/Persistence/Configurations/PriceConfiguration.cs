@@ -17,6 +17,7 @@ public class PrisConfiguration : IEntityTypeConfiguration<Price>
 
         builder.Property(p => p.ChargeId).HasColumnName("charge_id").HasMaxLength(50).IsRequired();
         builder.Property(p => p.Type).HasColumnName("type").HasConversion<string>().HasMaxLength(30);
+        builder.Property(p => p.Category).HasColumnName("category").HasConversion<string>().HasMaxLength(30);
         builder.Property(p => p.Description).HasColumnName("description").HasMaxLength(500).IsRequired();
         builder.Property(p => p.VatExempt).HasColumnName("vat_exempt");
         builder.Property(p => p.IsTax).HasColumnName("is_tax");

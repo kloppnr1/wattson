@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using WattsOn.Domain.Entities;
 using WattsOn.Domain.Enums;
 using WattsOn.Domain.Messaging;
 using WattsOn.Domain.Services;
@@ -38,6 +39,9 @@ internal class Brs031InboxHandler
                 var priceType = Enum.Parse<PriceType>(priceTypeStr, ignoreCase: true);
                 var resolution = Enum.Parse<Resolution>(resolutionStr, ignoreCase: true);
 
+                // Classify what settlement role this price plays
+                var category = ClassifyPrice(payload, priceType, isTax, ownerGln.Value, message.SenderGln);
+
                 // Find existing price by ChargeId + OwnerGln
                 var existingPrice = await db.Prices
                     .Include(p => p.PricePoints)
@@ -46,13 +50,13 @@ internal class Brs031InboxHandler
 
                 var result = Brs031Handler.ProcessPriceInformation(
                     chargeId, ownerGln, priceType, description, effectiveDate, stopDate,
-                    resolution, vatExempt, isTax, isPassThrough, existingPrice);
+                    resolution, vatExempt, isTax, isPassThrough, existingPrice, category);
 
                 if (result.IsNew)
                     db.Prices.Add(result.Price);
 
-                _logger.LogInformation("{Brs} D18: {Action} price info {ChargeId} for {OwnerGln}",
-                    brs, result.IsNew ? "Created" : "Updated", chargeId, ownerGln);
+                _logger.LogInformation("{Brs} D18: {Action} price info {ChargeId} for {OwnerGln} (category={Category})",
+                    brs, result.IsNew ? "Created" : "Updated", chargeId, ownerGln, category);
                 break;
             }
 
@@ -139,5 +143,38 @@ internal class Brs031InboxHandler
                 _logger.LogInformation("{Brs}: Unknown business reason '{Reason}' — skipping", brs, businessReason);
                 break;
         }
+    }
+
+    /// <summary>
+    /// Auto-classify a price's settlement category from available metadata.
+    /// Uses explicit "category" field (if present in payload), then falls back to
+    /// heuristics: IsTax → Elafgift, owner = recipient (supplier) → Leverandørtillæg,
+    /// Abonnement from grid → NetAbonnement.
+    /// For TSO tariffs (system/transmission/balance) that share the same owner GLN,
+    /// classification relies on the payload carrying a "category" field or defaults to Andet.
+    /// </summary>
+    internal static PriceCategory ClassifyPrice(
+        JsonElement payload, PriceType priceType, bool isTax,
+        string ownerGln, string recipientGln)
+    {
+        // 1. Explicit category in payload (simulation or enriched messages)
+        var explicit_ = PayloadParser.GetString(payload, "category");
+        if (explicit_ != null && Enum.TryParse<PriceCategory>(explicit_, ignoreCase: true, out var parsed))
+            return parsed;
+
+        // 2. Tax tariff → Elafgift
+        if (isTax && priceType == PriceType.Tarif)
+            return PriceCategory.Elafgift;
+
+        // 3. Owner matches recipient (the supplier themselves) → supplier margin
+        if (ownerGln == recipientGln)
+            return PriceCategory.Leverandørtillæg;
+
+        // 4. Subscription from a grid company → NetAbonnement
+        if (priceType == PriceType.Abonnement)
+            return PriceCategory.NetAbonnement;
+
+        // 5. Can't distinguish system/transmission/balance/nettarif without more info
+        return PriceCategory.Andet;
     }
 }

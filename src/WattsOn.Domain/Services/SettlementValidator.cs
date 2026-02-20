@@ -8,43 +8,38 @@ namespace WattsOn.Domain.Services;
 /// before settlement calculation. A settlement missing mandatory price elements
 /// would produce incorrect amounts for invoicing.
 ///
-/// Required price elements for a Danish consumer metering point:
-/// 1. Spotpris (SPOT-*) — wholesale electricity cost
-/// 2. Nettarif (NET-T-*) — grid company distribution tariff
-/// 3. Systemtarif (SYS-T-*) — TSO system tariff
-/// 4. Transmissionstarif (TRANS-T-*) — TSO transmission tariff
-/// 5. Elafgift (ELAFG-*) — electricity tax
-/// 6. Balancetarif (BAL-T-*) — TSO balance tariff
-/// 7. Leverandørtillæg (MARGIN-*) — supplier margin
+/// Validates by PriceCategory — independent of charge ID format.
+/// Works identically whether charge IDs are simulation-style ("NET-T-DK1")
+/// or production DataHub-style ("40000").
 /// </summary>
 public static class SettlementValidator
 {
     /// <summary>
-    /// Required charge ID prefixes. A metering point must have at least one
-    /// linked price matching each prefix for a settlement to be valid.
+    /// Required price categories for a valid settlement.
+    /// A metering point must have at least one linked price in each category.
     /// </summary>
-    private static readonly (string Prefix, string Name)[] RequiredPriceElements =
+    private static readonly (PriceCategory Category, string Name)[] RequiredPriceCategories =
     [
-        ("SPOT-", "Spotpris"),
-        ("NET-T-", "Nettarif"),
-        ("SYS-T-", "Systemtarif"),
-        ("TRANS-T-", "Transmissionstarif"),
-        ("ELAFG-", "Elafgift"),
-        ("BAL-T-", "Balancetarif"),
-        ("MARGIN-", "Leverandørtillæg"),
+        (PriceCategory.SpotPris, "Spotpris"),
+        (PriceCategory.Nettarif, "Nettarif"),
+        (PriceCategory.Systemtarif, "Systemtarif"),
+        (PriceCategory.Transmissionstarif, "Transmissionstarif"),
+        (PriceCategory.Elafgift, "Elafgift"),
+        (PriceCategory.Balancetarif, "Balancetarif"),
+        (PriceCategory.Leverandørtillæg, "Leverandørtillæg"),
     ];
 
     /// <summary>
-    /// Validate that all required price elements are present in the linked prices.
+    /// Validate that all required price categories are present in the linked prices.
     /// Returns a list of missing element names (empty = all good).
     /// </summary>
     public static IReadOnlyList<string> ValidatePriceCompleteness(IReadOnlyList<PriceWithPoints> activePrices)
     {
         var missing = new List<string>();
 
-        foreach (var (prefix, name) in RequiredPriceElements)
+        foreach (var (category, name) in RequiredPriceCategories)
         {
-            var hasElement = activePrices.Any(p => p.Price.ChargeId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+            var hasElement = activePrices.Any(p => p.Price.Category == category);
             if (!hasElement)
                 missing.Add(name);
         }

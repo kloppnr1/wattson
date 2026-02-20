@@ -41,7 +41,8 @@ public static class Brs031Handler
         bool vatExempt,
         bool isTax,
         bool isPassThrough,
-        Price? existingPrice)
+        Price? existingPrice,
+        PriceCategory category = PriceCategory.Andet)
     {
         var validityPeriod = stopDate.HasValue
             ? Period.Create(effectiveDate, stopDate.Value)
@@ -53,6 +54,8 @@ public static class Brs031Handler
             existingPrice.UpdateValidity(validityPeriod);
             existingPrice.UpdatePriceInfo(description, isTax, isPassThrough);
             existingPrice.UpdateVatExempt(vatExempt);
+            if (category != PriceCategory.Andet)
+                existingPrice.UpdateCategory(category);
             return new PriceInformationResult(existingPrice, false);
         }
 
@@ -66,7 +69,8 @@ public static class Brs031Handler
             vatExempt,
             resolution,
             isTax,
-            isPassThrough);
+            isPassThrough,
+            category);
 
         return new PriceInformationResult(price, true);
     }

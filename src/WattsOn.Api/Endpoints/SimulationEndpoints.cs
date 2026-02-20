@@ -169,7 +169,7 @@ public static class SimulationEndpoints
                 foreach (var pris in allPrices)
                 {
                     // Skip spot prices for wrong grid area
-                    if (pris.ChargeId.StartsWith("SPOT-") && pris.ChargeId != $"SPOT-{req.GridArea ?? "DK1"}")
+                    if (pris.Category == PriceCategory.SpotPris && pris.ChargeId != $"SPOT-{req.GridArea ?? "DK1"}")
                         continue;
 
                     // Create D17 inbox message (same format BRS-037 sends from DataHub)
@@ -398,7 +398,7 @@ public static class SimulationEndpoints
                 foreach (var pris in await db.Prices.ToListAsync())
                 {
                     // Skip spot prices for wrong grid area
-                    if (pris.ChargeId.StartsWith("SPOT-") && pris.ChargeId != $"SPOT-{mp.GridArea}")
+                    if (pris.Category == PriceCategory.SpotPris && pris.ChargeId != $"SPOT-{mp.GridArea}")
                         continue;
 
                     var d17Payload = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, object?>
@@ -754,6 +754,7 @@ public static class SimulationEndpoints
                     Resolution = "PT1H",
                     IsTax = false,
                     IsPassThrough = true,
+                    Category = PriceCategory.Nettarif,
                     // Hourly-differentiated grid tariff (øre/kWh) — Radius-style time-of-use
                     GetHourlyPrice = (Func<int, decimal>)(hour => hour switch
                     {
@@ -771,6 +772,7 @@ public static class SimulationEndpoints
                     Resolution = "PT1H",
                     IsTax = false,
                     IsPassThrough = true,
+                    Category = PriceCategory.Systemtarif,
                     GetHourlyPrice = (Func<int, decimal>)(_ => 0.054m), // Flat 5,4 øre/kWh
                 },
                 new {
@@ -781,6 +783,7 @@ public static class SimulationEndpoints
                     Resolution = "PT1H",
                     IsTax = false,
                     IsPassThrough = true,
+                    Category = PriceCategory.Transmissionstarif,
                     GetHourlyPrice = (Func<int, decimal>)(_ => 0.049m), // Flat 4,9 øre/kWh
                 },
                 new {
@@ -791,6 +794,7 @@ public static class SimulationEndpoints
                     Resolution = "PT1H",
                     IsTax = true,
                     IsPassThrough = true,
+                    Category = PriceCategory.Elafgift,
                     GetHourlyPrice = (Func<int, decimal>)(_ => 0.7610m), // 76,1 øre/kWh (2026 rate)
                 },
                 new {
@@ -801,6 +805,7 @@ public static class SimulationEndpoints
                     Resolution = "PT1H",
                     IsTax = false,
                     IsPassThrough = true,
+                    Category = PriceCategory.Balancetarif,
                     GetHourlyPrice = (Func<int, decimal>)(_ => 0.00229m), // 0,229 øre/kWh
                 },
                 new {
@@ -811,6 +816,7 @@ public static class SimulationEndpoints
                     Resolution = (string?)null!,
                     IsTax = false,
                     IsPassThrough = true,
+                    Category = PriceCategory.NetAbonnement,
                     GetHourlyPrice = (Func<int, decimal>)(_ => 21.56m), // ~258 kr/year ÷ 12
                 },
                 new {
@@ -821,6 +827,7 @@ public static class SimulationEndpoints
                     Resolution = (string?)"PT1H",
                     IsTax = false,
                     IsPassThrough = false, // Own revenue, not pass-through
+                    Category = PriceCategory.Leverandørtillæg,
                     GetHourlyPrice = (Func<int, decimal>)(_ => 0.15m), // 15 øre/kWh
                 },
             };
@@ -989,12 +996,13 @@ public static class SimulationEndpoints
                     price = Price.Create(
                         def.ChargeId, ownerGln, priceType, def.Description,
                         Period.From(effectiveDate), false, resolution,
-                        def.IsTax, def.IsPassThrough);
+                        def.IsTax, def.IsPassThrough, category: def.Category);
                     db.Prices.Add(price);
                 }
                 else
                 {
                     price.UpdatePriceInfo(def.Description, def.IsTax, def.IsPassThrough);
+                    price.UpdateCategory(def.Category);
                     price.UpdateValidity(Period.From(effectiveDate));
                 }
 

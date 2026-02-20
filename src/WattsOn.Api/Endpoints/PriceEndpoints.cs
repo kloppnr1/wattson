@@ -75,8 +75,11 @@ public static class PriceEndpoints
             var resolution = req.PriceResolution != null ? Enum.Parse<Resolution>(req.PriceResolution) : (Resolution?)null;
 
             // Supplier-created prices are never pass-through (they're our own revenue)
+            var category = req.Category != null
+                ? Enum.Parse<PriceCategory>(req.Category, ignoreCase: true)
+                : PriceCategory.Andet;
             var pris = Price.Create(req.ChargeId, ownerGln, type, req.Description, validityPeriod, req.VatExempt, resolution,
-                isTax: false, isPassThrough: false);
+                isTax: false, isPassThrough: false, category: category);
 
             if (req.PricePoints != null)
             {
@@ -110,7 +113,7 @@ public static class PriceEndpoints
             // Find spot price entities
             var spotPrices = await db.Prices
                 .AsNoTracking()
-                .Where(p => p.ChargeId.StartsWith("SPOT-"))
+                .Where(p => p.Category == PriceCategory.SpotPris)
                 .Select(p => new { p.Id, p.ChargeId })
                 .ToListAsync();
 
@@ -173,7 +176,7 @@ public static class PriceEndpoints
         {
             var spotPrices = await db.Prices
                 .AsNoTracking()
-                .Where(p => p.ChargeId.StartsWith("SPOT-"))
+                .Where(p => p.Category == PriceCategory.SpotPris)
                 .Select(p => new { p.Id, p.ChargeId })
                 .ToListAsync();
 

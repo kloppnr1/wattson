@@ -20,6 +20,9 @@ public class Price : Entity
     /// <summary>Type of charge</summary>
     public PriceType Type { get; private set; }
 
+    /// <summary>Settlement role of this price element (spot, nettarif, elafgift, etc.)</summary>
+    public PriceCategory Category { get; private set; }
+
     /// <summary>Human-readable description</summary>
     public string Description { get; private set; } = null!;
 
@@ -53,7 +56,8 @@ public class Price : Entity
         bool vatExempt = false,
         Resolution? priceResolution = null,
         bool isTax = false,
-        bool isPassThrough = true)
+        bool isPassThrough = true,
+        PriceCategory category = PriceCategory.Andet)
     {
         if (isTax && type != PriceType.Tarif)
             throw new InvalidOperationException("Only tariffs can be marked as tax.");
@@ -66,6 +70,7 @@ public class Price : Entity
             ChargeId = chargeId,
             OwnerGln = ownerGln,
             Type = type,
+            Category = category,
             Description = description,
             ValidityPeriod = validityPeriod,
             VatExempt = vatExempt,
@@ -73,6 +78,12 @@ public class Price : Entity
             IsTax = isTax,
             IsPassThrough = isPassThrough
         };
+    }
+
+    public void UpdateCategory(PriceCategory category)
+    {
+        Category = category;
+        MarkUpdated();
     }
 
     public void UpdatePriceInfo(string description, bool? isTax, bool? isPassThrough)

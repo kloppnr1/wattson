@@ -30,7 +30,8 @@ record CreatePrisRequest(
     DateTimeOffset? ValidTo,
     bool VatExempt = false,
     string? PriceResolution = null,
-    List<PricePointDto>? PricePoints = null);
+    List<PricePointDto>? PricePoints = null,
+    string? Category = null);
 
 record CreatePriceLinkRequest(
     Guid MeteringPointId,

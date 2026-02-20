@@ -115,7 +115,8 @@ public class SpotPriceWorker : BackgroundService
             vatExempt: false,
             priceResolution: Resolution.PT15M,
             isTax: false,
-            isPassThrough: true);
+            isPassThrough: true,
+            category: PriceCategory.SpotPris);
 
         db.Prices.Add(price);
         await db.SaveChangesAsync();
