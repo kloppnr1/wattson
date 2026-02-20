@@ -730,6 +730,7 @@ public static class SimulationEndpoints
         /// - Elafgift (electricity tax)
         /// - Balancetarif for forbrug (balance tariff)
         /// - Net abonnement (grid subscription)
+        /// - Leverandørmargin (supplier margin, our own revenue)
         /// Each price gets a D18 (masterdata) + D08 (price points) inbox message.
         /// </summary>
         app.MapPost("/api/simulation/price-update", async (SimulatePriceUpdateRequest req, WattsOnDbContext db) =>
@@ -811,6 +812,16 @@ public static class SimulationEndpoints
                     IsTax = false,
                     IsPassThrough = true,
                     GetHourlyPrice = (Func<int, decimal>)(_ => 21.56m), // ~258 kr/year ÷ 12
+                },
+                new {
+                    ChargeId = "MARGIN-01",
+                    OwnerGln = identity.Gln.Value, // Supplier's own margin
+                    Type = "Tarif",
+                    Description = "Leverandørmargin",
+                    Resolution = (string?)"PT1H",
+                    IsTax = false,
+                    IsPassThrough = false, // Own revenue, not pass-through
+                    GetHourlyPrice = (Func<int, decimal>)(_ => 0.15m), // 15 øre/kWh
                 },
             };
 

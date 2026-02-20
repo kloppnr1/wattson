@@ -33,6 +33,87 @@ public class DataHubClient
     public bool IsSimulationMode => !_settings.IsConfigured;
 
     /// <summary>
+    /// Peek the next message from a DataHub queue.
+    /// Returns null if queue is empty (204/404) or on error.
+    /// </summary>
+    public async Task<DataHubPeekResult?> PeekAsync(string queueEndpoint, CancellationToken ct = default)
+    {
+        if (IsSimulationMode) return null; // No messages in simulation
+
+        var token = await GetTokenAsync(ct);
+        var fullUrl = $"{_settings.BaseUrl}{queueEndpoint}";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, fullUrl);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await _httpClient.SendAsync(request, ct);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "HTTP error peeking {Queue}", queueEndpoint);
+            return null;
+        }
+        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Timeout peeking {Queue}", queueEndpoint);
+            return null;
+        }
+
+        if (response.StatusCode == HttpStatusCode.NoContent || response.StatusCode == HttpStatusCode.NotFound)
+            return null; // Queue empty
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("Peek {Queue} failed: {Status}", queueEndpoint, response.StatusCode);
+            return null;
+        }
+
+        var body = await response.Content.ReadAsStringAsync(ct);
+
+        // Extract message ID from response header or CIM document mRID
+        var messageId = response.Headers.TryGetValues("MessageId", out var values)
+            ? values.FirstOrDefault()
+            : ExtractDocumentMrid(body);
+
+        return new DataHubPeekResult(messageId ?? Guid.NewGuid().ToString(), body);
+    }
+
+    /// <summary>
+    /// Dequeue (acknowledge) a message from DataHub.
+    /// </summary>
+    public async Task<bool> DequeueAsync(string messageId, CancellationToken ct = default)
+    {
+        if (IsSimulationMode) return true;
+
+        var token = await GetTokenAsync(ct);
+        var fullUrl = $"{_settings.BaseUrl}/dequeue/{messageId}";
+
+        using var request = new HttpRequestMessage(HttpMethod.Delete, fullUrl);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await _httpClient.SendAsync(request, ct);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "HTTP error dequeuing message {MessageId}", messageId);
+            return false;
+        }
+        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Timeout dequeuing message {MessageId}", messageId);
+            return false;
+        }
+
+        return response.IsSuccessStatusCode;
+    }
+
+    /// <summary>
     /// Send a CIM JSON message to DataHub.
     /// Returns a result indicating success, rejection, or transient failure.
     /// </summary>
@@ -137,6 +218,24 @@ public class DataHubClient
         return DataHubSendResult.TransientFailure($"Authentication failed: {responseBody}");
     }
 
+    private static string? ExtractDocumentMrid(string cimJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(cimJson);
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                if (prop.Name.EndsWith("_MarketDocument") && prop.Value.TryGetProperty("mRID", out var mrid))
+                    return mrid.GetString();
+            }
+        }
+        catch
+        {
+            // Not valid JSON or unexpected structure — fall through
+        }
+        return null;
+    }
+
     private async Task<string> GetTokenAsync(CancellationToken ct)
     {
         // Return cached token if still valid (with 5 min buffer)
@@ -220,3 +319,6 @@ public enum DataHubSendStatus
     /// <summary>Transient failure (network, 503, auth) — retry with backoff</summary>
     TransientFailure
 }
+
+/// <summary>Result of peeking a message from a DataHub queue.</summary>
+public record DataHubPeekResult(string MessageId, string Payload);

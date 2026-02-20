@@ -35,6 +35,9 @@ public class DataHubSettings
     /// <summary>Batch size per poll cycle</summary>
     public int BatchSize { get; set; } = 10;
 
+    /// <summary>Poll interval for inbox fetcher (seconds). DataHub recommends at least 60s.</summary>
+    public int InboxPollIntervalSeconds { get; set; } = 60;
+
     /// <summary>True when credentials are configured and real sends should happen</summary>
     public bool IsConfigured => !string.IsNullOrEmpty(ClientId) && !string.IsNullOrEmpty(ClientSecret);
 }

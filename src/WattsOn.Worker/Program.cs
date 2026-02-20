@@ -21,6 +21,7 @@ builder.Services.AddHttpClient<DataHubClient>(client =>
     client.DefaultRequestHeaders.Accept.Add(new("application/json"));
 });
 
+builder.Services.AddHostedService<DataHubInboxFetcher>();
 builder.Services.AddHostedService<InboxPollingWorker>();
 builder.Services.AddHostedService<OutboxDispatchWorker>();
 builder.Services.AddHostedService<SettlementWorker>();
