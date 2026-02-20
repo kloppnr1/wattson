@@ -169,7 +169,7 @@ record SpotPricePointDto(DateTimeOffset Timestamp, decimal PriceDkkPerKwh);
 // --- Supplier Margins ---
 
 record UpsertSupplierMarginsRequest(
-    Guid SupplierIdentityId,
+    Guid SupplierProductId,
     List<MarginPointDto> Points);
 
 record MarginPointDto(DateTimeOffset Timestamp, decimal PriceDkkPerKwh);

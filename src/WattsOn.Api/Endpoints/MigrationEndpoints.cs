@@ -107,6 +107,89 @@ public static class MigrationEndpoints
             });
         }).WithName("MigrateCustomers");
 
+        // ==================== PRODUKTER (Supplier products) ====================
+
+        /// <summary>
+        /// Import supplier products (the product catalog).
+        /// Creates products for a supplier identity. Skips existing (matched by name).
+        /// </summary>
+        app.MapPost("/api/migration/supplier-products", async (MigrationSupplierProductBatchRequest req, WattsOnDbContext db) =>
+        {
+            var identity = await db.SupplierIdentities.FindAsync(req.SupplierIdentityId);
+            if (identity is null)
+                return Results.BadRequest(new { error = "SupplierIdentity not found" });
+
+            int created = 0, skipped = 0;
+
+            foreach (var p in req.Products)
+            {
+                var existing = await db.SupplierProducts
+                    .FirstOrDefaultAsync(x => x.SupplierIdentityId == req.SupplierIdentityId && x.Name == p.Name);
+                if (existing is not null) { skipped++; continue; }
+
+                var product = SupplierProduct.Create(req.SupplierIdentityId, p.Name, p.Description);
+                if (!p.IsActive) product.Deactivate();
+                db.SupplierProducts.Add(product);
+                created++;
+            }
+
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new
+            {
+                created,
+                skipped,
+                message = $"Migrering: {created} produkter oprettet, {skipped} sprunget over."
+            });
+        }).WithName("MigrateSupplierProducts");
+
+        // ==================== PRODUKTPERIODER (Supply product periods) ====================
+
+        /// <summary>
+        /// Import product history for supplies — which product was active when.
+        /// Matches supplies by GSRN + customer CPR/CVR.
+        /// </summary>
+        app.MapPost("/api/migration/supply-product-periods", async (MigrationSupplyProductPeriodBatchRequest req, WattsOnDbContext db) =>
+        {
+            int created = 0, skipped = 0;
+
+            foreach (var pp in req.Periods)
+            {
+                // Find supply by GSRN
+                var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == pp.Gsrn);
+                if (mp is null) { skipped++; continue; }
+
+                var supply = await db.Supplies
+                    .Where(s => s.MeteringPointId == mp.Id)
+                    .Where(s => s.SupplyPeriod.Start <= pp.ProductStart)
+                    .Where(s => s.SupplyPeriod.End == null || s.SupplyPeriod.End > pp.ProductStart)
+                    .FirstOrDefaultAsync();
+                if (supply is null) { skipped++; continue; }
+
+                // Find product by name + supplier identity
+                var product = await db.SupplierProducts
+                    .FirstOrDefaultAsync(p => p.Name == pp.ProductName && p.SupplierIdentityId == req.SupplierIdentityId);
+                if (product is null) { skipped++; continue; }
+
+                var period = pp.ProductEnd.HasValue
+                    ? Period.Create(pp.ProductStart, pp.ProductEnd)
+                    : Period.From(pp.ProductStart);
+
+                var spp = SupplyProductPeriod.Create(supply.Id, product.Id, period);
+                db.SupplyProductPeriods.Add(spp);
+                created++;
+            }
+
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new
+            {
+                created,
+                skipped,
+                message = $"Migrering: {created} produktperioder oprettet, {skipped} sprunget over."
+            });
+        }).WithName("MigrateSupplyProductPeriods");
+
         // ==================== DATAHUB-PRISER (Charges with price points) ====================
 
         /// <summary>
@@ -217,32 +300,32 @@ public static class MigrationEndpoints
         // ==================== LEVERANDØRMARGIN ====================
 
         /// <summary>
-        /// Bulk import historical supplier margins.
+        /// Bulk import historical supplier margins for a product.
         /// Delegates to SupplierMarginService for upsert logic.
         /// </summary>
         app.MapPost("/api/migration/supplier-margins", async (MigrationSupplierMarginBatchRequest req, WattsOnDbContext db) =>
         {
-            var identity = await db.SupplierIdentities.FindAsync(req.SupplierIdentityId);
-            if (identity is null)
-                return Results.BadRequest(new { error = "SupplierIdentity not found" });
+            var product = await db.SupplierProducts.FindAsync(req.SupplierProductId);
+            if (product is null)
+                return Results.BadRequest(new { error = "SupplierProduct not found" });
 
             var timestamps = req.Points.Select(p => p.Timestamp).ToList();
             if (timestamps.Count == 0)
                 return Results.BadRequest(new { error = "Points required" });
 
             var existing = await db.SupplierMargins
-                .Where(m => m.SupplierIdentityId == req.SupplierIdentityId &&
+                .Where(m => m.SupplierProductId == req.SupplierProductId &&
                              m.Timestamp >= timestamps.Min() && m.Timestamp <= timestamps.Max())
                 .ToDictionaryAsync(m => m.Timestamp);
 
             var points = req.Points.Select(p => (p.Timestamp, p.PriceDkkPerKwh)).ToList();
-            var result = SupplierMarginService.Upsert(req.SupplierIdentityId, points, existing, e => db.SupplierMargins.Add(e));
+            var result = SupplierMarginService.Upsert(req.SupplierProductId, points, existing, e => db.SupplierMargins.Add(e));
 
             await db.SaveChangesAsync();
 
             return Results.Ok(new
             {
-                supplierIdentityId = req.SupplierIdentityId,
+                supplierProductId = req.SupplierProductId,
                 inserted = result.Inserted,
                 updated = result.Updated,
                 total = result.Inserted + result.Updated,
@@ -378,6 +461,25 @@ record MigrationMeteringPointDto(
     string? GridOperatorGln,
     DateTimeOffset? SupplyStart);
 
+record MigrationSupplierProductBatchRequest(
+    Guid SupplierIdentityId,
+    List<MigrationSupplierProductDto> Products);
+
+record MigrationSupplierProductDto(
+    string Name,
+    string? Description,
+    bool IsActive = true);
+
+record MigrationSupplyProductPeriodBatchRequest(
+    Guid SupplierIdentityId,
+    List<MigrationSupplyProductPeriodDto> Periods);
+
+record MigrationSupplyProductPeriodDto(
+    string Gsrn,
+    string ProductName,
+    DateTimeOffset ProductStart,
+    DateTimeOffset? ProductEnd);
+
 record MigrationPriceBatchRequest(
     List<MigrationPriceDto> Prices);
 
@@ -401,7 +503,7 @@ record MigrationSpotPriceBatchDto(
     List<SpotPricePointDto> Points);
 
 record MigrationSupplierMarginBatchRequest(
-    Guid SupplierIdentityId,
+    Guid SupplierProductId,
     List<MarginPointDto> Points);
 
 record MigrationTimeSeriesBatchRequest(

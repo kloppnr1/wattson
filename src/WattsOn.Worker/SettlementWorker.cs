@@ -131,12 +131,26 @@ public class SettlementWorker : BackgroundService
             .OrderBy(sp => sp.Timestamp)
             .ToListAsync(ct);
 
-        // Get supplier margin for the period
-        var supplierMargins = await db.SupplierMargins
-            .Where(m => m.SupplierIdentityId == supply.Customer!.SupplierIdentityId)
-            .Where(m => m.Timestamp >= timeSeries.Period.Start && m.Timestamp < periodEnd)
-            .OrderBy(m => m.Timestamp)
-            .ToListAsync(ct);
+        // Get supplier margin for the period via supply → active product → margin
+        var activeProductPeriod = await db.SupplyProductPeriods
+            .Where(pp => pp.SupplyId == supply.Id)
+            .Where(pp => pp.Period.Start <= timeSeries.Period.Start)
+            .Where(pp => pp.Period.End == null || pp.Period.End > timeSeries.Period.Start)
+            .FirstOrDefaultAsync(ct);
+
+        var supplierMargins = activeProductPeriod is not null
+            ? await db.SupplierMargins
+                .Where(m => m.SupplierProductId == activeProductPeriod.SupplierProductId)
+                .Where(m => m.Timestamp >= timeSeries.Period.Start && m.Timestamp < periodEnd)
+                .OrderBy(m => m.Timestamp)
+                .ToListAsync(ct)
+            : new List<SupplierMargin>();
+
+        if (activeProductPeriod is null)
+        {
+            _logger.LogWarning("No active product on supply {SupplyId} at {PeriodStart} — settlement will have no margin",
+                supply.Id, timeSeries.Period.Start);
+        }
 
         // Validate all price sources
         var validationIssues = SettlementValidator.Validate(

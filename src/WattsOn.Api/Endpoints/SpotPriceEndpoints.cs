@@ -111,12 +111,12 @@ public static class SpotPriceEndpoints
 
         // ==================== LEVERANDØRMARGIN ====================
 
-        app.MapGet("/api/supplier-margins", async (Guid? supplierIdentityId, string? date, int? days, WattsOnDbContext db) =>
+        app.MapGet("/api/supplier-margins", async (Guid? supplierProductId, string? date, int? days, WattsOnDbContext db) =>
         {
             IQueryable<SupplierMargin> query = db.SupplierMargins.AsNoTracking();
 
-            if (supplierIdentityId.HasValue)
-                query = query.Where(m => m.SupplierIdentityId == supplierIdentityId.Value);
+            if (supplierProductId.HasValue)
+                query = query.Where(m => m.SupplierProductId == supplierProductId.Value);
 
             if (!string.IsNullOrEmpty(date) && DateTimeOffset.TryParse(date, out var parsedDate))
             {
@@ -133,7 +133,7 @@ public static class SpotPriceEndpoints
 
             var points = await query
                 .OrderBy(m => m.Timestamp)
-                .Select(m => new { m.SupplierIdentityId, m.Timestamp, m.PriceDkkPerKwh })
+                .Select(m => new { m.SupplierProductId, m.Timestamp, m.PriceDkkPerKwh })
                 .Take(5000)
                 .ToListAsync();
 
@@ -141,31 +141,31 @@ public static class SpotPriceEndpoints
         }).WithName("GetSupplierMargins");
 
         /// <summary>
-        /// Bulk upsert supplier margins for a supplier identity.
-        /// Inserts new points, updates existing ones (matched by identity + timestamp).
+        /// Bulk upsert supplier margins for a supplier product.
+        /// Inserts new points, updates existing ones (matched by product + timestamp).
         /// </summary>
         app.MapPost("/api/supplier-margins", async (UpsertSupplierMarginsRequest req, WattsOnDbContext db) =>
         {
-            var identity = await db.SupplierIdentities.FindAsync(req.SupplierIdentityId);
-            if (identity is null)
-                return Results.BadRequest(new { error = "SupplierIdentity not found" });
+            var product = await db.SupplierProducts.FindAsync(req.SupplierProductId);
+            if (product is null)
+                return Results.BadRequest(new { error = "SupplierProduct not found" });
 
             if (req.Points == null || req.Points.Count == 0)
                 return Results.BadRequest(new { error = "Points required" });
 
             var timestamps = req.Points.Select(p => p.Timestamp).ToList();
             var existing = await db.SupplierMargins
-                .Where(m => m.SupplierIdentityId == req.SupplierIdentityId && m.Timestamp >= timestamps.Min() && m.Timestamp <= timestamps.Max())
+                .Where(m => m.SupplierProductId == req.SupplierProductId && m.Timestamp >= timestamps.Min() && m.Timestamp <= timestamps.Max())
                 .ToDictionaryAsync(m => m.Timestamp);
 
             var points = req.Points.Select(p => (p.Timestamp, p.PriceDkkPerKwh)).ToList();
-            var result = SupplierMarginService.Upsert(req.SupplierIdentityId, points, existing, e => db.SupplierMargins.Add(e));
+            var result = SupplierMarginService.Upsert(req.SupplierProductId, points, existing, e => db.SupplierMargins.Add(e));
 
             await db.SaveChangesAsync();
 
             return Results.Ok(new
             {
-                supplierIdentityId = req.SupplierIdentityId,
+                supplierProductId = req.SupplierProductId,
                 inserted = result.Inserted,
                 updated = result.Updated,
                 total = result.Inserted + result.Updated,

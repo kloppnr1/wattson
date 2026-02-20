@@ -49,13 +49,13 @@ public class SettlementValidatorTests
         return prices;
     }
 
-    private static List<SupplierMargin> CreateHourlyMargins(Guid supplierIdentityId, DateTimeOffset start, DateTimeOffset end)
+    private static List<SupplierMargin> CreateHourlyMargins(Guid supplierProductId, DateTimeOffset start, DateTimeOffset end)
     {
         var margins = new List<SupplierMargin>();
         var current = start;
         while (current < end)
         {
-            margins.Add(SupplierMargin.Create(supplierIdentityId, current, 0.15m));
+            margins.Add(SupplierMargin.Create(supplierProductId, current, 0.15m));
             current = current.AddHours(1);
         }
         return margins;

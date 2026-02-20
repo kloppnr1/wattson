@@ -5,17 +5,18 @@ namespace WattsOn.Domain.Services;
 /// <summary>
 /// Pure logic for upserting supplier margins.
 /// Used by both the API endpoint and the simulation — single source of truth.
+/// Margins are keyed by SupplierProductId (not SupplierIdentityId).
 /// </summary>
 public static class SupplierMarginService
 {
     public record UpsertResult(int Inserted, int Updated);
 
     /// <summary>
-    /// Upsert supplier margins: insert new, update existing (matched by identity + timestamp).
+    /// Upsert supplier margins for a specific product: insert new, update existing (matched by product + timestamp).
     /// Mutates existing entities in-place for updates.
     /// </summary>
     public static UpsertResult Upsert(
-        Guid supplierIdentityId,
+        Guid supplierProductId,
         IReadOnlyList<(DateTimeOffset Timestamp, decimal PriceDkkPerKwh)> points,
         IDictionary<DateTimeOffset, SupplierMargin> existingByTimestamp,
         Action<SupplierMargin> addEntity)
@@ -32,7 +33,7 @@ public static class SupplierMarginService
             }
             else
             {
-                var entity = SupplierMargin.Create(supplierIdentityId, timestamp, price);
+                var entity = SupplierMargin.Create(supplierProductId, timestamp, price);
                 addEntity(entity);
                 inserted++;
             }

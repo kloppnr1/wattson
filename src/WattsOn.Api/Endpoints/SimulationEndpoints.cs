@@ -1030,7 +1030,16 @@ public static class SimulationEndpoints
             var spotResult = SpotPriceService.Upsert(gridArea, spotPoints, existingSpots, e => db.SpotPrices.Add(e));
 
             // --- Supplier margin (supplier's own markup, not DataHub) ---
-            // Uses same domain service as POST /api/supplier-margins
+            // Get or create a default product for the supplier identity
+            var defaultProduct = await db.SupplierProducts
+                .FirstOrDefaultAsync(p => p.SupplierIdentityId == identity.Id && p.Name == "Simulation Spot");
+            if (defaultProduct is null)
+            {
+                defaultProduct = SupplierProduct.Create(identity.Id, "Simulation Spot", "Simuleret spotprodukt");
+                db.SupplierProducts.Add(defaultProduct);
+                await db.SaveChangesAsync(); // Need ID for margin FK
+            }
+
             var marginPoints = new List<(DateTimeOffset Timestamp, decimal PriceDkkPerKwh)>();
             for (int h = 0; h < totalHours; h++)
             {
@@ -1038,9 +1047,9 @@ public static class SimulationEndpoints
             }
 
             var existingMargins = await db.SupplierMargins
-                .Where(m => m.SupplierIdentityId == identity.Id && m.Timestamp >= effectiveDate && m.Timestamp < endDate)
+                .Where(m => m.SupplierProductId == defaultProduct.Id && m.Timestamp >= effectiveDate && m.Timestamp < endDate)
                 .ToDictionaryAsync(m => m.Timestamp);
-            var marginResult = SupplierMarginService.Upsert(identity.Id, marginPoints, existingMargins, e => db.SupplierMargins.Add(e));
+            var marginResult = SupplierMarginService.Upsert(defaultProduct.Id, marginPoints, existingMargins, e => db.SupplierMargins.Add(e));
 
             await db.SaveChangesAsync();
 

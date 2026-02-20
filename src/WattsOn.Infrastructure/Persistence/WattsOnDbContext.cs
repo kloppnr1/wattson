@@ -20,7 +20,9 @@ public class WattsOnDbContext : DbContext, IWattsOnDbContext
     public DbSet<PricePoint> PricePoints => Set<PricePoint>();
     public DbSet<PriceLink> PriceLinks => Set<PriceLink>();
     public DbSet<SpotPrice> SpotPrices => Set<SpotPrice>();
+    public DbSet<SupplierProduct> SupplierProducts => Set<SupplierProduct>();
     public DbSet<SupplierMargin> SupplierMargins => Set<SupplierMargin>();
+    public DbSet<SupplyProductPeriod> SupplyProductPeriods => Set<SupplyProductPeriod>();
     public DbSet<Settlement> Settlements => Set<Settlement>();
     public DbSet<SettlementLine> SettlementLines => Set<SettlementLine>();
     public DbSet<BrsProcess> Processes => Set<BrsProcess>();
