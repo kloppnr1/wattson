@@ -122,18 +122,25 @@ public static class MigrationEndpoints
                 return Results.BadRequest(new { error = "SupplierIdentity not found" });
 
             int created = 0, skipped = 0;
+            var productMap = new Dictionary<string, Guid>(); // name → id
 
             foreach (var p in req.Products)
             {
                 var existing = await db.SupplierProducts
                     .FirstOrDefaultAsync(x => x.SupplierIdentityId == req.SupplierIdentityId && x.Name == p.Name);
-                if (existing is not null) { skipped++; continue; }
+                if (existing is not null)
+                {
+                    productMap[p.Name] = existing.Id;
+                    skipped++;
+                    continue;
+                }
 
                 var pricingModel = Enum.TryParse<Domain.Enums.PricingModel>(p.PricingModel, true, out var pm)
                     ? pm : Domain.Enums.PricingModel.SpotAddon;
                 var product = SupplierProduct.Create(req.SupplierIdentityId, p.Name, pricingModel, p.Description);
                 if (!p.IsActive) product.Deactivate();
                 db.SupplierProducts.Add(product);
+                productMap[p.Name] = product.Id;
                 created++;
             }
 
@@ -143,6 +150,7 @@ public static class MigrationEndpoints
             {
                 created,
                 skipped,
+                products = productMap,
                 message = $"Migrering: {created} produkter oprettet, {skipped} sprunget over."
             });
         }).WithName("MigrateSupplierProducts");
@@ -434,29 +442,35 @@ public static class MigrationEndpoints
         /// </summary>
         app.MapPost("/api/migration/settlements", async (MigrationSettlementBatchRequest req, WattsOnDbContext db) =>
         {
-            int created = 0, skipped = 0;
+            int created = 0, skippedNoMp = 0, skippedNoSupply = 0, skippedExists = 0;
 
             foreach (var s in req.Settlements)
             {
                 // Find metering point by GSRN
                 var mp = await db.MeteringPoints
                     .FirstOrDefaultAsync(m => m.Gsrn.Value == s.Gsrn);
-                if (mp is null) { skipped++; continue; }
+                if (mp is null) { skippedNoMp++; continue; }
 
-                // Find active supply for the period
+                // Find supply for this metering point.
+                // For migration: try period match first, fall back to ANY supply on the MP.
+                // Migrated settlements are historical baselines — the supply link is for FK integrity,
+                // not for validating whether the supply was active during that period.
                 var supply = await db.Supplies
                     .Where(l => l.MeteringPointId == mp.Id)
                     .Where(l => l.SupplyPeriod.Start <= s.PeriodStart)
                     .Where(l => l.SupplyPeriod.End == null || l.SupplyPeriod.End > s.PeriodStart)
                     .FirstOrDefaultAsync();
-                if (supply is null) { skipped++; continue; }
+                supply ??= await db.Supplies
+                    .Where(l => l.MeteringPointId == mp.Id)
+                    .FirstOrDefaultAsync();
+                if (supply is null) { skippedNoSupply++; continue; }
 
                 // Check if settlement already exists for this period
                 var existing = await db.Settlements
                     .AnyAsync(a => a.MeteringPointId == mp.Id
                         && a.SettlementPeriod.Start == s.PeriodStart
                         && a.SettlementPeriod.End == s.PeriodEnd);
-                if (existing) { skipped++; continue; }
+                if (existing) { skippedExists++; continue; }
 
                 // Find or create a time series for this period (settlements need a TS reference)
                 var timeSeries = await db.TimeSeriesCollection
@@ -475,12 +489,13 @@ public static class MigrationEndpoints
                     await db.SaveChangesAsync();
                 }
 
-                // Create settlement
-                var settlement = Settlement.Create(
+                // Create migrated settlement — clearly marked as imported, not calculated by WattsOn
+                var settlement = Settlement.CreateMigrated(
                     mp.Id, supply.Id,
                     Period.Create(s.PeriodStart, s.PeriodEnd),
                     timeSeries.Id, timeSeries.Version,
-                    EnergyQuantity.Create(s.TotalEnergyKwh));
+                    EnergyQuantity.Create(s.TotalEnergyKwh),
+                    s.ExternalInvoiceReference ?? s.BillingLogNum);
 
                 // Add spot line
                 if (s.SpotAmountDkk != 0)
@@ -502,26 +517,28 @@ public static class MigrationEndpoints
                     settlement.AddLine(marginLine);
                 }
 
-                // Add tariff lines (matched to imported Price entities by ChargeId)
+                // Add tariff lines — link to Price entity if available, otherwise create without FK
                 if (s.TariffLines != null)
                 {
                     foreach (var tariff in s.TariffLines)
                     {
                         var price = await db.Prices
                             .FirstOrDefaultAsync(p => p.ChargeId == tariff.ChargeId);
-                        if (price is null) continue;
 
-                        var tariffLine = SettlementLine.Create(
-                            settlement.Id, price.Id,
-                            $"{tariff.Description} (migreret)",
-                            EnergyQuantity.Create(tariff.EnergyKwh),
-                            tariff.AvgUnitPrice);
+                        var tariffLine = price is not null
+                            ? SettlementLine.Create(
+                                settlement.Id, price.Id,
+                                $"{tariff.Description} (migreret)",
+                                EnergyQuantity.Create(tariff.EnergyKwh),
+                                tariff.AvgUnitPrice)
+                            : SettlementLine.CreateMigrated(
+                                settlement.Id,
+                                $"{tariff.Description} [{tariff.ChargeId}] (migreret)",
+                                EnergyQuantity.Create(tariff.EnergyKwh),
+                                tariff.AvgUnitPrice);
                         settlement.AddLine(tariffLine);
                     }
                 }
-
-                // Mark as invoiced with Xellent reference
-                settlement.MarkInvoiced(s.ExternalInvoiceReference ?? s.BillingLogNum);
 
                 db.Settlements.Add(settlement);
                 created++;
@@ -529,11 +546,15 @@ public static class MigrationEndpoints
 
             await db.SaveChangesAsync();
 
+            var skipped = skippedNoMp + skippedNoSupply + skippedExists;
             return Results.Ok(new
             {
                 created,
                 skipped,
-                message = $"Migrering: {created} afregninger oprettet (faktureret), {skipped} sprunget over."
+                skippedNoMp,
+                skippedNoSupply,
+                skippedExists,
+                message = $"Migrering: {created} afregninger oprettet. Sprunget over: {skippedNoMp} ukendt MP, {skippedNoSupply} ingen tilknytning, {skippedExists} eksisterer allerede."
             });
         }).WithName("MigrateSettlements");
 

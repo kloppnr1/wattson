@@ -34,4 +34,6 @@ public class ExtractedTariffLine
     public decimal AmountDkk { get; set; }
     public decimal EnergyKwh { get; set; }
     public decimal AvgUnitPrice { get; set; }
+    /// <summary>True if this is a fixed monthly charge (abonnement), not per-kWh</summary>
+    public bool IsSubscription { get; set; }
 }

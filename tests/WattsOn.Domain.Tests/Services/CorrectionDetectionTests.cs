@@ -205,8 +205,22 @@ public class CorrectionDetectionTests
         var original = SettlementCalculator.Calculate(
             CreateTimeSeries(1.0m, 1), supply, new List<PriceWithPoints> { CreateNettarif() }, Array.Empty<SpotPrice>());
 
-        // Cannot mark as adjusted without being invoiced first
+        // Cannot mark as adjusted without being invoiced/migrated first
         Assert.Throws<InvalidOperationException>(() => original.MarkAdjusted());
+    }
+
+    [Fact]
+    public void CorrectionFlow_MigratedSettlement_CanBeMarkedAdjusted()
+    {
+        var migrated = Settlement.CreateMigrated(
+            MpId, Guid.NewGuid(), February, Guid.NewGuid(), 1,
+            EnergyQuantity.Create(672m), "BL-12345");
+
+        Assert.Equal(SettlementStatus.Migrated, migrated.Status);
+
+        // Migrated settlements can be corrected just like invoiced ones
+        migrated.MarkAdjusted();
+        Assert.Equal(SettlementStatus.Adjusted, migrated.Status);
     }
 
     [Fact]

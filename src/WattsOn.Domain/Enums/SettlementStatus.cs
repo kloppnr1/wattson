@@ -13,5 +13,8 @@ public enum SettlementStatus
     Invoiced = 2,
 
     /// <summary>A DataHub correction invalidated this settlement — adjustment created</summary>
-    Adjusted = 3
+    Adjusted = 3,
+
+    /// <summary>Imported from a previous system (Xellent) — not calculated by WattsOn</summary>
+    Migrated = 4
 }

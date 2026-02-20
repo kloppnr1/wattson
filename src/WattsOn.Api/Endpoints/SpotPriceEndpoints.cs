@@ -118,12 +118,25 @@ public static class SpotPriceEndpoints
             if (supplierProductId.HasValue)
                 query = query.Where(m => m.SupplierProductId == supplierProductId.Value);
 
+            var products = await db.SupplierProducts.AsNoTracking()
+                .ToDictionaryAsync(p => p.Id, p => new { p.Name, PricingModel = p.PricingModel.ToString() });
+
             var rows = await query
                 .OrderBy(m => m.ValidFrom)
                 .Select(m => new { m.Id, m.SupplierProductId, m.ValidFrom, m.PriceDkkPerKwh })
                 .ToListAsync();
 
-            return Results.Ok(new { totalRecords = rows.Count, rows });
+            var enriched = rows.Select(m => new
+            {
+                m.Id,
+                m.SupplierProductId,
+                productName = products.TryGetValue(m.SupplierProductId, out var p) ? p.Name : "Ukendt",
+                pricingModel = products.TryGetValue(m.SupplierProductId, out var p2) ? p2.PricingModel : "Unknown",
+                m.ValidFrom,
+                m.PriceDkkPerKwh
+            }).ToList();
+
+            return Results.Ok(new { totalRecords = enriched.Count, rows = enriched });
         }).WithName("GetSupplierMargins");
 
         /// <summary>

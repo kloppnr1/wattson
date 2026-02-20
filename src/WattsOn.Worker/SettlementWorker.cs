@@ -192,7 +192,7 @@ public class SettlementWorker : BackgroundService
             .Where(a => a.MeteringPointId == timeSeries.MeteringPointId)
             .Where(a => a.SettlementPeriod.Start == timeSeries.Period.Start)
             .Where(a => a.SettlementPeriod.End == timeSeries.Period.End)
-            .Where(a => a.Status == SettlementStatus.Invoiced)
+            .Where(a => a.Status == SettlementStatus.Invoiced || a.Status == SettlementStatus.Migrated)
             .OrderByDescending(a => a.TimeSeriesVersion)
             .FirstOrDefaultAsync(ct);
 

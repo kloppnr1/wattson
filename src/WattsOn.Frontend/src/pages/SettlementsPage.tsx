@@ -96,10 +96,12 @@ export default function SettlementsPage() {
       render: (status: string, record: SettlementDocument) => {
         const color = status === 'Calculated' ? 'green'
           : status === 'Invoiced' ? 'blue'
-          : status === 'Adjusted' ? 'orange' : 'gray';
+          : status === 'Adjusted' ? 'orange'
+          : status === 'Migrated' ? 'purple' : 'gray';
         const danishStatus = status === 'Calculated' ? 'beregnet'
           : status === 'Invoiced' ? 'faktureret'
-          : status === 'Adjusted' ? 'justeret' : status.toLowerCase();
+          : status === 'Adjusted' ? 'justeret'
+          : status === 'Migrated' ? 'migreret' : status.toLowerCase();
         return (
           <Space size={6}>
             <span className="status-badge">
@@ -304,6 +306,7 @@ export default function SettlementsPage() {
                   { value: 'Calculated', label: 'Beregnet' },
                   { value: 'Invoiced', label: 'Faktureret' },
                   { value: 'Adjusted', label: 'Justeret' },
+                  { value: 'Migrated', label: 'Migreret' },
                 ]}
               />
               <Input placeholder="Målepunkt..." style={{ flex: 1 }} />

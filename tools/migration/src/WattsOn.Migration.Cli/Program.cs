@@ -139,10 +139,20 @@ rootCommand.SetHandler(async (context) =>
         var productResult = await wattsOn.MigrateSupplierProducts(new
         {
             supplierIdentityId,
-            products = products.Select(p => new { p.Name, p.Description, isActive = true }).ToList()
+            products = products.Select(p => new
+            {
+                p.Name, p.Description,
+                pricingModel = p.PricingModel,
+                isActive = true
+            }).ToList()
         });
         result.ProductsCreated = productResult.GetProperty("created").GetInt32();
         result.ProductsSkipped = productResult.GetProperty("skipped").GetInt32();
+
+        // Build product name → ID map from response
+        var productIdMap = new Dictionary<string, Guid>();
+        foreach (var kv in productResult.GetProperty("products").EnumerateObject())
+            productIdMap[kv.Name] = kv.Value.GetGuid();
 
         // Step 4: Migrate customers (with metering points + supplies)
         logger.LogInformation("Migrating {Count} customers...", customers.Count);
@@ -199,20 +209,28 @@ rootCommand.SetHandler(async (context) =>
             result.ProductPeriodsSkipped = periodResult.GetProperty("skipped").GetInt32();
         }
 
-        // Step 6: Supplier margins (expand flat rates to hourly)
-        // TODO: Revisit — Xellent may have hourly rate differentiation.
-        // Currently we expand a single flat rate into hourly entries.
-        // See ExuPriceElementRates (hours 1-24) for potential hourly data.
+        // Step 6: Supplier margins (flat rate per period, not hourly)
         foreach (var product in products.Where(p => p.Rates.Count > 0))
         {
-            logger.LogInformation("Expanding margins for product {Name} ({RateCount} rate periods)...",
-                product.Name, product.Rates.Count);
+            if (!productIdMap.TryGetValue(product.Name, out var productId))
+            {
+                result.Warnings.Add($"No product ID for '{product.Name}' — margins skipped");
+                continue;
+            }
 
-            // We need the product ID from WattsOn — look it up
-            // For now, the margin endpoint takes productId, so we'd need to query it
-            // This will be connected once we have the lookup
-            // TODO: Add product lookup by name to WattsOn API or return IDs from migrate endpoint
-            result.Warnings.Add($"Margin expansion for '{product.Name}' not yet wired — needs product ID lookup");
+            logger.LogInformation("Migrating {RateCount} margin rates for product {Name} ({Model})...",
+                product.Rates.Count, product.Name, product.PricingModel);
+
+            var marginResult = await wattsOn.MigrateSupplierMargins(new
+            {
+                supplierProductId = productId,
+                rates = product.Rates.Select(r => new
+                {
+                    validFrom = r.StartDate,
+                    priceDkkPerKwh = r.RateDkkPerKwh
+                }).ToList()
+            });
+            result.MarginsCreated += marginResult.GetProperty("inserted").GetInt32();
         }
 
         // Step 7: Time series (if requested)
@@ -281,6 +299,12 @@ rootCommand.SetHandler(async (context) =>
                 });
                 result.SettlementsCreated = settlementResult.GetProperty("created").GetInt32();
                 result.SettlementsSkipped = settlementResult.GetProperty("skipped").GetInt32();
+                var noMp = settlementResult.GetProperty("skippedNoMp").GetInt32();
+                var noSupply = settlementResult.GetProperty("skippedNoSupply").GetInt32();
+                var exists = settlementResult.GetProperty("skippedExists").GetInt32();
+                if (noMp > 0 || noSupply > 0 || exists > 0)
+                    logger.LogWarning("Settlement skip reasons: {NoMp} no MP, {NoSupply} no supply, {Exists} already exists",
+                        noMp, noSupply, exists);
             }
         }
 

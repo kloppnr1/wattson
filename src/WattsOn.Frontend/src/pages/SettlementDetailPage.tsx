@@ -98,12 +98,7 @@ export default function SettlementDetailPage() {
     {
       title: 'MOMS', key: 'tax', align: 'right' as const,
       render: (_: any, r: SettlementDocumentLine) => (
-        <Space size={4}>
-          <Tag color={r.taxCategory === 'S' ? 'blue' : 'default'} style={{ fontSize: 11 }}>
-            {r.taxPercent}%
-          </Tag>
-          <Text className="tnum">{formatDKK(r.taxAmount)}</Text>
-        </Space>
+        <Text className="tnum">{formatDKK(r.taxAmount)}</Text>
       ),
     },
   ];
@@ -280,8 +275,7 @@ export default function SettlementDetailPage() {
                 <Table.Summary.Row key={`${tax.taxCategory}-${tax.taxPercent}`}>
                   <Table.Summary.Cell index={0} colSpan={5} align="right">
                     <Text type="secondary">
-                      Moms ({tax.taxCategory === 'S' ? 'Standard' : 'Fritaget'} {tax.taxPercent}%)
-                      {' '}af {formatDKK(tax.taxableAmount)}
+                      Moms af {formatDKK(tax.taxableAmount)}
                     </Text>
                   </Table.Summary.Cell>
                   <Table.Summary.Cell index={5} align="right">

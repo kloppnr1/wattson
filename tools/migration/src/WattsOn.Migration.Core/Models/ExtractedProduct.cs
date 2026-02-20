@@ -7,6 +7,7 @@ public class ExtractedProduct
 {
     public string Name { get; set; } = null!;
     public string? Description { get; set; }
+    public string PricingModel { get; set; } = "SpotAddon"; // SpotAddon or Fixed
 
     /// <summary>
     /// Rate history from ExuRateTable — flat rate per start date.

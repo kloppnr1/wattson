@@ -73,10 +73,26 @@ public class WattsOnMigrationClient
                 return item.GetProperty("id").GetGuid();
         }
 
-        // Create new
+        // Create new — handle duplicate gracefully (API may have seeded it on startup)
         var result = await _http.PostAsJsonAsync("/api/supplier-identities",
             new { gln, name, isActive = true }, JsonOptions);
-        var created = await result.Content.ReadFromJsonAsync<JsonElement>();
-        return created.GetProperty("id").GetGuid();
+
+        if (result.IsSuccessStatusCode)
+        {
+            var created = await result.Content.ReadFromJsonAsync<JsonElement>();
+            return created.GetProperty("id").GetGuid();
+        }
+
+        // If creation failed (e.g. duplicate), retry GET
+        _logger.LogWarning("POST supplier-identity failed ({Status}), retrying GET...", result.StatusCode);
+        response = await _http.GetAsync("/api/supplier-identities");
+        body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        foreach (var item in body.EnumerateArray())
+        {
+            if (item.GetProperty("gln").GetString() == gln)
+                return item.GetProperty("id").GetGuid();
+        }
+
+        throw new InvalidOperationException($"Could not ensure supplier identity for GLN {gln}");
     }
 }

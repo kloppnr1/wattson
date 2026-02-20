@@ -1,11 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Card, Table, Spin, Alert, Space, Typography, Row, Col, Statistic, Tag,
-  Tabs, Empty, DatePicker,
+  Tabs, Empty, DatePicker, Timeline,
 } from 'antd';
 import {
   DollarOutlined, ThunderboltOutlined, BankOutlined,
-  AreaChartOutlined, CalendarOutlined,
+  AreaChartOutlined, CalendarOutlined, ClockCircleOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
@@ -34,6 +34,15 @@ interface SpotLatest {
   dk2: { hourUtc: string; spotPriceDkkPerKwh: number } | null;
 }
 
+interface MarginRow {
+  id: string;
+  supplierProductId: string;
+  productName: string;
+  pricingModel: string;
+  validFrom: string;
+  priceDkkPerKwh: number;
+}
+
 export default function PricesPage() {
   const [prices, setPrices] = useState<PriceSummary[]>([]);
   const [ourGlns, setOurGlns] = useState<Set<string>>(new Set());
@@ -50,17 +59,22 @@ export default function PricesPage() {
   const [spotRows, setSpotRows] = useState<SpotRow[]>([]);
   const [spotLoading, setSpotLoading] = useState(false);
 
+  // Supplier margins
+  const [marginRows, setMarginRows] = useState<MarginRow[]>([]);
+
   // Initial load
   useEffect(() => {
     Promise.all([
       getPrices(),
       getSupplierIdentities(),
-      api.get<SpotLatest>('/prices/spot/latest'),
+      api.get<SpotLatest>('/spot-prices/latest'),
+      api.get<{ totalRecords: number; rows: MarginRow[] }>('/supplier-margins'),
     ])
-      .then(([pricesRes, identitiesRes, latestRes]) => {
+      .then(([pricesRes, identitiesRes, latestRes, marginsRes]) => {
         setPrices(pricesRes.data);
         setOurGlns(new Set(identitiesRes.data.map(si => si.gln)));
         setSpotLatest(latestRes.data);
+        setMarginRows(marginsRes.data.rows);
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
@@ -70,7 +84,7 @@ export default function PricesPage() {
   const fetchSpotForDate = useCallback(async (date: Dayjs) => {
     setSpotLoading(true);
     try {
-      const res = await api.get<{ totalRecords: number; rows: SpotRow[] }>(`/prices/spot?date=${date.format('YYYY-MM-DD')}`);
+      const res = await api.get<{ totalRecords: number; rows: SpotRow[] }>(`/spot-prices?date=${date.format('YYYY-MM-DD')}`);
       setSpotRows(res.data.rows);
     } catch { setSpotRows([]); }
     finally { setSpotLoading(false); }
@@ -249,8 +263,8 @@ export default function PricesPage() {
         {[
           { title: 'Spotpriser', value: spotLatest?.totalRecords ?? 0, icon: <AreaChartOutlined />, color: '#f59e0b' },
           { title: 'DataHub-priser', value: datahubPrices.length, icon: <ThunderboltOutlined />, color: '#0d9488' },
-          { title: 'Leverandørpriser', value: supplierPrices.length, icon: <BankOutlined />, color: '#7c3aed' },
-          { title: 'Priser i alt', value: prices.length, icon: <DollarOutlined />, color: '#5d7a91' },
+          { title: 'Leverandørmargin', value: new Set(marginRows.map(m => m.supplierProductId)).size, icon: <BankOutlined />, color: '#7c3aed' },
+          { title: 'Priser i alt', value: prices.length + marginRows.length, icon: <DollarOutlined />, color: '#5d7a91' },
         ].map(s => (
           <Col xs={12} sm={6} key={s.title}>
             <Card size="small" style={{ borderRadius: 10, textAlign: 'center' }}>
@@ -360,25 +374,83 @@ export default function PricesPage() {
               ),
             },
             {
-              key: 'supplier',
+              key: 'margins',
               label: (
                 <Space size={6}>
                   <BankOutlined />
-                  <span>Leverandørpriser ({supplierPrices.length})</span>
+                  <span>Leverandørmargin ({new Set(marginRows.map(m => m.supplierProductId)).size})</span>
                 </Space>
               ),
-              children: supplierPrices.length > 0 ? (
-                <Table
-                  dataSource={supplierPrices}
-                  columns={priceColumns}
-                  rowKey="id"
-                  pagination={false}
-                  size="small"
-                  expandable={{ expandedRowRender, onExpand: handleExpand }}
-                />
-              ) : (
-                <Empty description="Ingen leverandørpriser oprettet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-              ),
+              children: (() => {
+                // Group margins by product
+                const grouped = marginRows.reduce<Record<string, { productName: string; pricingModel: string; rates: MarginRow[] }>>((acc, m) => {
+                  if (!acc[m.supplierProductId]) {
+                    acc[m.supplierProductId] = { productName: m.productName, pricingModel: m.pricingModel, rates: [] };
+                  }
+                  acc[m.supplierProductId].rates.push(m);
+                  return acc;
+                }, {});
+
+                const products = Object.entries(grouped).sort(([, a], [, b]) => a.productName.localeCompare(b.productName));
+
+                return products.length > 0 ? (
+                  <Row gutter={[16, 16]}>
+                    {products.map(([productId, product]) => {
+                      const sortedRates = [...product.rates].sort((a, b) =>
+                        new Date(a.validFrom).getTime() - new Date(b.validFrom).getTime());
+                      const currentRate = sortedRates[sortedRates.length - 1];
+
+                      return (
+                        <Col xs={24} md={12} key={productId}>
+                          <Card
+                            size="small"
+                            style={{ borderRadius: 10, height: '100%' }}
+                            title={
+                              <Space>
+                                <Text strong style={{ fontSize: 15 }}>{product.productName}</Text>
+                                <Tag color={product.pricingModel === 'SpotAddon' ? 'orange' : product.pricingModel === 'Fixed' ? 'blue' : 'default'}>
+                                  {product.pricingModel === 'SpotAddon' ? 'Spot + tillæg' : product.pricingModel === 'Fixed' ? 'Fast pris' : product.pricingModel}
+                                </Tag>
+                              </Space>
+                            }
+                            extra={
+                              <Text strong style={{ fontSize: 16, color: '#0d9488' }} className="tnum">
+                                {formatPrice4(currentRate.priceDkkPerKwh)} DKK/kWh
+                              </Text>
+                            }
+                          >
+                            <Timeline
+                              mode="left"
+                              items={sortedRates.map((rate, idx) => {
+                                const isCurrent = idx === sortedRates.length - 1;
+                                const nextRate = sortedRates[idx + 1];
+                                const validTo = nextRate ? formatDate(nextRate.validFrom) : 'nu';
+
+                                return {
+                                  color: isCurrent ? '#0d9488' : '#d1d5db',
+                                  dot: isCurrent ? <ClockCircleOutlined style={{ fontSize: 14, color: '#0d9488' }} /> : undefined,
+                                  children: (
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+                                      <Text type={isCurrent ? undefined : 'secondary'} className="tnum" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+                                        {formatDate(rate.validFrom)} → {validTo}
+                                      </Text>
+                                      <Text strong={isCurrent} className="tnum" style={{ fontSize: isCurrent ? 14 : 13, color: isCurrent ? '#0d9488' : undefined }}>
+                                        {formatPrice4(rate.priceDkkPerKwh)}
+                                      </Text>
+                                    </div>
+                                  ),
+                                };
+                              })}
+                            />
+                          </Card>
+                        </Col>
+                      );
+                    })}
+                  </Row>
+                ) : (
+                  <Empty description="Ingen leverandørmarginer oprettet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                );
+              })(),
             },
           ]}
         />

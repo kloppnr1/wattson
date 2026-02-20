@@ -143,29 +143,58 @@ public class XellentExtractionService
 
         foreach (var productNum in productNums)
         {
-            // Get rates from ExuRateTable
-            // Generic rates (PRODUCTNUM = '') are per-kWh supplier margins
-            var rates = await _db.ExuRateTables
-                .Where(r => r.Dataareaid == DataAreaId
-                    && r.Deliverycategory == DeliveryCategory
-                    && r.Productnum == "" // Generic rates, not subscription-specific
-                    && r.Rate != 0)
-                .OrderBy(r => r.Startdate)
-                .ToListAsync();
+            // Detect pricing model from InventTable
+            // ExuUseRateFromFlexPricing == 1 → SpotAddon (spot + margin addon)
+            // ExuUseRateFromFlexPricing == 0 → Fixed (margin IS the full electricity price)
+            var inventItem = await _db.InventTables
+                .FirstOrDefaultAsync(i => i.DataAreaId == DataAreaId && i.ItemId == productNum);
+            var isSpot = inventItem?.ExuUseRateFromFlexPricing == 1;
+            var pricingModel = isSpot ? "SpotAddon" : "Fixed";
 
-            // TODO: This gets ALL generic rates, not product-specific ones.
-            // Need to refine: ExuProductExtendTable → Ratetype → ExuRateTable
-            // For now, include all rates as a starting point.
+            // Get product-specific rate type from ExuProductExtendTable
+            var productExtend = await _db.ExuProductExtendTables
+                .Where(pe => pe.DataAreaId == DataAreaId && pe.Productnum == productNum)
+                .OrderByDescending(pe => pe.Startdate)
+                .FirstOrDefaultAsync();
+
+            List<ExuRateTable> rates;
+            if (productExtend != null)
+            {
+                // Get rates matching this product's rate type
+                rates = await _db.ExuRateTables
+                    .Where(r => r.Dataareaid == DataAreaId
+                        && r.Deliverycategory == DeliveryCategory
+                        && r.Ratetype == productExtend.Producttype
+                        && r.Productnum == "" // Generic rates (per-kWh), not subscriptions
+                        && r.Rate != 0)
+                    .OrderBy(r => r.Startdate)
+                    .ToListAsync();
+            }
+            else
+            {
+                // Fallback: get all generic rates
+                rates = await _db.ExuRateTables
+                    .Where(r => r.Dataareaid == DataAreaId
+                        && r.Deliverycategory == DeliveryCategory
+                        && r.Productnum == ""
+                        && r.Rate != 0)
+                    .OrderBy(r => r.Startdate)
+                    .ToListAsync();
+            }
 
             products.Add(new ExtractedProduct
             {
                 Name = productNum,
+                PricingModel = pricingModel,
                 Rates = rates.Select(r => new ExtractedRate
                 {
                     StartDate = ToUtc(r.Startdate),
                     RateDkkPerKwh = r.Rate,
                 }).ToList()
             });
+
+            _logger.LogInformation("Product {Name}: {Model}, {RateType}, {RateCount} rates",
+                productNum, pricingModel, productExtend?.Producttype ?? "generic", rates.Count);
         }
 
         return products;
@@ -249,20 +278,25 @@ public class XellentExtractionService
 
                 if (lines.Count == 0) continue;
 
+                // Derive period start: use ReqStartDate if real, otherwise first hourly line
+                var periodStart = entry.ReqStartDate != NoEndDate && entry.ReqStartDate.Year > 1901
+                    ? entry.ReqStartDate
+                    : lines.Min(l => l.DateTime24Hour);
+
                 var totalEnergy = lines.Sum(l => l.TimeValue);
                 var electricityAmount = lines.Sum(l => l.TimeValue * l.CalculatedPrice);
                 var spotAmount = lines.Sum(l => l.TimeValue * l.PowerExchangePrice);
                 var marginAmount = electricityAmount - spotAmount;
 
-                // Get tariffs for this metering point and period
-                var tariffLines = await ExtractTariffLinesAsync(gsrn, entry.ReqStartDate, lines);
+                // Get tariffs for this metering point and period (use derived periodStart, not sentinel)
+                var tariffLines = await ExtractTariffLinesAsync(gsrn, periodStart, lines);
 
                 var totalAmount = electricityAmount + tariffLines.Sum(t => t.AmountDkk);
 
                 result.Add(new ExtractedSettlement
                 {
                     Gsrn = gsrn,
-                    PeriodStart = entry.ReqStartDate,
+                    PeriodStart = periodStart,
                     PeriodEnd = entry.ReqEndDate,
                     BillingLogNum = entry.BillingLogNum,
                     HistKeyNumber = entry.HistKeyNumber,
@@ -285,8 +319,12 @@ public class XellentExtractionService
         string gsrn, DateTime forDate, List<FlexBillingHistoryLine> hourlyData)
     {
         var tariffLines = new List<ExtractedTariffLine>();
+        var forDateOnly = forDate.Date;
 
         // Get active tariff assignments for this metering point
+        // Aligned with CorrectionService.GetTariffsAsync:
+        // - ChargeTypeCode == 3 (tariffs only, excludes abonnementer/gebyrer)
+        // - Group by PartyChargeTypeId in the query to avoid duplicates
         var tariffAssignments = await (
             from pec in _db.PriceElementChecks
             join pecd in _db.PriceElementCheckData
@@ -298,25 +336,27 @@ public class XellentExtractionService
             where pec.DataAreaId == DataAreaId
                 && pec.MeteringPointId == gsrn
                 && pec.DeliveryCategory == DeliveryCategory
-                && pet.ChargeTypeCode == 3 // Tariff only
-                && pecd.StartDate <= forDate
-                && (pecd.EndDate == NoEndDate || pecd.EndDate >= forDate)
-            select new { pecd.PartyChargeTypeId, pet.Description }
-        ).Distinct().ToListAsync();
+                && pet.ChargeTypeCode == 3 // Tariff only (same as CorrectionService)
+                && pecd.StartDate <= forDateOnly
+                && (pecd.EndDate == NoEndDate || pecd.EndDate >= forDateOnly)
+            group pet by pecd.PartyChargeTypeId into g
+            select new { PartyChargeTypeId = g.Key, Description = g.First().Description }
+        ).ToListAsync();
 
         foreach (var tariff in tariffAssignments)
         {
-            // Get the active rate
+            // Get the most recent rate for this tariff
             var rate = await _db.PriceElementRates
                 .Where(r => r.DataAreaId == DataAreaId
                     && r.PartyChargeTypeId == tariff.PartyChargeTypeId
-                    && r.StartDate <= forDate)
+                    && r.StartDate <= forDateOnly)
                 .OrderByDescending(r => r.StartDate)
                 .FirstOrDefaultAsync();
 
             if (rate == null) continue;
 
             // Calculate tariff amount using hourly rates
+            // Same logic as CorrectionService: hourlyRate > 0 ? hourlyRate : rate.Price
             decimal totalTariffAmount = 0m;
             decimal totalTariffEnergy = 0m;
 

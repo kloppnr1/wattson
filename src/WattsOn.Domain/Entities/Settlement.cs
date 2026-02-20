@@ -132,14 +132,48 @@ public class Settlement : Entity
     }
 
     /// <summary>
+    /// Create a settlement imported from a previous system (not calculated by WattsOn).
+    /// Status is Migrated — clearly distinct from WattsOn-calculated settlements.
+    /// </summary>
+    public static Settlement CreateMigrated(
+        Guid meteringPointId,
+        Guid supplyId,
+        Period settlementPeriod,
+        Guid timeSeriesId,
+        int timeSeriesVersion,
+        EnergyQuantity totalEnergy,
+        string? externalInvoiceReference)
+    {
+        return new Settlement
+        {
+            MeteringPointId = meteringPointId,
+            SupplyId = supplyId,
+            SettlementPeriod = settlementPeriod,
+            TimeSeriesId = timeSeriesId,
+            TimeSeriesVersion = timeSeriesVersion,
+            TotalEnergy = totalEnergy,
+            TotalAmount = Money.Zero,
+            IsCorrection = false,
+            Status = SettlementStatus.Migrated,
+            ExternalInvoiceReference = externalInvoiceReference,
+            InvoicedAt = DateTimeOffset.UtcNow,
+            CalculatedAt = DateTimeOffset.UtcNow
+        };
+    }
+
+    /// <summary>
     /// Mark that a correction has been created for this settlement.
     /// Called when DataHub data changes affect an already-invoiced settlement.
     /// </summary>
+    /// <summary>
+    /// Mark that a correction has been created for this settlement.
+    /// Accepts both Invoiced (WattsOn-calculated) and Migrated (imported from previous system) settlements.
+    /// </summary>
     public void MarkAdjusted()
     {
-        if (Status != SettlementStatus.Invoiced)
+        if (Status != SettlementStatus.Invoiced && Status != SettlementStatus.Migrated)
             throw new InvalidOperationException(
-                $"Cannot mark as adjusted — status is {Status}, expected {SettlementStatus.Invoiced}");
+                $"Cannot mark as adjusted — status is {Status}, expected Invoiced or Migrated");
 
         Status = SettlementStatus.Adjusted;
         MarkUpdated();
@@ -203,6 +237,28 @@ public class SettlementLine : Entity
         {
             SettlementId = settlementId,
             Source = SettlementLineSource.SpotPrice,
+            PriceId = null,
+            Description = description,
+            Quantity = quantity,
+            UnitPrice = unitPrice,
+            Amount = amount
+        };
+    }
+
+    /// <summary>
+    /// Create a DataHub charge line without a Price entity FK — for migrated historical settlements.
+    /// </summary>
+    public static SettlementLine CreateMigrated(
+        Guid settlementId,
+        string description,
+        EnergyQuantity quantity,
+        decimal unitPrice)
+    {
+        var amount = Money.DKK(quantity.Value * unitPrice);
+        return new SettlementLine
+        {
+            SettlementId = settlementId,
+            Source = SettlementLineSource.DataHubCharge,
             PriceId = null,
             Description = description,
             Quantity = quantity,
