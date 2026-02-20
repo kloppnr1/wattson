@@ -157,3 +157,19 @@ record SimulatePriceUpdateRequest(
     string? GridCompanyGln = null,
     DateTimeOffset? EffectiveDate = null,
     string? GridArea = null);
+
+// --- Spot Prices ---
+
+record UpsertSpotPricesRequest(
+    string PriceArea,
+    List<SpotPricePointDto> Points);
+
+record SpotPricePointDto(DateTimeOffset Timestamp, decimal PriceDkkPerKwh);
+
+// --- Supplier Margins ---
+
+record UpsertSupplierMarginsRequest(
+    Guid SupplierIdentityId,
+    List<MarginPointDto> Points);
+
+record MarginPointDto(DateTimeOffset Timestamp, decimal PriceDkkPerKwh);

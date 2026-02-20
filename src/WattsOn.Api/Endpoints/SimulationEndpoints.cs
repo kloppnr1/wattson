@@ -1008,66 +1008,55 @@ public static class SimulationEndpoints
             }
 
             // --- Spot prices (from Energi Data Service, not DataHub) ---
-            var spotCount = 0;
+            // Uses same domain service as POST /api/spot-prices
             var totalHours = (int)(endDate - effectiveDate).TotalHours;
+            var spotPoints = new List<(DateTimeOffset Timestamp, decimal PriceDkkPerKwh)>();
             for (int h = 0; h < totalHours; h++)
             {
                 var ts = effectiveDate.AddHours(h);
-                // Generate 4 quarter-hour spot prices per hour (realistic variation)
                 for (int q = 0; q < 4; q++)
                 {
                     var qTs = ts.AddMinutes(q * 15);
                     // Simulate realistic spot price pattern: 0.30-1.20 DKK/kWh, peaking 17-20
                     var baseSpot = 0.45m + 0.15m * (decimal)Math.Sin(h * Math.PI / 12);
-                    var spotPrice = baseSpot + (q * 0.01m); // Slight quarter-hour variation
-
-                    var existing = await db.SpotPrices
-                        .FirstOrDefaultAsync(sp => sp.PriceArea == gridArea && sp.Timestamp == qTs);
-                    if (existing is null)
-                    {
-                        db.SpotPrices.Add(SpotPrice.Create(gridArea, qTs, spotPrice));
-                        spotCount++;
-                    }
-                    else
-                    {
-                        existing.UpdatePrice(spotPrice);
-                    }
+                    var spotPrice = baseSpot + (q * 0.01m);
+                    spotPoints.Add((qTs, spotPrice));
                 }
             }
+
+            var existingSpots = await db.SpotPrices
+                .Where(sp => sp.PriceArea == gridArea && sp.Timestamp >= effectiveDate && sp.Timestamp < endDate)
+                .ToDictionaryAsync(sp => sp.Timestamp);
+            var spotResult = SpotPriceService.Upsert(gridArea, spotPoints, existingSpots, e => db.SpotPrices.Add(e));
 
             // --- Supplier margin (supplier's own markup, not DataHub) ---
-            var marginCount = 0;
+            // Uses same domain service as POST /api/supplier-margins
+            var marginPoints = new List<(DateTimeOffset Timestamp, decimal PriceDkkPerKwh)>();
             for (int h = 0; h < totalHours; h++)
             {
-                var ts = effectiveDate.AddHours(h);
-                var existing = await db.SupplierMargins
-                    .FirstOrDefaultAsync(m => m.SupplierIdentityId == identity.Id && m.Timestamp == ts);
-                if (existing is null)
-                {
-                    db.SupplierMargins.Add(SupplierMargin.Create(identity.Id, ts, 0.15m)); // 15 øre/kWh
-                    marginCount++;
-                }
-                else
-                {
-                    existing.UpdatePrice(0.15m);
-                }
+                marginPoints.Add((effectiveDate.AddHours(h), 0.15m)); // 15 øre/kWh
             }
+
+            var existingMargins = await db.SupplierMargins
+                .Where(m => m.SupplierIdentityId == identity.Id && m.Timestamp >= effectiveDate && m.Timestamp < endDate)
+                .ToDictionaryAsync(m => m.Timestamp);
+            var marginResult = SupplierMarginService.Upsert(identity.Id, marginPoints, existingMargins, e => db.SupplierMargins.Add(e));
 
             await db.SaveChangesAsync();
 
             return Results.Ok(new
             {
                 pricesCreated = createdPrices.Count,
-                spotPricesCreated = spotCount,
-                supplierMarginsCreated = marginCount,
+                spotPricesCreated = spotResult.Inserted + spotResult.Updated,
+                supplierMarginsCreated = marginResult.Inserted + marginResult.Updated,
                 inboxMessagesCreated = messageCount,
                 effectiveDate,
                 endDate,
                 gridCompanyGln = gridGln,
                 gridArea,
                 prices = createdPrices,
-                message = $"BRS-031: {createdPrices.Count} regulerede DataHub-priser, {spotCount} spotpriser, " +
-                          $"{marginCount} leverandørmarginer oprettet. " +
+                message = $"BRS-031: {createdPrices.Count} regulerede DataHub-priser, {spotResult.Inserted + spotResult.Updated} spotpriser, " +
+                          $"{marginResult.Inserted + marginResult.Updated} leverandørmarginer oprettet. " +
                           $"Periode: {effectiveDate:yyyy-MM-dd} — {endDate:yyyy-MM-dd}."
             });
         }).WithName("SimulatePriceUpdate");

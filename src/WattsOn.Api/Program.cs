@@ -66,6 +66,7 @@ app.MapProcessEndpoints();
 app.MapInboxOutboxEndpoints();
 app.MapSettlementEndpoints();
 app.MapPriceEndpoints();
+app.MapSpotPriceEndpoints();
 app.MapTimeSeriesEndpoints();
 app.MapSettlementDocumentEndpoints();
 app.MapSimulationEndpoints();
