@@ -23,7 +23,7 @@ internal class InboxMessageRouter
         _logger.LogInformation("Routing message {MessageId}: {DocumentType}/{BusinessProcess}",
             message.MessageId, message.DocumentType, message.BusinessProcess);
 
-        var payload = PayloadParser.Parse(message.RawPayload);
+        var payload = CimPayloadExtractor.ExtractPayload(message.RawPayload, message.BusinessProcess, message.DocumentType);
 
         switch (message.BusinessProcess)
         {
