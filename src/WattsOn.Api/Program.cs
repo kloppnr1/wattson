@@ -72,5 +72,6 @@ app.MapSettlementDocumentEndpoints();
 app.MapSimulationEndpoints();
 app.MapDashboardEndpoints();
 app.MapReconciliationEndpoints();
+app.MapAdminEndpoints();
 
 app.Run();

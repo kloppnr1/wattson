@@ -25,7 +25,8 @@ builder.Services.AddHostedService<DataHubInboxFetcher>();
 builder.Services.AddHostedService<InboxPollingWorker>();
 builder.Services.AddHostedService<OutboxDispatchWorker>();
 builder.Services.AddHostedService<SettlementWorker>();
-builder.Services.AddHostedService<SpotPriceWorker>();
+// SpotPriceWorker disabled — trigger manually via Admin page or POST /api/admin/spot-price-fetch
+// builder.Services.AddHostedService<SpotPriceWorker>();
 
 var host = builder.Build();
 host.Run();

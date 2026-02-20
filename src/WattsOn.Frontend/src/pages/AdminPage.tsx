@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Card, Table, Button, Modal, Form, Input, Switch, Tag, Space, Statistic, Row, Col, message, Popconfirm } from 'antd';
-import { PlusOutlined, BankOutlined, DeleteOutlined, UndoOutlined, EditOutlined } from '@ant-design/icons';
-import { formatDate } from '../utils/format';
+import { Card, Table, Button, Modal, Form, Input, Switch, Tag, Space, Statistic, Row, Col, message, Popconfirm, InputNumber } from 'antd';
+import { PlusOutlined, BankOutlined, DeleteOutlined, UndoOutlined, EditOutlined, ThunderboltOutlined, CloudDownloadOutlined } from '@ant-design/icons';
+import { formatDate, formatDateTime } from '../utils/format';
 
 export interface SupplierIdentity {
   id: string; gln: string; name: string; cvr: string | null; isActive: boolean; isArchived: boolean; createdAt: string;
@@ -28,6 +28,30 @@ export default function AdminPage() {
   const [editForm] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const [adminStats, setAdminStats] = useState<any>(null);
+  const [fetchingSpot, setFetchingSpot] = useState(false);
+  const [fetchDays, setFetchDays] = useState(7);
+
+  const loadStats = () => {
+    apiFetch('/admin/stats').then(setAdminStats).catch(() => {});
+  };
+
+  const handleFetchSpot = async () => {
+    setFetchingSpot(true);
+    try {
+      const result = await apiFetch(`/admin/spot-price-fetch?days=${fetchDays}`, { method: 'POST' });
+      if (result.success) {
+        message.success(`Hentet ${result.recordsReceived} priser, ${result.inserted} nye indsat`);
+        loadStats();
+      } else {
+        message.error(result.error || 'Fejl ved hentning');
+      }
+    } catch (err: any) {
+      message.error(err?.message || 'Kunne ikke hente spotpriser');
+    } finally {
+      setFetchingSpot(false);
+    }
+  };
 
   const load = () => {
     setLoading(true);
@@ -37,7 +61,7 @@ export default function AdminPage() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, [showArchived]);
+  useEffect(() => { load(); loadStats(); }, [showArchived]);
 
   const handleCreate = async () => {
     try {
@@ -206,8 +230,65 @@ export default function AdminPage() {
   return (
     <Space direction="vertical" size={24} style={{ width: '100%' }}>
       <div className="page-header">
-        <h2>Leverandøridentiteter</h2>
-        <div className="page-subtitle">GLN identiteter som WattsOn opererer som</div>
+        <h2>Administration</h2>
+        <div className="page-subtitle">Systemindstillinger og dataimport</div>
+      </div>
+
+      {/* ==================== PRISDATA ==================== */}
+      <Card title={<Space><ThunderboltOutlined /> Prisdata</Space>} style={{ borderRadius: 8 }}>
+        <Row gutter={16}>
+          <Col span={6}>
+            <Statistic
+              title="SPOTPRISER"
+              value={adminStats?.spotPrices?.count ?? '—'}
+              styles={{ content: { color: '#3d5a6e' } }}
+            />
+            <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
+              {adminStats?.spotPrices?.earliest
+                ? `${formatDateTime(adminStats.spotPrices.earliest)} — ${formatDateTime(adminStats.spotPrices.latest)}`
+                : 'Ingen data'}
+            </div>
+          </Col>
+          <Col span={6}>
+            <Statistic
+              title="LEVERANDØRMARGINER"
+              value={adminStats?.supplierMargins?.count ?? '—'}
+              styles={{ content: { color: '#3d5a6e' } }}
+            />
+          </Col>
+          <Col span={6}>
+            <Statistic
+              title="DATAHUB PRISER"
+              value={adminStats?.datahubCharges?.count ?? '—'}
+              suffix={adminStats?.datahubCharges?.links != null ? <span style={{ fontSize: 14, color: '#888' }}>({adminStats.datahubCharges.links} links)</span> : undefined}
+              styles={{ content: { color: '#3d5a6e' } }}
+            />
+          </Col>
+          <Col span={6} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <InputNumber
+              min={1}
+              max={90}
+              value={fetchDays}
+              onChange={(v) => setFetchDays(v ?? 7)}
+              addonAfter="dage"
+              style={{ width: 120 }}
+            />
+            <Button
+              type="primary"
+              icon={<CloudDownloadOutlined />}
+              loading={fetchingSpot}
+              onClick={handleFetchSpot}
+            >
+              Hent spotpriser
+            </Button>
+          </Col>
+        </Row>
+      </Card>
+
+      {/* ==================== LEVERANDØRIDENTITETER ==================== */}
+      <div style={{ marginTop: 8 }}>
+        <h3 style={{ margin: '0 0 4px 0' }}>Leverandøridentiteter</h3>
+        <div style={{ color: '#6b7280', fontSize: 13, marginBottom: 16 }}>GLN identiteter som WattsOn opererer som</div>
       </div>
 
       <Row gutter={12}>
