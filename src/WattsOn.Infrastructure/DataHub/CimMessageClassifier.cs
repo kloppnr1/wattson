@@ -177,18 +177,12 @@ public static class CimMessageClassifier
 
     // ── Helpers (same unwrap logic as CimPayloadExtractor) ──────────────
 
-    private static string? UnwrapValue(JsonElement parent, string propertyPath)
+    private static string? UnwrapValue(JsonElement parent, string propertyName)
     {
-        // Support dotted paths: "sender_MarketParticipant.mRID"
-        var parts = propertyPath.Split('.');
-        var current = parent;
-        foreach (var part in parts)
-        {
-            if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(part, out var next))
-                return null;
-            current = next;
-        }
-        return Unwrap(current);
+        // CIM JSON uses flat dotted property names (e.g., "process.processType" is a single key)
+        if (!parent.TryGetProperty(propertyName, out var el))
+            return null;
+        return Unwrap(el);
     }
 
     private static string? Unwrap(JsonElement el)
