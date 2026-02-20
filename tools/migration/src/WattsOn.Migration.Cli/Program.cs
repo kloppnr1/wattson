@@ -1,0 +1,254 @@
+using System.CommandLine;
+using System.Diagnostics;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using WattsOn.Migration.Core.Models;
+using WattsOn.Migration.WattsOnApi;
+using WattsOn.Migration.XellentData;
+
+var accountsOption = new Option<string[]>(
+    name: "--accounts",
+    description: "Xellent account numbers to migrate")
+{ IsRequired = true, AllowMultipleArgumentsPerToken = true };
+
+var xellentConnectionOption = new Option<string>(
+    name: "--xellent-connection",
+    description: "Xellent SQL Server connection string")
+{ IsRequired = true };
+
+var wattsOnUrlOption = new Option<string>(
+    name: "--wattson-url",
+    description: "WattsOn API base URL",
+    getDefaultValue: () => "http://localhost:5100");
+
+var supplierGlnOption = new Option<string>(
+    name: "--supplier-gln",
+    description: "Supplier GLN (EAN number)")
+{ IsRequired = true };
+
+var supplierNameOption = new Option<string>(
+    name: "--supplier-name",
+    description: "Supplier name",
+    getDefaultValue: () => "Verdo");
+
+var includeTimeSeriesOption = new Option<bool>(
+    name: "--include-timeseries",
+    description: "Include historical time series data",
+    getDefaultValue: () => false);
+
+var timeSeriesStartOption = new Option<DateTime?>(
+    name: "--timeseries-start",
+    description: "Time series start date (default: 2 years ago)");
+
+var dryRunOption = new Option<bool>(
+    name: "--dry-run",
+    description: "Extract and map but don't push to WattsOn",
+    getDefaultValue: () => false);
+
+var rootCommand = new RootCommand("WattsOn Migration Tool — migrate customers from Xellent to WattsOn")
+{
+    accountsOption,
+    xellentConnectionOption,
+    wattsOnUrlOption,
+    supplierGlnOption,
+    supplierNameOption,
+    includeTimeSeriesOption,
+    timeSeriesStartOption,
+    dryRunOption
+};
+
+rootCommand.SetHandler(async (context) =>
+{
+    var accounts = context.ParseResult.GetValueForOption(accountsOption)!;
+    var xellentConnection = context.ParseResult.GetValueForOption(xellentConnectionOption)!;
+    var wattsOnUrl = context.ParseResult.GetValueForOption(wattsOnUrlOption)!;
+    var supplierGln = context.ParseResult.GetValueForOption(supplierGlnOption)!;
+    var supplierName = context.ParseResult.GetValueForOption(supplierNameOption)!;
+    var includeTimeSeries = context.ParseResult.GetValueForOption(includeTimeSeriesOption);
+    var timeSeriesStart = context.ParseResult.GetValueForOption(timeSeriesStartOption);
+    var dryRun = context.ParseResult.GetValueForOption(dryRunOption);
+
+    // Setup DI
+    var services = new ServiceCollection();
+    services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Information));
+
+    services.AddDbContext<XellentDbContext>(options =>
+        options.UseSqlServer(xellentConnection));
+
+    services.AddHttpClient<WattsOnMigrationClient>(client =>
+        client.BaseAddress = new Uri(wattsOnUrl));
+
+    services.AddTransient<XellentExtractionService>();
+
+    var sp = services.BuildServiceProvider();
+    var logger = sp.GetRequiredService<ILogger<Program>>();
+    var extraction = sp.GetRequiredService<XellentExtractionService>();
+    var wattsOn = sp.GetRequiredService<WattsOnMigrationClient>();
+
+    var sw = Stopwatch.StartNew();
+    var result = new MigrationResult();
+
+    try
+    {
+        logger.LogInformation("Starting migration for {Count} accounts: {Accounts}",
+            accounts.Length, string.Join(", ", accounts));
+
+        // Step 1: Extract from Xellent
+        logger.LogInformation("Extracting from Xellent...");
+        var customers = await extraction.ExtractCustomersAsync(accounts);
+        var products = await extraction.ExtractDistinctProductsAsync(accounts);
+        logger.LogInformation("Extracted {CustomerCount} customers, {ProductCount} products, {MpCount} metering points",
+            customers.Count, products.Count, customers.Sum(c => c.MeteringPoints.Count));
+
+        if (dryRun)
+        {
+            logger.LogInformation("DRY RUN — skipping WattsOn API calls");
+            foreach (var c in customers)
+            {
+                logger.LogInformation("  Customer: {Name} ({Id}) — {MpCount} metering points",
+                    c.Name, c.Cpr ?? c.Cvr ?? "?", c.MeteringPoints.Count);
+                foreach (var mp in c.MeteringPoints)
+                {
+                    logger.LogInformation("    MP: {Gsrn} ({Area}) supply {Start} → {End}, {ProductCount} product periods",
+                        mp.Gsrn, mp.GridArea, mp.SupplyStart, mp.SupplyEnd?.ToString() ?? "open",
+                        mp.ProductPeriods.Count);
+                }
+            }
+            foreach (var p in products)
+            {
+                logger.LogInformation("  Product: {Name} — {RateCount} rate periods", p.Name, p.Rates.Count);
+            }
+            return;
+        }
+
+        // Step 2: Ensure supplier identity
+        logger.LogInformation("Ensuring supplier identity {Gln}...", supplierGln);
+        var supplierIdentityId = await wattsOn.EnsureSupplierIdentity(supplierGln, supplierName);
+        logger.LogInformation("Supplier identity: {Id}", supplierIdentityId);
+
+        // Step 3: Create products
+        logger.LogInformation("Migrating {Count} products...", products.Count);
+        var productResult = await wattsOn.MigrateSupplierProducts(new
+        {
+            supplierIdentityId,
+            products = products.Select(p => new { p.Name, p.Description, isActive = true }).ToList()
+        });
+        result.ProductsCreated = productResult.GetProperty("created").GetInt32();
+        result.ProductsSkipped = productResult.GetProperty("skipped").GetInt32();
+
+        // Step 4: Migrate customers (with metering points + supplies)
+        logger.LogInformation("Migrating {Count} customers...", customers.Count);
+        var customerPayload = new
+        {
+            supplierIdentityId,
+            customers = customers.Select(c => new
+            {
+                name = c.Name,
+                cpr = c.Cpr,
+                cvr = c.Cvr,
+                email = c.Email,
+                phone = c.Phone,
+                meteringPoints = c.MeteringPoints.Select(mp => new
+                {
+                    gsrn = mp.Gsrn,
+                    type = "Consumption",
+                    art = "Physical",
+                    settlementMethod = mp.SettlementMethod,
+                    gridArea = mp.GridArea,
+                    gridOperatorGln = mp.GridOperatorGln,
+                    supplyStart = mp.SupplyStart
+                }).ToList()
+            }).ToList()
+        };
+        var customerResult = await wattsOn.MigrateCustomers(customerPayload);
+        result.CustomersCreated = customerResult.GetProperty("customersCreated").GetInt32();
+        result.CustomersSkipped = customerResult.GetProperty("skipped").GetInt32();
+        result.MeteringPointsCreated = customerResult.GetProperty("meteringPointsCreated").GetInt32();
+        result.SuppliesCreated = customerResult.GetProperty("suppliesCreated").GetInt32();
+
+        // Step 5: Supply product periods
+        var allPeriods = customers
+            .SelectMany(c => c.MeteringPoints)
+            .SelectMany(mp => mp.ProductPeriods.Select(pp => new
+            {
+                gsrn = mp.Gsrn,
+                productName = pp.ProductName,
+                productStart = pp.Start,
+                productEnd = pp.End
+            }))
+            .ToList();
+
+        if (allPeriods.Count > 0)
+        {
+            logger.LogInformation("Migrating {Count} product periods...", allPeriods.Count);
+            var periodResult = await wattsOn.MigrateSupplyProductPeriods(new
+            {
+                supplierIdentityId,
+                periods = allPeriods
+            });
+            result.ProductPeriodsCreated = periodResult.GetProperty("created").GetInt32();
+            result.ProductPeriodsSkipped = periodResult.GetProperty("skipped").GetInt32();
+        }
+
+        // Step 6: Supplier margins (expand flat rates to hourly)
+        // TODO: Revisit — Xellent may have hourly rate differentiation.
+        // Currently we expand a single flat rate into hourly entries.
+        // See ExuPriceElementRates (hours 1-24) for potential hourly data.
+        foreach (var product in products.Where(p => p.Rates.Count > 0))
+        {
+            logger.LogInformation("Expanding margins for product {Name} ({RateCount} rate periods)...",
+                product.Name, product.Rates.Count);
+
+            // We need the product ID from WattsOn — look it up
+            // For now, the margin endpoint takes productId, so we'd need to query it
+            // This will be connected once we have the lookup
+            // TODO: Add product lookup by name to WattsOn API or return IDs from migrate endpoint
+            result.Warnings.Add($"Margin expansion for '{product.Name}' not yet wired — needs product ID lookup");
+        }
+
+        // Step 7: Time series (if requested)
+        if (includeTimeSeries)
+        {
+            var tsStart = timeSeriesStart ?? DateTime.UtcNow.AddYears(-2);
+            logger.LogInformation("Extracting time series from {Start}...", tsStart);
+            var allGsrns = customers.SelectMany(c => c.MeteringPoints).Select(mp => mp.Gsrn).ToList();
+            var timeSeries = await extraction.ExtractTimeSeriesAsync(allGsrns, new DateTimeOffset(tsStart, TimeSpan.Zero));
+
+            if (timeSeries.Count > 0)
+            {
+                logger.LogInformation("Migrating {Count} time series...", timeSeries.Count);
+                var tsResult = await wattsOn.MigrateTimeSeries(new
+                {
+                    timeSeries = timeSeries.Select(ts => new
+                    {
+                        gsrn = ts.Gsrn,
+                        periodStart = ts.PeriodStart,
+                        periodEnd = ts.PeriodEnd,
+                        resolution = ts.Resolution,
+                        observations = ts.Observations.Select(o => new
+                        {
+                            timestamp = o.Timestamp,
+                            kwh = o.Kwh,
+                            quality = o.Quality
+                        }).ToList()
+                    }).ToList()
+                });
+                result.TimeSeriesCreated = tsResult.GetProperty("seriesCreated").GetInt32();
+                result.ObservationsCreated = tsResult.GetProperty("observationsCreated").GetInt32();
+                result.TimeSeriesSkipped = tsResult.GetProperty("skipped").GetInt32();
+            }
+        }
+
+        sw.Stop();
+        result.Duration = sw.Elapsed;
+        logger.LogInformation("{Result}", result.ToString());
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Migration failed");
+        result.Errors.Add(ex.Message);
+    }
+});
+
+return await rootCommand.InvokeAsync(args);
