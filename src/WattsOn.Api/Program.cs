@@ -73,5 +73,6 @@ app.MapSimulationEndpoints();
 app.MapDashboardEndpoints();
 app.MapReconciliationEndpoints();
 app.MapAdminEndpoints();
+app.MapMigrationEndpoints();
 
 app.Run();

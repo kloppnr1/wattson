@@ -1,0 +1,430 @@
+using Microsoft.EntityFrameworkCore;
+using WattsOn.Api.Models;
+using WattsOn.Domain.Entities;
+using WattsOn.Domain.Enums;
+using WattsOn.Domain.Services;
+using WattsOn.Domain.ValueObjects;
+using WattsOn.Infrastructure.Persistence;
+
+namespace WattsOn.Api.Endpoints;
+
+/// <summary>
+/// Bulk import endpoints for migrating data from an existing settlement system.
+/// These bypass BRS process flows and insert directly — intended for one-time migration only.
+/// All endpoints are prefixed with /api/migration/.
+/// </summary>
+public static class MigrationEndpoints
+{
+    public static WebApplication MapMigrationEndpoints(this WebApplication app)
+    {
+        // ==================== KUNDER (Customers with supplies + metering points) ====================
+
+        /// <summary>
+        /// Import customers with their metering points and supplies in one call.
+        /// Creates customer → metering point → supply chain for each entry.
+        /// Skips existing customers (matched by CPR/CVR) and existing metering points (matched by GSRN).
+        /// </summary>
+        app.MapPost("/api/migration/customers", async (MigrationCustomerBatchRequest req, WattsOnDbContext db) =>
+        {
+            var identity = await db.SupplierIdentities.FindAsync(req.SupplierIdentityId);
+            if (identity is null)
+                return Results.BadRequest(new { error = "SupplierIdentity not found" });
+
+            int customersCreated = 0, meteringPointsCreated = 0, suppliesCreated = 0, skipped = 0;
+
+            foreach (var c in req.Customers)
+            {
+                // Check for existing customer by CPR or CVR
+                Customer? existing = null;
+                if (!string.IsNullOrEmpty(c.Cpr))
+                {
+                    var cpr = CprNumber.Create(c.Cpr);
+                    existing = await db.Customers.FirstOrDefaultAsync(x => x.Cpr != null && x.Cpr.Value == cpr.Value);
+                }
+                if (existing is null && !string.IsNullOrEmpty(c.Cvr))
+                {
+                    var cvr = CvrNumber.Create(c.Cvr);
+                    existing = await db.Customers.FirstOrDefaultAsync(x => x.Cvr != null && x.Cvr.Value == cvr.Value);
+                }
+
+                if (existing is not null)
+                {
+                    skipped++;
+                    continue;
+                }
+
+                Customer customer;
+                if (!string.IsNullOrEmpty(c.Cpr))
+                    customer = Customer.CreatePerson(c.Name, CprNumber.Create(c.Cpr), req.SupplierIdentityId);
+                else if (!string.IsNullOrEmpty(c.Cvr))
+                    customer = Customer.CreateCompany(c.Name, CvrNumber.Create(c.Cvr), req.SupplierIdentityId);
+                else
+                    return Results.BadRequest(new { error = $"Customer '{c.Name}' must have either CPR or CVR" });
+
+                if (c.Email is not null || c.Phone is not null)
+                    customer.UpdateContactInfo(c.Email, c.Phone);
+                db.Customers.Add(customer);
+
+                foreach (var mp in c.MeteringPoints ?? [])
+                {
+                    var existingMp = await db.MeteringPoints.FirstOrDefaultAsync(x => x.Gsrn.Value == mp.Gsrn);
+                    if (existingMp is not null) continue;
+
+                    var gsrn = Gsrn.Create(mp.Gsrn);
+                    var mpType = Enum.Parse<MeteringPointType>(mp.Type);
+                    var art = Enum.Parse<MeteringPointCategory>(mp.Art);
+                    var settlementMethod = Enum.Parse<SettlementMethod>(mp.SettlementMethod);
+                    var resolution = !string.IsNullOrEmpty(mp.Resolution)
+                        ? Enum.Parse<Resolution>(mp.Resolution) : Resolution.PT1H;
+
+                    var meteringPoint = MeteringPoint.Create(gsrn, mpType, art, settlementMethod,
+                        resolution, mp.GridArea ?? "DK1",
+                        GlnNumber.Create(mp.GridOperatorGln ?? "5790000432752"));
+                    db.MeteringPoints.Add(meteringPoint);
+                    meteringPointsCreated++;
+
+                    if (mp.SupplyStart.HasValue)
+                    {
+                        var supply = Supply.Create(meteringPoint.Id, customer.Id,
+                            Period.From(mp.SupplyStart.Value));
+                        db.Supplies.Add(supply);
+                        suppliesCreated++;
+                    }
+                }
+
+                customersCreated++;
+            }
+
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new
+            {
+                customersCreated,
+                meteringPointsCreated,
+                suppliesCreated,
+                skipped,
+                message = $"Migrering: {customersCreated} kunder, {meteringPointsCreated} målepunkter, {suppliesCreated} tilknytninger oprettet. {skipped} sprunget over."
+            });
+        }).WithName("MigrateCustomers");
+
+        // ==================== DATAHUB-PRISER (Charges with price points) ====================
+
+        /// <summary>
+        /// Import DataHub charges (nettarif, systemtarif, elafgift, etc.) with their price points.
+        /// These are the regulated prices that arrive via BRS-031/037 in production.
+        /// For migration, import historical charges from the previous system.
+        /// </summary>
+        app.MapPost("/api/migration/prices", async (MigrationPriceBatchRequest req, WattsOnDbContext db) =>
+        {
+            int created = 0, updated = 0, pointsCreated = 0;
+
+            foreach (var p in req.Prices)
+            {
+                var ownerGln = GlnNumber.Create(p.OwnerGln);
+                var priceType = Enum.Parse<PriceType>(p.Type);
+                var resolution = !string.IsNullOrEmpty(p.Resolution)
+                    ? Enum.Parse<Resolution>(p.Resolution)
+                    : (Resolution?)null;
+                var category = !string.IsNullOrEmpty(p.Category)
+                    ? Enum.Parse<PriceCategory>(p.Category)
+                    : PriceCategory.Andet;
+
+                var existing = await db.Prices
+                    .Include(x => x.PricePoints)
+                    .Where(x => x.ChargeId == p.ChargeId)
+                    .FirstOrDefaultAsync(x => x.OwnerGln.Value == ownerGln.Value);
+
+                Price price;
+                if (existing is null)
+                {
+                    price = Price.Create(
+                        p.ChargeId, ownerGln, priceType, p.Description,
+                        Period.From(p.EffectiveDate), false, resolution,
+                        p.IsTax, p.IsPassThrough, category: category);
+                    db.Prices.Add(price);
+                    created++;
+                }
+                else
+                {
+                    price = existing;
+                    price.UpdatePriceInfo(p.Description, p.IsTax, p.IsPassThrough);
+                    price.UpdateCategory(category);
+                    price.UpdateValidity(Period.From(p.EffectiveDate));
+                    updated++;
+                }
+
+                if (p.Points is { Count: > 0 })
+                {
+                    var start = p.Points.Min(pt => pt.Timestamp);
+                    var end = p.Points.Max(pt => pt.Timestamp).AddHours(1);
+                    var tuples = p.Points.Select(pt => (pt.Timestamp, pt.Price)).ToList();
+                    price.ReplacePricePoints(start, end, tuples);
+                    pointsCreated += p.Points.Count;
+                }
+            }
+
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new
+            {
+                created,
+                updated,
+                pointsCreated,
+                message = $"Migrering: {created} nye priser, {updated} opdaterede, {pointsCreated} prispunkter."
+            });
+        }).WithName("MigratePrices");
+
+        // ==================== SPOTPRISER ====================
+
+        /// <summary>
+        /// Bulk import historical spot prices.
+        /// Delegates to SpotPriceService for upsert logic.
+        /// </summary>
+        app.MapPost("/api/migration/spot-prices", async (MigrationSpotPriceBatchRequest req, WattsOnDbContext db) =>
+        {
+            int totalInserted = 0, totalUpdated = 0;
+
+            foreach (var batch in req.Batches)
+            {
+                if (batch.PriceArea != "DK1" && batch.PriceArea != "DK2")
+                    return Results.BadRequest(new { error = $"PriceArea must be DK1 or DK2, got '{batch.PriceArea}'" });
+
+                var timestamps = batch.Points.Select(p => p.Timestamp).ToList();
+                if (timestamps.Count == 0) continue;
+
+                var existing = await db.SpotPrices
+                    .Where(sp => sp.PriceArea == batch.PriceArea &&
+                                 sp.Timestamp >= timestamps.Min() && sp.Timestamp <= timestamps.Max())
+                    .ToDictionaryAsync(sp => sp.Timestamp);
+
+                var points = batch.Points.Select(p => (p.Timestamp, p.PriceDkkPerKwh)).ToList();
+                var result = SpotPriceService.Upsert(batch.PriceArea, points, existing, e => db.SpotPrices.Add(e));
+                totalInserted += result.Inserted;
+                totalUpdated += result.Updated;
+            }
+
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new
+            {
+                inserted = totalInserted,
+                updated = totalUpdated,
+                total = totalInserted + totalUpdated,
+                message = $"Migrering: {totalInserted} nye spotpriser, {totalUpdated} opdaterede."
+            });
+        }).WithName("MigrateSpotPrices");
+
+        // ==================== LEVERANDØRMARGIN ====================
+
+        /// <summary>
+        /// Bulk import historical supplier margins.
+        /// Delegates to SupplierMarginService for upsert logic.
+        /// </summary>
+        app.MapPost("/api/migration/supplier-margins", async (MigrationSupplierMarginBatchRequest req, WattsOnDbContext db) =>
+        {
+            var identity = await db.SupplierIdentities.FindAsync(req.SupplierIdentityId);
+            if (identity is null)
+                return Results.BadRequest(new { error = "SupplierIdentity not found" });
+
+            var timestamps = req.Points.Select(p => p.Timestamp).ToList();
+            if (timestamps.Count == 0)
+                return Results.BadRequest(new { error = "Points required" });
+
+            var existing = await db.SupplierMargins
+                .Where(m => m.SupplierIdentityId == req.SupplierIdentityId &&
+                             m.Timestamp >= timestamps.Min() && m.Timestamp <= timestamps.Max())
+                .ToDictionaryAsync(m => m.Timestamp);
+
+            var points = req.Points.Select(p => (p.Timestamp, p.PriceDkkPerKwh)).ToList();
+            var result = SupplierMarginService.Upsert(req.SupplierIdentityId, points, existing, e => db.SupplierMargins.Add(e));
+
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new
+            {
+                supplierIdentityId = req.SupplierIdentityId,
+                inserted = result.Inserted,
+                updated = result.Updated,
+                total = result.Inserted + result.Updated,
+                message = $"Migrering: {result.Inserted} nye marginer, {result.Updated} opdaterede."
+            });
+        }).WithName("MigrateSupplierMargins");
+
+        // ==================== TIDSSERIER (Historical consumption) ====================
+
+        /// <summary>
+        /// Bulk import historical time series (consumption data) for metering points.
+        /// Inserts raw observations — settlement engine can then calculate from these.
+        /// </summary>
+        app.MapPost("/api/migration/time-series", async (MigrationTimeSeriesBatchRequest req, WattsOnDbContext db) =>
+        {
+            int seriesCreated = 0, observationsCreated = 0, skipped = 0;
+
+            foreach (var ts in req.TimeSeries)
+            {
+                var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == ts.Gsrn);
+                if (mp is null)
+                {
+                    skipped++;
+                    continue;
+                }
+
+                var resolution = !string.IsNullOrEmpty(ts.Resolution)
+                    ? Enum.Parse<Resolution>(ts.Resolution)
+                    : Resolution.PT1H;
+
+                var period = Period.Create(ts.PeriodStart, ts.PeriodEnd);
+                var series = TimeSeries.Create(mp.Id, period, resolution, ts.Version ?? 1);
+                db.TimeSeriesCollection.Add(series);
+                seriesCreated++;
+
+                foreach (var obs in ts.Observations)
+                {
+                    var quantity = EnergyQuantity.Create(obs.Kwh);
+                    var quality = ParseQuality(obs.Quality);
+                    series.AddObservation(obs.Timestamp, quantity, quality);
+                    observationsCreated++;
+                }
+            }
+
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new
+            {
+                seriesCreated,
+                observationsCreated,
+                skipped,
+                message = $"Migrering: {seriesCreated} tidsserier, {observationsCreated} observationer. {skipped} sprunget over (ukendt GSRN)."
+            });
+        }).WithName("MigrateTimeSeries");
+
+        // ==================== PRISTILKNYTNINGER (Price links) ====================
+
+        /// <summary>
+        /// Bulk import price-to-metering-point links.
+        /// Links DataHub charges to specific metering points (as received via BRS-037).
+        /// </summary>
+        app.MapPost("/api/migration/price-links", async (MigrationPriceLinkBatchRequest req, WattsOnDbContext db) =>
+        {
+            int created = 0, skipped = 0;
+
+            foreach (var link in req.Links)
+            {
+                var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == link.Gsrn);
+                if (mp is null) { skipped++; continue; }
+
+                var ownerGln = GlnNumber.Create(link.OwnerGln);
+                var price = await db.Prices
+                    .Where(p => p.ChargeId == link.ChargeId)
+                    .FirstOrDefaultAsync(p => p.OwnerGln.Value == ownerGln.Value);
+                if (price is null) { skipped++; continue; }
+
+                var exists = await db.PriceLinks.AnyAsync(pl =>
+                    pl.MeteringPointId == mp.Id && pl.PriceId == price.Id);
+                if (exists) { skipped++; continue; }
+
+                var priceLink = PriceLink.Create(mp.Id, price.Id,
+                    Period.From(link.EffectiveDate));
+                db.PriceLinks.Add(priceLink);
+                created++;
+            }
+
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new
+            {
+                created,
+                skipped,
+                message = $"Migrering: {created} pristilknytninger oprettet, {skipped} sprunget over."
+            });
+        }).WithName("MigratePriceLinks");
+
+        return app;
+    }
+
+    private static QuantityQuality ParseQuality(string? quality) => quality switch
+    {
+        "A01" or "Measured" or null => QuantityQuality.Measured,
+        "A02" or "Estimated" => QuantityQuality.Estimated,
+        "A03" or "Calculated" => QuantityQuality.Calculated,
+        "A04" or "NotAvailable" => QuantityQuality.NotAvailable,
+        "A05" or "Revised" => QuantityQuality.Revised,
+        "E01" or "Adjusted" => QuantityQuality.Adjusted,
+        _ => QuantityQuality.Measured
+    };
+}
+
+// ==================== Migration DTOs ====================
+
+record MigrationCustomerBatchRequest(
+    Guid SupplierIdentityId,
+    List<MigrationCustomerDto> Customers);
+
+record MigrationCustomerDto(
+    string Name,
+    string? Cpr,
+    string? Cvr,
+    string? Email,
+    string? Phone,
+    List<MigrationMeteringPointDto>? MeteringPoints);
+
+record MigrationMeteringPointDto(
+    string Gsrn,
+    string Type,       // Consumption, Production, Exchange
+    string Art,         // Physical, Virtual, Calculated
+    string SettlementMethod,  // Flex, NonProfiled, Profiled
+    string? Resolution,       // PT1H, PT15M — defaults to PT1H
+    string? GridArea,
+    string? GridOperatorGln,
+    DateTimeOffset? SupplyStart);
+
+record MigrationPriceBatchRequest(
+    List<MigrationPriceDto> Prices);
+
+record MigrationPriceDto(
+    string ChargeId,
+    string OwnerGln,
+    string Type,           // Tarif, Gebyr, Abonnement
+    string Description,
+    DateTimeOffset EffectiveDate,
+    string? Resolution,    // PT1H, PT15M, P1D, P1M
+    bool IsTax,
+    bool IsPassThrough,
+    string? Category,      // Nettarif, Systemtarif, Transmissionstarif, Elafgift, etc.
+    List<PricePointDto>? Points);
+
+record MigrationSpotPriceBatchRequest(
+    List<MigrationSpotPriceBatchDto> Batches);
+
+record MigrationSpotPriceBatchDto(
+    string PriceArea,      // DK1 or DK2
+    List<SpotPricePointDto> Points);
+
+record MigrationSupplierMarginBatchRequest(
+    Guid SupplierIdentityId,
+    List<MarginPointDto> Points);
+
+record MigrationTimeSeriesBatchRequest(
+    List<MigrationTimeSeriesDto> TimeSeries);
+
+record MigrationTimeSeriesDto(
+    string Gsrn,
+    DateTimeOffset PeriodStart,
+    DateTimeOffset PeriodEnd,
+    string? Resolution,    // PT1H, PT15M
+    int? Version,          // defaults to 1
+    List<MigrationObservationDto> Observations);
+
+record MigrationObservationDto(
+    DateTimeOffset Timestamp,
+    decimal Kwh,
+    string? Quality);      // A01 (measured), A02 (estimated), etc.
+
+record MigrationPriceLinkBatchRequest(
+    List<MigrationPriceLinkDto> Links);
+
+record MigrationPriceLinkDto(
+    string Gsrn,
+    string ChargeId,
+    string OwnerGln,
+    DateTimeOffset EffectiveDate);
