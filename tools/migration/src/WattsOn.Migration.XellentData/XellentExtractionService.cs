@@ -86,6 +86,7 @@ public class XellentExtractionService
                         var mp = new ExtractedMeteringPoint
                         {
                             Gsrn = GetGsrn(firstMp.Delpoint),
+                            XellentMeteringPoint = NullIfEmpty(firstMp.Delpoint.Meteringpoint),
                             GridArea = MapGridArea(firstMp.Delpoint.Powerexchangearea),
                             SupplyStart = ToUtc(firstMp.Contract.Contractstartdate),
                             SupplyEnd = firstMp.Contract.Contractenddate == NoEndDate
@@ -253,19 +254,30 @@ public class XellentExtractionService
     /// Extract invoiced settlements from FlexBillingHistory.
     /// Each billing period = one settlement with status Invoiced.
     /// </summary>
-    public async Task<List<ExtractedSettlement>> ExtractSettlementsAsync(List<string> gsrns)
+    public async Task<List<ExtractedSettlement>> ExtractSettlementsAsync(
+        List<(string Gsrn, string? XellentMeteringPoint)> meteringPoints)
     {
         var result = new List<ExtractedSettlement>();
 
-        foreach (var gsrn in gsrns)
+        foreach (var (gsrn, xellentMp) in meteringPoints)
         {
-            // Get billing history entries for this metering point
+            // Try GSRN first, fall back to Xellent METERINGPOINT column
+            var searchIds = new List<string> { gsrn };
+            if (!string.IsNullOrEmpty(xellentMp) && xellentMp != gsrn)
+                searchIds.Add(xellentMp);
+
+            // Get ALL billing history entries for this metering point.
+            // No date filter — settlements are correction baselines regardless of age.
+            // ReqStartDate is often 1900-01-01 (sentinel) — actual period dates come from hourly lines.
             var historyEntries = await _db.FlexBillingHistoryTables
                 .Where(h => h.DataAreaId == DataAreaId
-                    && h.MeteringPoint == gsrn
+                    && searchIds.Contains(h.MeteringPoint)
                     && h.DeliveryCategory == DeliveryCategory)
                 .OrderBy(h => h.ReqStartDate)
                 .ToListAsync();
+
+            _logger.LogInformation("Found {Count} billing entries for {Mp} (searched: [{Ids}])",
+                historyEntries.Count, gsrn, string.Join(", ", searchIds));
 
             foreach (var entry in historyEntries)
             {
@@ -288,6 +300,18 @@ public class XellentExtractionService
                 var spotAmount = lines.Sum(l => l.TimeValue * l.PowerExchangePrice);
                 var marginAmount = electricityAmount - spotAmount;
 
+                // Build hourly provenance lines
+                var hourlyLines = lines.Select(l => new HourlyLine
+                {
+                    Timestamp = ToUtc(l.DateTime24Hour),
+                    Kwh = l.TimeValue,
+                    SpotPriceDkkPerKwh = l.PowerExchangePrice,
+                    CalculatedPriceDkkPerKwh = l.CalculatedPrice,
+                    SpotAmountDkk = l.TimeValue * l.PowerExchangePrice,
+                    MarginAmountDkk = l.TimeValue * (l.CalculatedPrice - l.PowerExchangePrice),
+                    ElectricityAmountDkk = l.TimeValue * l.CalculatedPrice
+                }).ToList();
+
                 // Get tariffs for this metering point and period (use derived periodStart, not sentinel)
                 var tariffLines = await ExtractTariffLinesAsync(gsrn, periodStart, lines);
 
@@ -305,13 +329,14 @@ public class XellentExtractionService
                     SpotAmountDkk = spotAmount,
                     MarginAmountDkk = marginAmount,
                     TariffLines = tariffLines,
-                    TotalAmountDkk = totalAmount
+                    TotalAmountDkk = totalAmount,
+                    HourlyLines = hourlyLines
                 });
             }
         }
 
-        _logger.LogInformation("Extracted {Count} settlements for {GsrnCount} metering points",
-            result.Count, gsrns.Count);
+        _logger.LogInformation("Extracted {Count} settlements for {MpCount} metering points",
+            result.Count, meteringPoints.Count);
         return result;
     }
 
@@ -573,20 +598,43 @@ public class XellentExtractionService
 
         foreach (var tariff in tariffAssignments)
         {
-            // Get the most recent rate for this tariff
-            var rate = await _db.PriceElementRates
+            // Count all candidate rates for provenance
+            var candidateRates = await _db.PriceElementRates
                 .Where(r => r.DataAreaId == DataAreaId
                     && r.PartyChargeTypeId == tariff.PartyChargeTypeId
                     && r.StartDate <= forDateOnly)
                 .OrderByDescending(r => r.StartDate)
-                .FirstOrDefaultAsync();
+                .ToListAsync();
 
-            if (rate == null) continue;
+            if (candidateRates.Count == 0) continue;
 
-            // Calculate tariff amount using hourly rates
-            // Same logic as CorrectionService: hourlyRate > 0 ? hourlyRate : rate.Price
+            var rate = candidateRates[0]; // Most recent
+            var isHourly = HasHourlyRates(rate);
+
+            // Build provenance: capture the exact rate row and its values
+            var hourlyRates = isHourly ? new decimal[24] : null;
+            if (isHourly)
+            {
+                for (int h = 1; h <= 24; h++)
+                    hourlyRates![h - 1] = rate.GetPriceForHour(h);
+            }
+
+            var provenance = new TariffRateProvenance
+            {
+                PartyChargeTypeId = tariff.PartyChargeTypeId,
+                RateStartDate = rate.StartDate,
+                IsHourly = isHourly,
+                FlatRate = rate.Price,
+                HourlyRates = hourlyRates,
+                CandidateRateCount = candidateRates.Count,
+                SelectionRule = $"Most recent rate with StartDate <= {forDateOnly:yyyy-MM-dd} " +
+                    $"(selected {rate.StartDate:yyyy-MM-dd} from {candidateRates.Count} candidates)"
+            };
+
+            // Calculate tariff amount with hourly detail
             decimal totalTariffAmount = 0m;
             decimal totalTariffEnergy = 0m;
+            var hourlyDetail = new List<HourlyTariffDetail>();
 
             foreach (var line in hourlyData)
             {
@@ -596,8 +644,18 @@ public class XellentExtractionService
 
                 if (effectiveRate <= 0) continue;
 
-                totalTariffAmount += line.TimeValue * effectiveRate;
+                var lineAmount = line.TimeValue * effectiveRate;
+                totalTariffAmount += lineAmount;
                 totalTariffEnergy += line.TimeValue;
+
+                hourlyDetail.Add(new HourlyTariffDetail
+                {
+                    Timestamp = ToUtc(line.DateTime24Hour),
+                    Hour = hourNum,
+                    Kwh = line.TimeValue,
+                    RateDkkPerKwh = effectiveRate,
+                    AmountDkk = lineAmount
+                });
             }
 
             if (totalTariffAmount == 0) continue;
@@ -608,7 +666,9 @@ public class XellentExtractionService
                 Description = tariff.Description,
                 AmountDkk = totalTariffAmount,
                 EnergyKwh = totalTariffEnergy,
-                AvgUnitPrice = totalTariffEnergy != 0 ? totalTariffAmount / totalTariffEnergy : 0
+                AvgUnitPrice = totalTariffEnergy != 0 ? totalTariffAmount / totalTariffEnergy : 0,
+                RateProvenance = provenance,
+                HourlyDetail = hourlyDetail
             });
         }
 

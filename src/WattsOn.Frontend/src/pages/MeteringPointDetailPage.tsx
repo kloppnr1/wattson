@@ -159,6 +159,22 @@ export default function MeteringPointDetailPage() {
           return `${start} → ${formatDate(record.periodEnd)}`;
         })(),
     },
+    {
+      title: 'Forbrug',
+      dataIndex: 'totalEnergyKwh',
+      key: 'totalEnergyKwh',
+      align: 'right' as const,
+      render: (v: number) => v > 0
+        ? <Text className="tnum" strong>{v.toFixed(1)} kWh</Text>
+        : <Text type="secondary" className="tnum">—</Text>,
+    },
+    {
+      title: 'Datapunkter',
+      dataIndex: 'observationCount',
+      key: 'observationCount',
+      align: 'right' as const,
+      render: (v: number) => <Text className="tnum">{v}</Text>,
+    },
     { title: 'Opløsning', dataIndex: 'resolution', key: 'resolution' },
     { title: 'Version', dataIndex: 'version', key: 'version' },
     {

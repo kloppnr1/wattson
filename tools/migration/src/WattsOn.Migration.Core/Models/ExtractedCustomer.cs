@@ -17,6 +17,8 @@ public class ExtractedCustomer
 public class ExtractedMeteringPoint
 {
     public string Gsrn { get; set; } = null!;
+    /// <summary>Xellent METERINGPOINT column value (may differ from GSRN)</summary>
+    public string? XellentMeteringPoint { get; set; }
     public string GridArea { get; set; } = null!; // DK1/DK2
     public string? GridOperatorGln { get; set; }
     public string SettlementMethod { get; set; } = "Flex";

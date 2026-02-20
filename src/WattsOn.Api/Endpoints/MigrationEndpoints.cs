@@ -517,25 +517,36 @@ public static class MigrationEndpoints
                     settlement.AddLine(marginLine);
                 }
 
-                // Add tariff lines — link to Price entity if available, otherwise create without FK
+                // Add tariff/charge lines — includes tariffs, subscriptions, fees, and product margins
+                // Link to Price entity if available, otherwise create without FK
                 if (s.TariffLines != null)
                 {
                     foreach (var tariff in s.TariffLines)
                     {
-                        var price = await db.Prices
-                            .FirstOrDefaultAsync(p => p.ChargeId == tariff.ChargeId);
+                        // For product margins (PRODUCT:xxx) or subscriptions, don't try to match a Price entity
+                        var isProductLine = tariff.ChargeId.StartsWith("PRODUCT:");
+                        Price? price = null;
+                        if (!isProductLine && !tariff.IsSubscription)
+                        {
+                            price = await db.Prices
+                                .FirstOrDefaultAsync(p => p.ChargeId == tariff.ChargeId);
+                        }
+
+                        // Use pre-calculated amount if provided, otherwise derive from energy × unit price
+                        var energy = EnergyQuantity.Create(tariff.EnergyKwh);
+                        var unitPrice = tariff.AmountDkk.HasValue && tariff.EnergyKwh != 0
+                            ? tariff.AmountDkk.Value / tariff.EnergyKwh
+                            : tariff.AvgUnitPrice;
 
                         var tariffLine = price is not null
                             ? SettlementLine.Create(
                                 settlement.Id, price.Id,
                                 $"{tariff.Description} (migreret)",
-                                EnergyQuantity.Create(tariff.EnergyKwh),
-                                tariff.AvgUnitPrice)
+                                energy, unitPrice)
                             : SettlementLine.CreateMigrated(
                                 settlement.Id,
                                 $"{tariff.Description} [{tariff.ChargeId}] (migreret)",
-                                EnergyQuantity.Create(tariff.EnergyKwh),
-                                tariff.AvgUnitPrice);
+                                energy, unitPrice);
                         settlement.AddLine(tariffLine);
                     }
                 }
@@ -687,4 +698,6 @@ record MigrationSettlementTariffLineDto(
     string ChargeId,
     string Description,
     decimal EnergyKwh,
-    decimal AvgUnitPrice);
+    decimal AvgUnitPrice,
+    decimal? AmountDkk = null,
+    bool IsSubscription = false);

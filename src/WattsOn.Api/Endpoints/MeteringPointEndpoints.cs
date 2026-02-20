@@ -40,6 +40,7 @@ public static class MeteringPointEndpoints
                 .Include(m => m.Supplies)
                     .ThenInclude(l => l.Customer)
                 .Include(m => m.TimeSeriesCollection)
+                    .ThenInclude(ts => ts.Observations)
                 .AsNoTracking()
                 .FirstOrDefaultAsync(m => m.Id == id);
 
@@ -84,7 +85,9 @@ public static class MeteringPointEndpoints
                     Resolution = t.Resolution.ToString(),
                     t.Version,
                     t.IsLatest,
-                    t.ReceivedAt
+                    t.ReceivedAt,
+                    TotalEnergyKwh = t.TotalEnergy.Value,
+                    ObservationCount = t.Observations.Count
                 })
             });
         }).WithName("GetMeteringPoint");
