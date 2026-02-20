@@ -14,6 +14,9 @@ public class MigrationResult
     public int ProductPeriodsCreated { get; set; }
     public int ProductPeriodsSkipped { get; set; }
     public int MarginsCreated { get; set; }
+    public int PricesCreated { get; set; }
+    public int PricesUpdated { get; set; }
+    public int PricePointsCreated { get; set; }
     public int TimeSeriesCreated { get; set; }
     public int ObservationsCreated { get; set; }
     public int TimeSeriesSkipped { get; set; }
@@ -35,6 +38,7 @@ public class MigrationResult
               Supplies:        {SuppliesCreated} created
               Product Periods: {ProductPeriodsCreated} created, {ProductPeriodsSkipped} skipped
               Margins:         {MarginsCreated} created
+              DataHub Prices:  {PricesCreated} created, {PricesUpdated} updated ({PricePointsCreated} price points)
               Time Series:     {TimeSeriesCreated} created ({ObservationsCreated} observations), {TimeSeriesSkipped} skipped
               Price Links:     {PriceLinksCreated} created, {PriceLinksSkipped} skipped
               Settlements:     {SettlementsCreated} created, {SettlementsSkipped} skipped

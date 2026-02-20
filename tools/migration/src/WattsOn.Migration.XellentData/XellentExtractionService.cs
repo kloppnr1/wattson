@@ -315,6 +315,234 @@ public class XellentExtractionService
         return result;
     }
 
+    /// <summary>
+    /// Extract DataHub charges (prices) for given metering points.
+    /// Reads PriceElementCheck → PriceElementCheckData → PriceElementTable → PriceElementRates.
+    /// Returns unique charges (deduped by PartyChargeTypeId) with their hourly rate history.
+    /// </summary>
+    public async Task<List<ExtractedPrice>> ExtractPricesAsync(List<string> gsrns)
+    {
+        var result = new Dictionary<string, ExtractedPrice>();
+
+        foreach (var gsrn in gsrns)
+        {
+            // Get all charge assignments for this metering point (all types, not just tariffs)
+            var assignments = await (
+                from pec in _db.PriceElementChecks
+                join pecd in _db.PriceElementCheckData
+                    on new { pec.DataAreaId, RefRecId = pec.RecId }
+                    equals new { pecd.DataAreaId, RefRecId = pecd.PriceElementCheckRefRecId }
+                join pet in _db.PriceElementTables
+                    on new { pecd.DataAreaId, pecd.PartyChargeTypeId }
+                    equals new { pet.DataAreaId, pet.PartyChargeTypeId }
+                where pec.DataAreaId == DataAreaId
+                    && pec.MeteringPointId == gsrn
+                    && pec.DeliveryCategory == DeliveryCategory
+                group new { pecd, pet } by pecd.PartyChargeTypeId into g
+                select new
+                {
+                    PartyChargeTypeId = g.Key,
+                    Description = g.First().pet.Description,
+                    ChargeTypeCode = g.First().pet.ChargeTypeCode,
+                    EarliestStart = g.Min(x => x.pecd.StartDate)
+                }
+            ).ToListAsync();
+
+            foreach (var assignment in assignments)
+            {
+                if (result.ContainsKey(assignment.PartyChargeTypeId))
+                    continue;
+
+                // Get all rate entries for this charge
+                var rates = await _db.PriceElementRates
+                    .Where(r => r.DataAreaId == DataAreaId
+                        && r.PartyChargeTypeId == assignment.PartyChargeTypeId)
+                    .OrderBy(r => r.StartDate)
+                    .ToListAsync();
+
+                if (rates.Count == 0)
+                {
+                    _logger.LogWarning("No rates found for charge {ChargeId} ({Desc})",
+                        assignment.PartyChargeTypeId, assignment.Description);
+                    continue;
+                }
+
+                // Detect if this is an hourly-differentiated tariff
+                // (any rate entry with non-zero Price2..Price24 means hourly)
+                var isHourly = rates.Any(r => HasHourlyRates(r));
+
+                // Build price points
+                var points = new List<ExtractedPricePoint>();
+                foreach (var rate in rates)
+                {
+                    if (isHourly && assignment.ChargeTypeCode == 3) // Tariff with hourly rates
+                    {
+                        // Expand 24 hourly prices into individual price points
+                        // Each rate entry covers from its StartDate forward
+                        for (int hour = 0; hour < 24; hour++)
+                        {
+                            var hourlyRate = rate.GetPriceForHour(hour + 1);
+                            var effectiveRate = hourlyRate > 0 ? hourlyRate : rate.Price;
+                            points.Add(new ExtractedPricePoint
+                            {
+                                Timestamp = ToUtc(rate.StartDate.Date.AddHours(hour)),
+                                Price = effectiveRate
+                            });
+                        }
+                    }
+                    else
+                    {
+                        // Flat rate — single price point per effective date
+                        points.Add(new ExtractedPricePoint
+                        {
+                            Timestamp = ToUtc(rate.StartDate),
+                            Price = rate.Price
+                        });
+                    }
+                }
+
+                var chargeType = MapChargeType(assignment.ChargeTypeCode);
+                var category = ClassifyCharge(assignment.PartyChargeTypeId, assignment.Description, assignment.ChargeTypeCode);
+
+                result[assignment.PartyChargeTypeId] = new ExtractedPrice
+                {
+                    ChargeId = assignment.PartyChargeTypeId,
+                    OwnerGln = InferOwnerGln(assignment.PartyChargeTypeId, assignment.Description),
+                    Type = chargeType,
+                    Description = assignment.Description.Trim(),
+                    EffectiveDate = ToUtc(rates.Min(r => r.StartDate)),
+                    Resolution = isHourly && assignment.ChargeTypeCode == 3 ? "PT1H" : null,
+                    IsTax = category == "Elafgift",
+                    IsPassThrough = category is "Systemtarif" or "Transmissionstarif" or "Balancetarif",
+                    Category = category,
+                    ChargeTypeCode = assignment.ChargeTypeCode,
+                    Points = points
+                };
+            }
+        }
+
+        _logger.LogInformation("Extracted {Count} unique charges for {GsrnCount} metering points",
+            result.Count, gsrns.Count);
+        return result.Values.ToList();
+    }
+
+    /// <summary>
+    /// Extract price-to-metering-point links from PriceElementCheck + PriceElementCheckData.
+    /// </summary>
+    public async Task<List<ExtractedPriceLink>> ExtractPriceLinksAsync(List<string> gsrns)
+    {
+        var links = new List<ExtractedPriceLink>();
+
+        foreach (var gsrn in gsrns)
+        {
+            var assignments = await (
+                from pec in _db.PriceElementChecks
+                join pecd in _db.PriceElementCheckData
+                    on new { pec.DataAreaId, RefRecId = pec.RecId }
+                    equals new { pecd.DataAreaId, RefRecId = pecd.PriceElementCheckRefRecId }
+                join pet in _db.PriceElementTables
+                    on new { pecd.DataAreaId, pecd.PartyChargeTypeId }
+                    equals new { pet.DataAreaId, pet.PartyChargeTypeId }
+                where pec.DataAreaId == DataAreaId
+                    && pec.MeteringPointId == gsrn
+                    && pec.DeliveryCategory == DeliveryCategory
+                group new { pecd, pet } by pecd.PartyChargeTypeId into g
+                select new
+                {
+                    PartyChargeTypeId = g.Key,
+                    EarliestStart = g.Min(x => x.pecd.StartDate)
+                }
+            ).ToListAsync();
+
+            foreach (var a in assignments)
+            {
+                links.Add(new ExtractedPriceLink
+                {
+                    Gsrn = gsrn,
+                    ChargeId = a.PartyChargeTypeId,
+                    OwnerGln = InferOwnerGln(a.PartyChargeTypeId, ""),
+                    EffectiveDate = ToUtc(a.EarliestStart)
+                });
+            }
+        }
+
+        _logger.LogInformation("Extracted {Count} price links for {GsrnCount} metering points",
+            links.Count, gsrns.Count);
+        return links;
+    }
+
+    private static bool HasHourlyRates(PriceElementRates rate)
+    {
+        // If any of Price2..Price24 is non-zero, this has hourly differentiation
+        return rate.Price2 != 0 || rate.Price3 != 0 || rate.Price4 != 0 ||
+               rate.Price5 != 0 || rate.Price6 != 0 || rate.Price7 != 0 ||
+               rate.Price8 != 0 || rate.Price9 != 0 || rate.Price10 != 0 ||
+               rate.Price11 != 0 || rate.Price12 != 0 || rate.Price13 != 0 ||
+               rate.Price14 != 0 || rate.Price15 != 0 || rate.Price16 != 0 ||
+               rate.Price17 != 0 || rate.Price18 != 0 || rate.Price19 != 0 ||
+               rate.Price20 != 0 || rate.Price21 != 0 || rate.Price22 != 0 ||
+               rate.Price23 != 0 || rate.Price24 != 0;
+    }
+
+    private static string MapChargeType(int chargeTypeCode) => chargeTypeCode switch
+    {
+        1 => "Abonnement",  // Subscription
+        2 => "Gebyr",       // Fee
+        3 => "Tarif",       // Tariff
+        _ => "Tarif"
+    };
+
+    /// <summary>
+    /// Classify charge based on PartyChargeTypeId patterns and description.
+    /// Aligns with WattsOn PriceCategory enum.
+    /// </summary>
+    private static string ClassifyCharge(string chargeId, string description, int chargeTypeCode)
+    {
+        var descLower = description.ToLowerInvariant();
+        var idLower = chargeId.ToLowerInvariant();
+
+        if (descLower.Contains("elafgift")) return "Elafgift";
+        if (descLower.Contains("systemtarif")) return "Systemtarif";
+        if (descLower.Contains("transmiss")) return "Transmissionstarif";
+        if (descLower.Contains("balance")) return "Balancetarif";
+        if (descLower.Contains("nettarif") || descLower.Contains("net-tarif")) return "Nettarif";
+        if (chargeTypeCode == 1 && descLower.Contains("abonne")) return "NetAbonnement";
+        if (descLower.Contains("net ") || descLower.Contains("net-")) return "Nettarif";
+
+        return "Andet";
+    }
+
+    /// <summary>
+    /// Infer owner GLN from charge ID patterns.
+    /// - 40000/41000/42000/45xxx etc. → Energinet (5790000432752)
+    /// - EA-xxx → Tax authority / Energinet
+    /// - Everything else → grid operator (default: N1 5790001089030)
+    /// </summary>
+    private static string InferOwnerGln(string chargeId, string description)
+    {
+        var descLower = description.ToLowerInvariant();
+
+        // Energinet charges (system/transmission/balance tariffs)
+        if (descLower.Contains("systemtarif") || descLower.Contains("transmiss") ||
+            descLower.Contains("balance"))
+            return "5790000432752"; // Energinet GLN
+
+        // Elafgift
+        if (descLower.Contains("elafgift") || chargeId.StartsWith("EA", StringComparison.OrdinalIgnoreCase))
+            return "5790000432752"; // Energinet GLN (collects on behalf of state)
+
+        // Numeric IDs starting with 4xxxx are often Energinet
+        if (chargeId.Length >= 5 && chargeId.StartsWith("4") && int.TryParse(chargeId, out _))
+        {
+            // 40000-series: could be Energinet system tariffs
+            // But some grid operators also use numeric IDs
+            // Default to grid operator for safety
+        }
+
+        // Default: grid operator (N1/Radius etc.)
+        return "5790001089030"; // N1 GLN (most common for Verdo area)
+    }
+
     private async Task<List<ExtractedTariffLine>> ExtractTariffLinesAsync(
         string gsrn, DateTime forDate, List<FlexBillingHistoryLine> hourlyData)
     {

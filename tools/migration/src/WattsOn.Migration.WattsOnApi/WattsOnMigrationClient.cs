@@ -52,6 +52,9 @@ public class WattsOnMigrationClient
     public Task<JsonElement> MigrateSupplierMargins(object payload)
         => PostAsync("/api/migration/supplier-margins", payload);
 
+    public Task<JsonElement> MigratePrices(object payload)
+        => PostAsync("/api/migration/prices", payload);
+
     public Task<JsonElement> MigrateTimeSeries(object payload)
         => PostAsync("/api/migration/time-series", payload);
 

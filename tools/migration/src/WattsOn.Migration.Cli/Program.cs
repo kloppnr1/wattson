@@ -233,7 +233,61 @@ rootCommand.SetHandler(async (context) =>
             result.MarginsCreated += marginResult.GetProperty("inserted").GetInt32();
         }
 
-        // Step 7: Time series (if requested)
+        // Step 7: DataHub prices (charges + rate history)
+        logger.LogInformation("Extracting DataHub prices...");
+        var allGsrnsForPrices = customers.SelectMany(c => c.MeteringPoints).Select(mp => mp.Gsrn).ToList();
+        var extractedPrices = await extraction.ExtractPricesAsync(allGsrnsForPrices);
+
+        if (extractedPrices.Count > 0)
+        {
+            logger.LogInformation("Migrating {Count} DataHub charges...", extractedPrices.Count);
+            var priceResult = await wattsOn.MigratePrices(new
+            {
+                prices = extractedPrices.Select(p => new
+                {
+                    chargeId = p.ChargeId,
+                    ownerGln = p.OwnerGln,
+                    type = p.Type,
+                    description = p.Description,
+                    effectiveDate = p.EffectiveDate,
+                    resolution = p.Resolution,
+                    isTax = p.IsTax,
+                    isPassThrough = p.IsPassThrough,
+                    category = p.Category,
+                    points = p.Points.Select(pt => new
+                    {
+                        timestamp = pt.Timestamp,
+                        price = pt.Price
+                    }).ToList()
+                }).ToList()
+            });
+            result.PricesCreated = priceResult.GetProperty("created").GetInt32();
+            result.PricesUpdated = priceResult.GetProperty("updated").GetInt32();
+            result.PricePointsCreated = priceResult.GetProperty("pointsCreated").GetInt32();
+        }
+
+        // Step 8: Price links (charge → metering point)
+        logger.LogInformation("Extracting price links...");
+        var extractedLinks = await extraction.ExtractPriceLinksAsync(allGsrnsForPrices);
+
+        if (extractedLinks.Count > 0)
+        {
+            logger.LogInformation("Migrating {Count} price links...", extractedLinks.Count);
+            var linkResult = await wattsOn.MigratePriceLinks(new
+            {
+                links = extractedLinks.Select(l => new
+                {
+                    gsrn = l.Gsrn,
+                    chargeId = l.ChargeId,
+                    ownerGln = l.OwnerGln,
+                    effectiveDate = l.EffectiveDate
+                }).ToList()
+            });
+            result.PriceLinksCreated = linkResult.GetProperty("created").GetInt32();
+            result.PriceLinksSkipped = linkResult.GetProperty("skipped").GetInt32();
+        }
+
+        // Step 9: Time series (if requested)
         if (includeTimeSeries)
         {
             var tsStart = timeSeriesStart ?? DateTime.UtcNow.AddYears(-2);
@@ -266,7 +320,7 @@ rootCommand.SetHandler(async (context) =>
             }
         }
 
-        // Step 8: Settlements (if requested)
+        // Step 10: Settlements (if requested — MUST run after prices for correct PriceId linking)
         if (includeSettlements)
         {
             logger.LogInformation("Extracting settlements from FlexBillingHistory...");
