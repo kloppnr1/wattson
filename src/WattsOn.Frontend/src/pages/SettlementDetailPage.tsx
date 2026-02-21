@@ -519,8 +519,8 @@ export default function SettlementDetailPage() {
                         render: (v: string, r: any) => (
                           <Space size={4}>
                             <Text style={{ fontSize: 12 }}>{v}</Text>
-                            {r.onlyOrig && <Tag color="#8c8c8c" style={{ color: '#fff', fontSize: 11 }}>kun original</Tag>}
-                            {r.onlyRecalc && <Tag color="#2563eb" style={{ color: '#fff', fontSize: 11 }}>kun genberegnet</Tag>}
+                            {r.onlyOrig && <Tag style={{ background: '#f3f4f6', color: '#6b7280', border: '1px solid #d1d5db', fontSize: 11, fontWeight: 500 }}>kun original</Tag>}
+                            {r.onlyRecalc && <Tag style={{ background: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd', fontSize: 11, fontWeight: 500 }}>kun genberegnet</Tag>}
                           </Space>
                         ),
                       },
