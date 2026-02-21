@@ -69,6 +69,13 @@ public class SettlementWorker : BackgroundService
                     || a.Status == SettlementStatus.Migrated
                     || a.Status == SettlementStatus.Calculated
                     || a.Status == SettlementStatus.Adjusted)))
+            // Skip time series that overlap with any migrated settlement for the same metering point
+            // (migration imports observations as one large time series, not monthly)
+            .Where(ts => !db.Settlements.Any(a =>
+                a.MeteringPointId == ts.MeteringPointId
+                && a.Status == SettlementStatus.Migrated
+                && a.SettlementPeriod.Start < (ts.Period.End ?? ts.Period.Start.AddMonths(1))
+                && (a.SettlementPeriod.End == null || a.SettlementPeriod.End > ts.Period.Start)))
             .OrderBy(ts => ts.ReceivedAt)
             .Take(10)
             .ToListAsync(ct);

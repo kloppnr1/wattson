@@ -103,12 +103,34 @@ body {
 }
 
 /* Sidebar footer */
+.ant-layout-sider-children {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+  overflow: hidden !important;
+}
+
+/* Visible scrollbar for sidebar menu on short screens */
+.ant-layout-sider-children > div:nth-child(2) {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+}
+.ant-layout-sider-children > div:nth-child(2)::-webkit-scrollbar {
+  width: 6px;
+}
+.ant-layout-sider-children > div:nth-child(2)::-webkit-scrollbar-track {
+  background: transparent;
+}
+.ant-layout-sider-children > div:nth-child(2)::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+}
+.ant-layout-sider-children > div:nth-child(2)::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
 .sidebar-footer {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: 16px;
+  padding: 12px 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 

@@ -109,12 +109,12 @@ export default function SettlementsPage() {
               <span className={`status-text ${color}`}>{danishStatus}</span>
             </span>
             {record.documentType === 'creditNote' && (
-              <Tag color="green" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
+              <Tag color="#059669" style={{ color: '#fff', fontSize: 11, lineHeight: '18px', padding: '0 6px', margin: 0 }}>
                 <SwapOutlined style={{ marginRight: 2 }} />kredit
               </Tag>
             )}
             {record.documentType === 'debitNote' && (
-              <Tag color="orange" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
+              <Tag color="#d97706" style={{ color: '#fff', fontSize: 11, lineHeight: '18px', padding: '0 6px', margin: 0 }}>
                 <SwapOutlined style={{ marginRight: 2 }} />debit
               </Tag>
             )}

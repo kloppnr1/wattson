@@ -73,9 +73,6 @@ export default function AppLayout() {
           top: 0,
           bottom: 0,
           zIndex: 10,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
         }}
       >
         <div className="sidebar-brand" style={{ flexShrink: 0 }}>
@@ -85,7 +82,7 @@ export default function AppLayout() {
           </div>
           <div className="subtitle">Energy Platform</div>
         </div>
-        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
           <Menu
             theme="dark"
             mode="inline"
@@ -99,15 +96,10 @@ export default function AppLayout() {
             }}
           />
         </div>
-
         <div className="sidebar-footer" style={{ flexShrink: 0 }}>
           <div className="env-badge">
             <span className="env-dot" />
             <span>Udvikling</span>
-          </div>
-          <div className="lang-toggle">
-            <span className="lang-option">EN</span>
-            <span className="lang-option active">DA</span>
           </div>
           <div className="version">WattsOn v0.1</div>
         </div>

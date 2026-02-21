@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card, Descriptions, Table, Tag, Spin, Alert, Space, Typography,
@@ -17,14 +17,17 @@ const { Title, Text } = Typography;
 
 import { formatDate, formatDateTime, formatPeriodEnd, formatDKK } from '../utils/format';
 
-const docTypeConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-  settlement: { label: 'Afregning', color: '#5d7a91', icon: <FileTextOutlined /> },
-  debitNote: { label: 'Debitnota', color: '#d97706', icon: <SwapOutlined /> },
-  creditNote: { label: 'Kreditnota', color: '#059669', icon: <SwapOutlined /> },
+const docTypeConfig: Record<string, { label: string; bg: string; text: string; border: string; icon: React.ReactNode }> = {
+  settlement: { label: 'Afregning', bg: '#e0e7ec', text: '#3d5468', border: '#b0c4d4', icon: <FileTextOutlined /> },
+  debitNote: { label: 'Debitnota', bg: '#fed7aa', text: '#9a3412', border: '#fdba74', icon: <SwapOutlined /> },
+  creditNote: { label: 'Kreditnota', bg: '#d1fae5', text: '#065f46', border: '#6ee7b7', icon: <SwapOutlined /> },
 };
 
-const statusColors: Record<string, string> = {
-  Calculated: 'green', Invoiced: 'blue', Adjusted: 'orange',
+const statusConfig: Record<string, { label: string; bg: string; text: string; border: string }> = {
+  Calculated: { label: 'Beregnet', bg: '#d1fae5', text: '#065f46', border: '#6ee7b7' },
+  Invoiced: { label: 'Faktureret', bg: '#dbeafe', text: '#1e40af', border: '#93c5fd' },
+  Adjusted: { label: 'Justeret', bg: '#fed7aa', text: '#9a3412', border: '#fdba74' },
+  Migrated: { label: 'Migreret', bg: '#ddd6fe', text: '#5b21b6', border: '#a78bfa' },
 };
 
 export default function SettlementDetailPage() {
@@ -38,6 +41,7 @@ export default function SettlementDetailPage() {
   const [recalc, setRecalc] = useState<RecalcResult | null>(null);
   const [recalcLoading, setRecalcLoading] = useState(false);
   const [recalcOpen, setRecalcOpen] = useState(false);
+  const recalcRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
   const loadDoc = () => {
@@ -50,6 +54,16 @@ export default function SettlementDetailPage() {
   };
 
   useEffect(loadDoc, [id]);
+
+  // Auto-scroll to comparison panel when results load or when panel opens (loading state)
+  useEffect(() => {
+    if (recalcOpen && recalcRef.current) {
+      // Small delay to let the DOM render the card before scrolling
+      requestAnimationFrame(() => {
+        recalcRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+  }, [recalcOpen, recalc]);
 
   const handleConfirm = async () => {
     if (!id || !invoiceRef.trim()) return;
@@ -167,20 +181,25 @@ export default function SettlementDetailPage() {
             <Space size={12} align="center">
               <div style={{
                 width: 48, height: 48, borderRadius: 12,
-                background: `linear-gradient(135deg, ${config.color}20, ${config.color}10)`,
+                background: `linear-gradient(135deg, ${config.bg}, ${config.border}40)`,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
-                <span style={{ fontSize: 20, color: config.color }}>{config.icon}</span>
+                <span style={{ fontSize: 20, color: config.text }}>{config.icon}</span>
               </div>
               <div>
                 <Title level={3} style={{ margin: 0 }}>{doc.documentId}</Title>
                 <Space size={8} style={{ marginTop: 4 }}>
-                  <Tag color={config.color} style={{ color: '#fff' }}>{config.label}</Tag>
-                  <Tag color={statusColors[doc.status] || 'default'}>
-                    {doc.status === 'Calculated' ? 'Beregnet' 
-                      : doc.status === 'Invoiced' ? 'Faktureret' 
-                      : doc.status === 'Adjusted' ? 'Justeret' : doc.status}
-                  </Tag>
+                  <Tag style={{ background: config.bg, color: config.text, border: `1px solid ${config.border}`, fontWeight: 500 }}>{config.label}</Tag>
+                  {(() => {
+                    const sc = statusConfig[doc.status];
+                    return sc ? (
+                      <Tag style={{ background: sc.bg, color: sc.text, border: `1px solid ${sc.border}`, fontWeight: 500 }}>
+                        {sc.label}
+                      </Tag>
+                    ) : (
+                      <Tag>{doc.status}</Tag>
+                    );
+                  })()}
                   {doc.originalDocumentId && (
                     <Text type="secondary">Korrigerer: {doc.originalDocumentId}</Text>
                   )}
@@ -218,6 +237,7 @@ export default function SettlementDetailPage() {
               icon={<CalculatorOutlined />}
               onClick={handleRecalculate}
               loading={recalcLoading}
+              style={{ borderColor: '#5d7a91', color: '#3d5468', fontWeight: 500 }}
             >
               Genberegn & sammenlign
             </Button>
@@ -363,12 +383,13 @@ export default function SettlementDetailPage() {
 
       {/* Recalculation comparison */}
       {recalcOpen && (
+        <div ref={recalcRef}>
         <Card
           title={
             <Space>
               <CalculatorOutlined />
               <span>Genberegning — sammenligning</span>
-              <Tag color="blue">Ikke gemt</Tag>
+              <Tag style={{ background: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd' }}>Ikke gemt</Tag>
             </Space>
           }
           extra={<Button size="small" onClick={() => { setRecalcOpen(false); setRecalc(null); }}>Luk</Button>}
@@ -462,8 +483,8 @@ export default function SettlementDetailPage() {
                         render: (v: string, r: any) => (
                           <Space size={4}>
                             <Text style={{ fontSize: 12 }}>{v}</Text>
-                            {r.onlyOrig && <Tag color="default" style={{ fontSize: 10 }}>kun original</Tag>}
-                            {r.onlyRecalc && <Tag color="blue" style={{ fontSize: 10 }}>kun genberegnet</Tag>}
+                            {r.onlyOrig && <Tag color="#8c8c8c" style={{ color: '#fff', fontSize: 11 }}>kun original</Tag>}
+                            {r.onlyRecalc && <Tag color="#2563eb" style={{ color: '#fff', fontSize: 11 }}>kun genberegnet</Tag>}
                           </Space>
                         ),
                       },
@@ -542,6 +563,7 @@ export default function SettlementDetailPage() {
             </Space>
           )}
         </Card>
+        </div>
       )}
 
       {/* Confirm modal */}
