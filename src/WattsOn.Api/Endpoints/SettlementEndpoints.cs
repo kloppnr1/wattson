@@ -334,6 +334,95 @@ public static class SettlementEndpoints
                 recalcError = ex.Message;
             }
 
+            // ---- Per-line detail builder (tariff tiers, spot stats, subscription/margin breakdown) ----
+            object? BuildLineDetails(SettlementLine line)
+            {
+                if (line.Source == SettlementLineSource.DataHubCharge && line.PriceId.HasValue)
+                {
+                    var pwp = datahubPrices.FirstOrDefault(p => p.Price.Id == line.PriceId.Value);
+                    if (pwp is null) return null;
+
+                    if (pwp.Price.Type == PriceType.Tarif)
+                    {
+                        var obsRates = periodObs.Select(obs =>
+                        {
+                            var rate = pwp.GetPriceAt(obs.Timestamp);
+                            return new { Kwh = obs.Quantity.Value, Rate = rate ?? 0m };
+                        }).ToList();
+
+                        var tiers = obsRates
+                            .GroupBy(o => Math.Round(o.Rate, 6))
+                            .OrderBy(g => g.Key)
+                            .Select(g => new
+                            {
+                                rate = g.Key,
+                                hours = g.Count(),
+                                kwh = Math.Round(g.Sum(o => o.Kwh), 4),
+                                amount = Math.Round(g.Sum(o => o.Kwh * o.Rate), 4),
+                            })
+                            .ToList();
+
+                        return new
+                        {
+                            type = "tarif",
+                            totalHours = periodObs.Count,
+                            hoursWithPrice = obsRates.Count(o => o.Rate > 0),
+                            tiers,
+                        };
+                    }
+
+                    if (pwp.Price.Type == PriceType.Abonnement)
+                    {
+                        var days = (decimal)(periodEnd - original.SettlementPeriod.Start).TotalDays;
+                        var dailyRate = pwp.GetPriceAt(original.SettlementPeriod.Start) ?? 0m;
+
+                        return new
+                        {
+                            type = "abonnement",
+                            days,
+                            dailyRate,
+                        };
+                    }
+                }
+
+                if (line.Source == SettlementLineSource.SpotPrice)
+                {
+                    var spotLookup = spotPrices.ToDictionary(s => s.Timestamp);
+                    var hourDetails = periodObs.Select(obs =>
+                    {
+                        spotLookup.TryGetValue(obs.Timestamp, out var sp);
+                        return new { Kwh = obs.Quantity.Value, Rate = sp?.PriceDkkPerKwh ?? 0m, HasPrice = sp != null };
+                    }).ToList();
+
+                    var withPrice = hourDetails.Where(h => h.HasPrice).ToList();
+                    var totalKwh = withPrice.Sum(h => h.Kwh);
+
+                    return new
+                    {
+                        type = "spot",
+                        totalHours = hourDetails.Count,
+                        hoursWithPrice = withPrice.Count,
+                        hoursMissing = hourDetails.Count - withPrice.Count,
+                        avgRate = totalKwh > 0
+                            ? Math.Round(withPrice.Sum(h => h.Kwh * h.Rate) / totalKwh, 6) : 0m,
+                        minRate = withPrice.Count > 0 ? Math.Round(withPrice.Min(h => h.Rate), 6) : 0m,
+                        maxRate = withPrice.Count > 0 ? Math.Round(withPrice.Max(h => h.Rate), 6) : 0m,
+                    };
+                }
+
+                if (line.Source == SettlementLineSource.SupplierMargin)
+                {
+                    var matchedMargin = namedMargins.FirstOrDefault(m => m.Name == line.Description);
+                    return new
+                    {
+                        type = "margin",
+                        ratePerKwh = matchedMargin.Margin?.PriceDkkPerKwh ?? line.UnitPrice,
+                    };
+                }
+
+                return null;
+            }
+
             // Build comparison response
             return Results.Ok(new
             {
@@ -372,6 +461,7 @@ public static class SettlementEndpoints
                         quantityKwh = l.Quantity.Value,
                         unitPrice = l.UnitPrice,
                         amount = l.Amount.Amount,
+                        details = BuildLineDetails(l),
                     }),
                 } : null,
 

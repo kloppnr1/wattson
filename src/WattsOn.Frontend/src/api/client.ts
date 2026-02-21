@@ -315,12 +315,38 @@ export const getSettlementDocument = (id: string) =>
 export const confirmSettlement = (id: string, externalInvoiceReference: string) =>
   api.post(`/settlement-documents/${id}/confirm`, { externalInvoiceReference });
 
+export interface TierDetail {
+  rate: number;
+  hours: number;
+  kwh: number;
+  amount: number;
+}
+
+export interface LineDetails {
+  type: 'tarif' | 'abonnement' | 'spot' | 'margin';
+  // tarif
+  totalHours?: number;
+  hoursWithPrice?: number;
+  tiers?: TierDetail[];
+  // abonnement
+  days?: number;
+  dailyRate?: number;
+  // spot
+  hoursMissing?: number;
+  avgRate?: number;
+  minRate?: number;
+  maxRate?: number;
+  // margin
+  ratePerKwh?: number;
+}
+
 export interface RecalcLine {
   source: string;
   description: string;
   quantityKwh: number;
   unitPrice: number;
   amount: number;
+  details?: LineDetails;
 }
 
 export interface RecalcResult {

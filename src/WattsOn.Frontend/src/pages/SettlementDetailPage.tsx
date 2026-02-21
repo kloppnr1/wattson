@@ -10,7 +10,7 @@ import {
   ExclamationCircleOutlined, CalculatorOutlined,
   InfoCircleOutlined,
 } from '@ant-design/icons';
-import type { SettlementDocument, SettlementDocumentLine, RecalcResult, RecalcLine } from '../api/client';
+import type { SettlementDocument, SettlementDocumentLine, RecalcResult, RecalcLine, LineDetails } from '../api/client';
 import { getSettlementDocument, confirmSettlement, recalculateSettlement } from '../api/client';
 
 const { Title, Text } = Typography;
@@ -159,8 +159,124 @@ export default function SettlementDetailPage() {
         diff,
         onlyOrig: !recalc && !!orig,
         onlyRecalc: !orig && !!recalc,
+        details: recalc?.details ?? null,
       };
     });
+  };
+
+  // Format rate for display
+  const fmtRate = (v: number) => v < 0.01 && v > 0 ? v.toFixed(6) : v < 1 ? v.toFixed(4) : v.toFixed(2);
+
+  // Expandable row: per-line calculation breakdown
+  const renderLineDetail = (row: ReturnType<typeof buildComparisonRows>[number]) => {
+    const d = row.details;
+    const hasOrig = row.origQty !== null;
+    const hasRecalc = row.recalcQty !== null;
+
+    return (
+      <div style={{ padding: '8px 0' }}>
+        {/* Side-by-side qty × rate breakdown */}
+        <Row gutter={24}>
+          {hasOrig && (
+            <Col xs={24} md={12}>
+              <div style={{ background: '#f8fafb', borderRadius: 8, padding: '10px 14px', marginBottom: 8 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6b7280', marginBottom: 6 }}>Original</div>
+                <div style={{ fontSize: 13 }}>
+                  <span className="tnum" style={{ fontWeight: 500 }}>{row.origQty!.toFixed(2)}</span>
+                  <Text type="secondary"> {d?.type === 'abonnement' ? 'dage' : 'kWh'} × </Text>
+                  <span className="tnum" style={{ fontWeight: 500 }}>{fmtRate(row.origUnit!)}</span>
+                  <Text type="secondary"> DKK/{d?.type === 'abonnement' ? 'dag' : 'kWh'}</Text>
+                </div>
+                <div style={{ marginTop: 2 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>= </Text>
+                  <span className="tnum" style={{ fontWeight: 600, fontSize: 14 }}>{formatDKK(row.origAmt)}</span>
+                </div>
+              </div>
+            </Col>
+          )}
+          {hasRecalc && (
+            <Col xs={24} md={12}>
+              <div style={{ background: '#f0fdf4', borderRadius: 8, padding: '10px 14px', marginBottom: 8 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6b7280', marginBottom: 6 }}>Genberegnet</div>
+                <div style={{ fontSize: 13 }}>
+                  <span className="tnum" style={{ fontWeight: 500 }}>{row.recalcQty!.toFixed(2)}</span>
+                  <Text type="secondary"> {d?.type === 'abonnement' ? 'dage' : 'kWh'} × </Text>
+                  <span className="tnum" style={{ fontWeight: 500 }}>{fmtRate(row.recalcUnit!)}</span>
+                  <Text type="secondary"> DKK/{d?.type === 'abonnement' ? 'dag' : 'kWh'}{d?.type === 'tarif' ? ' (vægtet gns.)' : ''}</Text>
+                </div>
+                <div style={{ marginTop: 2 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>= </Text>
+                  <span className="tnum" style={{ fontWeight: 600, fontSize: 14 }}>{formatDKK(row.recalcAmt)}</span>
+                </div>
+              </div>
+            </Col>
+          )}
+        </Row>
+
+        {/* Tariff tier breakdown */}
+        {d?.type === 'tarif' && d.tiers && d.tiers.length > 0 && (
+          <div style={{ marginTop: 4 }}>
+            <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6b7280', marginBottom: 6 }}>
+              Satsfordeling — {d.totalHours} timer, {d.hoursWithPrice} med pris
+            </div>
+            <table style={{ width: '100%', maxWidth: 480, fontSize: 12, borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
+                  <th style={{ textAlign: 'left', padding: '4px 8px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Sats</th>
+                  <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Timer</th>
+                  <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>kWh</th>
+                  <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Beløb</th>
+                </tr>
+              </thead>
+              <tbody>
+                {d.tiers.map((t, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                    <td className="tnum" style={{ padding: '4px 8px' }}>{fmtRate(t.rate)} DKK/kWh</td>
+                    <td className="tnum" style={{ padding: '4px 8px', textAlign: 'right' }}>{t.hours}</td>
+                    <td className="tnum" style={{ padding: '4px 8px', textAlign: 'right' }}>{t.kwh.toFixed(2)}</td>
+                    <td className="tnum" style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 500 }}>{formatDKK(t.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Subscription detail */}
+        {d?.type === 'abonnement' && (
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+            {d.days} dage × {fmtRate(d.dailyRate!)} DKK/dag = {formatDKK(d.days! * d.dailyRate!)}
+          </div>
+        )}
+
+        {/* Spot price stats */}
+        {d?.type === 'spot' && (
+          <div style={{ marginTop: 4 }}>
+            <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6b7280', marginBottom: 4 }}>
+              Spotprisstatistik
+            </div>
+            <div style={{ fontSize: 12, display: 'flex', gap: 16 }}>
+              <span>
+                <Text type="secondary">Timer: </Text>
+                <span className="tnum">{d.hoursWithPrice}/{d.totalHours}</span>
+                {d.hoursMissing! > 0 && <Text type="warning" style={{ marginLeft: 4 }}>({d.hoursMissing} mangler)</Text>}
+              </span>
+              <span><Text type="secondary">Gns: </Text><span className="tnum">{fmtRate(d.avgRate!)}</span></span>
+              <span><Text type="secondary">Min: </Text><span className="tnum">{fmtRate(d.minRate!)}</span></span>
+              <span><Text type="secondary">Maks: </Text><span className="tnum">{fmtRate(d.maxRate!)}</span></span>
+              <Text type="secondary">DKK/kWh</Text>
+            </div>
+          </div>
+        )}
+
+        {/* Margin detail */}
+        {d?.type === 'margin' && (
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+            {row.recalcQty?.toFixed(2)} kWh × {fmtRate(d.ratePerKwh!)} DKK/kWh = {formatDKK(row.recalcAmt)}
+          </div>
+        )}
+      </div>
+    );
   };
 
   if (loading) return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
@@ -513,6 +629,10 @@ export default function SettlementDetailPage() {
                     pagination={false}
                     size="small"
                     rowClassName={r => r.onlyOrig ? 'row-missing-recalc' : r.onlyRecalc ? 'row-extra-recalc' : ''}
+                    expandable={{
+                      expandedRowRender: renderLineDetail,
+                      rowExpandable: (r: any) => r.origQty !== null || r.recalcQty !== null,
+                    }}
                     columns={[
                       {
                         title: 'LINJE', dataIndex: 'description', key: 'description',
