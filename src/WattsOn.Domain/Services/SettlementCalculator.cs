@@ -489,9 +489,6 @@ public class PriceWithPoints
     {
         if (_sortedPoints.Count == 0) return null;
 
-        if (Price.Type == PriceType.Abonnement)
-            return _sortedPoints[0].Price;
-
         // Template lookup: find latest template period ≤ timestamp, then match by UTC hour
         if (_templates is not null)
         {
