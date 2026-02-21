@@ -123,6 +123,90 @@ export default function PricesPage() {
     overflow: 'hidden',
   };
 
+  // ─── Shared: step-function rate table (used by both Supplier + DataHub) ───
+  const renderStepFunctionTable = (
+    sortedPoints: { key: string; date: string; price: number }[],
+    activeIdx: number,
+    totalLabel?: string,
+  ) => (
+    <div style={{ padding: '4px 0' }}>
+      <Text type="secondary" style={{ marginBottom: 8, display: 'block', fontSize: 12 }}>
+        {sortedPoints.length} {sortedPoints.length === 1 ? 'sats' : 'satser'}
+        {totalLabel ? ` · ${totalLabel}` : ''}
+        {' · Gældende sats markeret for '}{selectedDate.format('D. MMM YYYY')}
+      </Text>
+      <Table
+        dataSource={sortedPoints.map((pp, idx) => ({ ...pp, _idx: idx }))}
+        columns={[
+          { title: 'GYLDIG FRA', dataIndex: 'date', key: 'from', width: 120,
+            render: (v: string, row: { _idx: number }) => (
+              <Text className="tnum" strong={row._idx === activeIdx}
+                style={row._idx === activeIdx ? { color: '#0d9488' } : undefined}>
+                {formatDate(v)}
+              </Text>
+            )},
+          { title: 'GYLDIG TIL', key: 'to', width: 120,
+            render: (_: unknown, row: { _idx: number }) => {
+              const next = sortedPoints[row._idx + 1];
+              return <Text className="tnum" type="secondary">{next ? formatDate(next.date) : '→'}</Text>;
+            }},
+          { title: 'DKK/kWh', dataIndex: 'price', key: 'price', align: 'right' as const,
+            render: (v: number, row: { _idx: number }) => (
+              <Text className="tnum" strong={row._idx === activeIdx}
+                style={row._idx === activeIdx ? { color: '#0d9488', fontSize: 14 } : undefined}>
+                {formatPrice4(v)}
+              </Text>
+            )},
+          { title: '', key: 'active', width: 80,
+            render: (_: unknown, row: { _idx: number }) =>
+              row._idx === activeIdx ? <Tag color="teal">Aktiv</Tag> : null },
+        ]}
+        rowKey="key"
+        size="small"
+        pagination={false}
+      />
+    </div>
+  );
+
+  // ─── Shared: find active index for step-function rates ───
+  const findActiveIndex = (dates: string[]) => {
+    const dateStr = selectedDate.format('YYYY-MM-DD');
+    for (let i = dates.length - 1; i >= 0; i--) {
+      const d = new Date(dates[i]).toLocaleDateString('sv-SE', { timeZone: 'Europe/Copenhagen' });
+      if (d <= dateStr) return i;
+    }
+    return -1;
+  };
+
+  // ─── Shared: panel header layout ───
+  const renderPanelHeader = (
+    tag: { label: string; color: string },
+    name: string,
+    subtitle?: string,
+    count?: number,
+    countLabel?: string,
+    currentRate?: number,
+    extraTags?: React.ReactNode,
+  ) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', flexWrap: 'wrap' }}>
+      <Tag color={tag.color} style={{ margin: 0 }}>{tag.label}</Tag>
+      <Text strong style={{ fontSize: 14 }}>{name}</Text>
+      {subtitle && <Text type="secondary" ellipsis style={{ flex: 1, minWidth: 80 }}>{subtitle}</Text>}
+      {!subtitle && <div style={{ flex: 1 }} />}
+      {extraTags}
+      {count != null && (
+        <Text className="tnum" type="secondary" style={{ fontSize: 12 }}>
+          {count} {countLabel || 'satser'}
+        </Text>
+      )}
+      {currentRate != null && (
+        <Text strong className="tnum" style={{ fontSize: 15, color: '#0d9488' }}>
+          {formatPrice4(currentRate)} <Text type="secondary" style={{ fontSize: 11, fontWeight: 400 }}>DKK/kWh</Text>
+        </Text>
+      )}
+    </div>
+  );
+
   // ─── DataHub price panel content ───
   const renderDatahubDetail = (record: PriceSummary) => {
     const detail = detailCache[record.id];
@@ -195,55 +279,12 @@ export default function PricesPage() {
       );
     }
 
-    // Non-template (step function): show rate history as a timeline
-    // Sort ascending by timestamp
+    // Non-template (step function): use shared table
     const sortedPoints = [...detail.pricePoints].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    const mapped = sortedPoints.map((pp, idx) => ({ key: `${idx}`, date: pp.timestamp, price: pp.price }));
+    const activeIdx = findActiveIndex(sortedPoints.map(p => p.timestamp));
 
-    // Find the rate that applies on the selected date
-    const dateStr = selectedDate.format('YYYY-MM-DD');
-    let activeIdx = -1;
-    for (let i = sortedPoints.length - 1; i >= 0; i--) {
-      const ptDate = new Date(sortedPoints[i].timestamp).toLocaleDateString('sv-SE', { timeZone: 'Europe/Copenhagen' });
-      if (ptDate <= dateStr) { activeIdx = i; break; }
-    }
-
-    return (
-      <div style={{ padding: '4px 0' }}>
-        <Text type="secondary" style={{ marginBottom: 8, display: 'block', fontSize: 12 }}>
-          {detail.totalPricePoints} satser · Gældende sats markeret for {selectedDate.format('D. MMM YYYY')}
-        </Text>
-        <Table
-          dataSource={sortedPoints.map((pp, idx) => ({ ...pp, _idx: idx }))}
-          columns={[
-            { title: 'GYLDIG FRA', dataIndex: 'timestamp', key: 'from', width: 120,
-              render: (v: string, row: { _idx: number }) => (
-                <Text className="tnum" strong={row._idx === activeIdx}
-                  style={row._idx === activeIdx ? { color: '#0d9488' } : undefined}>
-                  {formatDate(v)}
-                </Text>
-              )},
-            { title: 'GYLDIG TIL', key: 'to', width: 120,
-              render: (_: unknown, row: { _idx: number }) => {
-                const next = sortedPoints[row._idx + 1];
-                return <Text className="tnum" type="secondary">{next ? formatDate(next.timestamp) : '→'}</Text>;
-              }},
-            { title: 'DKK/kWh', dataIndex: 'price', key: 'price', align: 'right' as const,
-              render: (v: number, row: { _idx: number }) => (
-                <Text className="tnum" strong={row._idx === activeIdx}
-                  style={row._idx === activeIdx ? { color: '#0d9488', fontSize: 14 } : undefined}>
-                  {formatPrice4(v)}
-                </Text>
-              )},
-            { title: '', key: 'active', width: 80,
-              render: (_: unknown, row: { _idx: number }) =>
-                row._idx === activeIdx ? <Tag color="teal">Aktiv</Tag> : null },
-          ]}
-          rowKey="timestamp"
-          size="small"
-          pagination={false}
-        />
-      </div>
-    );
+    return renderStepFunctionTable(mapped, activeIdx, `${detail.totalPricePoints} prispunkter i alt`);
   };
 
   // ─── Spot price columns ───
@@ -366,74 +407,27 @@ export default function PricesPage() {
                   items={marginProducts.map(([productId, product]) => {
                     const sortedRates = [...product.rates].sort((a, b) =>
                       new Date(a.validFrom).getTime() - new Date(b.validFrom).getTime());
-                    const currentRate = sortedRates[sortedRates.length - 1];
-
-                    // Find the active rate for selected date (same logic as DataHub step-function)
-                    const dateStr = selectedDate.format('YYYY-MM-DD');
-                    let activeIdx = -1;
-                    for (let i = sortedRates.length - 1; i >= 0; i--) {
-                      const rateDate = new Date(sortedRates[i].validFrom).toLocaleDateString('sv-SE', { timeZone: 'Europe/Copenhagen' });
-                      if (rateDate <= dateStr) { activeIdx = i; break; }
-                    }
+                    const mapped = sortedRates.map((r, idx) => ({ key: r.id || `${idx}`, date: r.validFrom, price: r.priceDkkPerKwh }));
+                    const activeIdx = findActiveIndex(sortedRates.map(r => r.validFrom));
+                    const currentRate = activeIdx >= 0 ? sortedRates[activeIdx].priceDkkPerKwh : sortedRates[sortedRates.length - 1]?.priceDkkPerKwh;
+                    const modelTag = product.pricingModel === 'SpotAddon'
+                      ? { label: 'Spot + tillæg', color: 'orange' }
+                      : product.pricingModel === 'Fixed'
+                      ? { label: 'Fast pris', color: 'blue' }
+                      : { label: product.pricingModel, color: 'default' };
 
                     return {
                       key: productId,
                       style: panelCardStyle,
-                      label: (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', flexWrap: 'wrap' }}>
-                          <Tag
-                            color={product.pricingModel === 'SpotAddon' ? 'orange' : product.pricingModel === 'Fixed' ? 'blue' : 'default'}
-                            style={{ margin: 0 }}
-                          >
-                            {product.pricingModel === 'SpotAddon' ? 'Spot + tillæg' : product.pricingModel === 'Fixed' ? 'Fast pris' : product.pricingModel}
-                          </Tag>
-                          <Text strong style={{ fontSize: 14 }}>{product.productName}</Text>
-                          <div style={{ flex: 1 }} />
-                          <Text className="tnum" type="secondary" style={{ fontSize: 12 }}>
-                            {sortedRates.length} {sortedRates.length === 1 ? 'sats' : 'satser'}
-                          </Text>
-                          <Text strong className="tnum" style={{ fontSize: 15, color: '#0d9488' }}>
-                            {formatPrice4(currentRate.priceDkkPerKwh)} <Text type="secondary" style={{ fontSize: 11, fontWeight: 400 }}>DKK/kWh</Text>
-                          </Text>
-                        </div>
+                      label: renderPanelHeader(
+                        modelTag,
+                        product.productName,
+                        undefined,
+                        sortedRates.length,
+                        sortedRates.length === 1 ? 'sats' : 'satser',
+                        currentRate,
                       ),
-                      children: (
-                        <div style={{ padding: '4px 0' }}>
-                          <Text type="secondary" style={{ marginBottom: 8, display: 'block', fontSize: 12 }}>
-                            {sortedRates.length} satser · Gældende sats markeret for {selectedDate.format('D. MMM YYYY')}
-                          </Text>
-                          <Table
-                            dataSource={sortedRates.map((rate, idx) => ({ ...rate, _idx: idx }))}
-                            columns={[
-                              { title: 'GYLDIG FRA', dataIndex: 'validFrom', key: 'from', width: 120,
-                                render: (v: string, row: { _idx: number }) => (
-                                  <Text className="tnum" strong={row._idx === activeIdx}
-                                    style={row._idx === activeIdx ? { color: '#0d9488' } : undefined}>
-                                    {formatDate(v)}
-                                  </Text>
-                                )},
-                              { title: 'GYLDIG TIL', key: 'to', width: 120,
-                                render: (_: unknown, row: { _idx: number }) => {
-                                  const next = sortedRates[row._idx + 1];
-                                  return <Text className="tnum" type="secondary">{next ? formatDate(next.validFrom) : '→'}</Text>;
-                                }},
-                              { title: 'DKK/kWh', dataIndex: 'priceDkkPerKwh', key: 'price', align: 'right' as const,
-                                render: (v: number, row: { _idx: number }) => (
-                                  <Text className="tnum" strong={row._idx === activeIdx}
-                                    style={row._idx === activeIdx ? { color: '#0d9488', fontSize: 14 } : undefined}>
-                                    {formatPrice4(v)}
-                                  </Text>
-                                )},
-                              { title: '', key: 'active', width: 80,
-                                render: (_: unknown, row: { _idx: number }) =>
-                                  row._idx === activeIdx ? <Tag color="teal">Aktiv</Tag> : null },
-                            ]}
-                            rowKey="id"
-                            size="small"
-                            pagination={false}
-                          />
-                        </div>
-                      ),
+                      children: renderStepFunctionTable(mapped, activeIdx),
                     };
                   })}
                 />
@@ -462,34 +456,38 @@ export default function PricesPage() {
                           const keyArr = Array.isArray(keys) ? keys : [keys];
                           keyArr.forEach(k => loadDetail(k as string));
                         }}
-                        items={group.prices.map(price => ({
-                          key: price.id,
-                          style: panelCardStyle,
-                          label: (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', flexWrap: 'wrap' }}>
-                              <Tag color={typeColors[price.type] || 'default'} style={{ margin: 0 }}>{price.type}</Tag>
-                              <Text className="mono" strong>{price.chargeId}</Text>
-                              <Text ellipsis style={{ flex: 1, minWidth: 120 }}>{price.description}</Text>
-                              {price.priceResolution && (
-                                <Tag color="geekblue" style={{ margin: 0 }}>
-                                  {price.priceResolution === 'PT15M' ? '15 min' : price.priceResolution === 'PT1H' ? 'Time' : price.priceResolution}
-                                </Tag>
-                              )}
-                              <Text className="tnum" type="secondary" style={{ fontSize: 12 }}>
-                                {price.pricePointCount} punkter
-                              </Text>
-                              <Text className="tnum" type="secondary" style={{ fontSize: 12 }}>
-                                {formatDate(price.validFrom)} → {price.validTo ? formatDate(price.validTo) : ''}
-                              </Text>
+                        items={group.prices.map(price => {
+                          const detail = detailCache[price.id];
+                          // Find current rate from cached detail (if loaded)
+                          let currentRate: number | undefined;
+                          if (detail) {
+                            const sorted = [...detail.pricePoints].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+                            const idx = findActiveIndex(sorted.map(p => p.timestamp));
+                            if (idx >= 0) currentRate = sorted[idx].price;
+                          }
+                          return {
+                            key: price.id,
+                            style: panelCardStyle,
+                            label: renderPanelHeader(
+                              { label: price.type, color: typeColors[price.type] || 'default' },
+                              `${price.description}`,
+                              undefined,
+                              price.pricePointCount,
+                              price.priceResolution === 'PT1H' ? 'punkter' : 'satser',
+                              currentRate,
                               <Space size={4}>
-                                {price.isTax && <Tag color="red" style={{ margin: 0 }}>Moms</Tag>}
+                                {price.priceResolution && (
+                                  <Tag color="geekblue" style={{ margin: 0 }}>
+                                    {price.priceResolution === 'PT15M' ? '15 min' : price.priceResolution === 'PT1H' ? 'Time' : price.priceResolution}
+                                  </Tag>
+                                )}
+                                {price.isTax && <Tag color="red" style={{ margin: 0 }}>Afgift</Tag>}
                                 {price.vatExempt && <Tag color="gold" style={{ margin: 0 }}>Momsfri</Tag>}
-                                {price.isPassThrough && <Tag color="blue" style={{ margin: 0 }}>Gennemfakturering</Tag>}
-                              </Space>
-                            </div>
-                          ),
-                          children: renderDatahubDetail(price),
-                        }))}
+                              </Space>,
+                            ),
+                            children: renderDatahubDetail(price),
+                          };
+                        })}
                       />
                     </div>
                   ))}
