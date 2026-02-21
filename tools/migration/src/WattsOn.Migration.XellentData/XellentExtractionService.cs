@@ -612,22 +612,25 @@ public class XellentExtractionService
                 // Get rate entries filtered by:
                 //   - PartyChargeTypeId + ChargeTypeCode (charge identity)
                 //   - GridCompanyId = OwnerId (correct grid operator for this metering point)
-                //   - ValidInMarketToExcl = 1900-01-01 (only active/current versions, not superseded)
-                // Then dedup by StartDate (take highest RecId if still duplicated across CompanyId)
+                // NOTE: Do NOT filter by ValidInMarketToExcl. The table contains multiple
+                // versions per StartDate: the original rate (superseded, has real ValidInMarketToExcl date)
+                // and corrected rates (active, ValidInMarketToExcl = 1900-01-01 sentinel).
+                // Xellent's CorrectionService uses the ORIGINAL rate (first published, lowest RecId)
+                // because it doesn't filter by ValidInMarketToExcl either.
+                // For migration matching, we must use the same rates Xellent billed with.
                 var rates = await _db.PriceElementRates
                     .Where(r => r.DataAreaId == DataAreaId
                         && r.PartyChargeTypeId == assignment.PartyChargeTypeId
                         && r.ChargeTypeCode == assignment.ChargeTypeCode
-                        && r.GridCompanyId == assignment.OwnerGln
-                        && r.ValidInMarketToExcl == NoEndDate)
+                        && r.GridCompanyId == assignment.OwnerGln)
                     .OrderBy(r => r.StartDate)
-                    .ThenByDescending(r => r.RecId)
+                    .ThenBy(r => r.RecId) // Lowest RecId = first published = billing rate
                     .ToListAsync();
 
-                // Dedup: keep one rate per StartDate (highest RecId wins)
+                // Dedup: keep one rate per StartDate (lowest RecId wins = first published version)
                 rates = rates
                     .GroupBy(r => r.StartDate)
-                    .Select(g => g.First()) // Already sorted by RecId desc within group
+                    .Select(g => g.First()) // Already sorted by RecId asc within group
                     .OrderBy(r => r.StartDate)
                     .ToList();
 
@@ -930,7 +933,9 @@ public class XellentExtractionService
 
         foreach (var tariff in tariffAssignments)
         {
-            // Count all candidate rates for provenance — filter by ChargeTypeCode + GridCompanyId
+            // Get candidate rates for this tariff — filter by ChargeTypeCode + GridCompanyId.
+            // No ValidInMarketToExcl filter: we want the FIRST PUBLISHED rate (lowest RecId)
+            // for each StartDate, matching Xellent's CorrectionService behavior.
             var candidateRates = await _db.PriceElementRates
                 .Where(r => r.DataAreaId == DataAreaId
                     && r.PartyChargeTypeId == tariff.PartyChargeTypeId
@@ -938,11 +943,12 @@ public class XellentExtractionService
                     && r.GridCompanyId == tariff.OwnerGln
                     && r.StartDate <= forDateOnly)
                 .OrderByDescending(r => r.StartDate)
+                .ThenBy(r => r.RecId) // Lowest RecId = first published = billing rate
                 .ToListAsync();
 
             if (candidateRates.Count == 0) continue;
 
-            var rate = candidateRates[0]; // Most recent
+            var rate = candidateRates[0]; // Most recent StartDate, first published version
             var isHourly = HasHourlyRates(rate);
 
             // Build provenance: capture the exact rate row and its values

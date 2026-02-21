@@ -324,6 +324,75 @@ public static class SettlementCalculator
             timeSeries.TotalEnergy,
             activeMargin.PriceDkkPerKwh);
     }
+
+    // --- Multi-margin overload (for recalculation with per-product lines) ---
+
+    /// <summary>
+    /// Calculate a settlement with multiple named supplier margins.
+    /// Each margin produces its own settlement line (e.g., "V Variabel", "Grøn strøm").
+    /// </summary>
+    public static Settlement Calculate(
+        TimeSeries timeSeries,
+        Supply supply,
+        IReadOnlyList<PriceWithPoints> datahubPrices,
+        IReadOnlyList<SpotPrice> spotPrices,
+        IReadOnlyList<(string Name, SupplierMargin Margin)> namedMargins,
+        PricingModel pricingModel = PricingModel.SpotAddon)
+    {
+        if (timeSeries.Observations.Count == 0)
+            throw new InvalidOperationException("Cannot settle a time series with no observations.");
+
+        var settlement = Settlement.Create(
+            timeSeries.MeteringPointId,
+            supply.Id,
+            timeSeries.Period,
+            timeSeries.Id,
+            timeSeries.Version,
+            timeSeries.TotalEnergy);
+
+        // DataHub charge lines
+        foreach (var priceLink in datahubPrices)
+        {
+            var line = CalculateDataHubLine(settlement.Id, timeSeries, priceLink);
+            if (line is not null)
+                settlement.AddLine(line);
+        }
+
+        // Electricity cost lines
+        switch (pricingModel)
+        {
+            case PricingModel.Fixed:
+                // Fixed: use combined margin rate
+                var combinedRate = namedMargins.Sum(m => m.Margin.PriceDkkPerKwh);
+                var syntheticMargin = namedMargins.Count > 0
+                    ? SupplierMargin.Create(namedMargins[0].Margin.SupplierProductId, namedMargins[0].Margin.ValidFrom, combinedRate)
+                    : null;
+                var fixedLine = CalculateFixedElectricityLine(settlement.Id, timeSeries, syntheticMargin);
+                if (fixedLine is not null)
+                    settlement.AddLine(fixedLine);
+                break;
+
+            case PricingModel.SpotAddon:
+            default:
+                var spotLine = CalculateSpotLine(settlement.Id, timeSeries, spotPrices);
+                if (spotLine is not null)
+                    settlement.AddLine(spotLine);
+
+                // One margin line per named product
+                foreach (var (name, margin) in namedMargins)
+                {
+                    var marginLine = SettlementLine.CreateMargin(
+                        settlement.Id,
+                        name,
+                        timeSeries.TotalEnergy,
+                        margin.PriceDkkPerKwh);
+                    settlement.AddLine(marginLine);
+                }
+                break;
+        }
+
+        return settlement;
+    }
 }
 
 /// <summary>
@@ -350,10 +419,19 @@ public class PriceWithPoints
     /// </summary>
     private readonly List<(DateTimeOffset PeriodStart, Dictionary<int, decimal> HourlyPrices)>? _templates;
 
-    public PriceWithPoints(Price price)
+    public PriceWithPoints(Price price, DateTimeOffset? pointsCutoff = null)
     {
         Price = price;
-        _sortedPoints = price.PricePoints
+
+        // Optional cutoff: only include price points before this timestamp.
+        // Used for migrated settlement recalculation where Xellent's rate resolution
+        // picks the template effective at the billing period start, not templates
+        // that start mid-period. This matches Xellent's "latest StartDate < periodStart" behavior.
+        IEnumerable<PricePoint> points = price.PricePoints;
+        if (pointsCutoff.HasValue)
+            points = points.Where(pp => pp.Timestamp < pointsCutoff.Value);
+
+        _sortedPoints = points
             .OrderBy(pp => pp.Timestamp)
             .Select(pp => (pp.Timestamp, pp.Price))
             .ToList();

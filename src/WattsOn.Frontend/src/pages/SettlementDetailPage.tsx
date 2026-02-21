@@ -95,15 +95,50 @@ export default function SettlementDetailPage() {
     }
   };
 
-  // Build comparison table data: match original lines to recalculated by base description
+  // Build comparison table data: match original lines to recalculated by normalized description
   const buildComparisonRows = (result: RecalcResult) => {
-    const stripMigrated = (d: string) => d.replace(/ \(migreret.*?\)/, '');
+    // Normalize migrated descriptions to match calculator output:
+    // "Abon-Net [22000] (migreret, abonnement)" → "Abon-Net"
+    // "Product Margin (Grøn strøm) [product=V Variabel] (migreret)" → "Grøn strøm"
+    // "Leverandørmargin (migreret)" → "Leverandørmargin"
+    const normalize = (d: string) => {
+      let n = d.replace(/ \(migreret.*?\)/g, '').trim();  // strip (migreret...)
+      n = n.replace(/ \[.*?\]/g, '').trim();               // strip [chargeId] / [product=...]
+      // "Product Margin (X)" → "X"
+      const pmMatch = n.match(/^Product Margin \((.+)\)$/);
+      if (pmMatch) n = pmMatch[1];
+      return n;
+    };
+
     const origMap = new Map<string, RecalcLine>();
-    for (const l of result.original.lines) origMap.set(stripMigrated(l.description), l);
+    const origDescMap = new Map<string, string>(); // normalized → original description
+    for (const l of result.original.lines) {
+      const key = normalize(l.description);
+      origMap.set(key, l);
+      origDescMap.set(key, l.description);
+    }
+
     const recalcMap = new Map<string, RecalcLine>();
     if (result.recalculated) {
       for (const l of result.recalculated.lines) recalcMap.set(l.description, l);
     }
+
+    // Try to match "Leverandørmargin" to base product margin if no direct match
+    if (origMap.has('Leverandørmargin') && !recalcMap.has('Leverandørmargin')) {
+      // Find the base product margin in recalc (not Grøn strøm or other addons)
+      const baseMargin = result.recalculated?.lines.find(l =>
+        l.source === 'SupplierMargin' && !origMap.has(l.description) && l.description !== 'Grøn strøm'
+      );
+      if (baseMargin) {
+        // Rename the original entry to match the recalc name
+        const origLine = origMap.get('Leverandørmargin')!;
+        origMap.delete('Leverandørmargin');
+        origMap.set(baseMargin.description, origLine);
+        origDescMap.set(baseMargin.description, origDescMap.get('Leverandørmargin')!);
+        origDescMap.delete('Leverandørmargin');
+      }
+    }
+
     const allKeys = new Set([...origMap.keys(), ...recalcMap.keys()]);
     return Array.from(allKeys).sort().map(key => {
       const orig = origMap.get(key);
@@ -114,6 +149,7 @@ export default function SettlementDetailPage() {
       return {
         key,
         description: key,
+        origDesc: origDescMap.get(key),
         origQty: orig?.quantityKwh ?? null,
         origUnit: orig?.unitPrice ?? null,
         origAmt,

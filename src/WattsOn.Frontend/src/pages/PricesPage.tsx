@@ -217,14 +217,13 @@ export default function PricesPage() {
 
     if (isTemplate) {
       // Template tariff: points are 24-hour daily templates grouped on quarter start dates.
-      // Group into template blocks, find the one that applies for the selected date.
+      // Group into template blocks, then show ALL periods in an accordion.
       const blocks: { startDate: string; points: typeof detail.pricePoints }[] = [];
       const sorted = [...detail.pricePoints].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
       let currentBlock: typeof detail.pricePoints = [];
       let currentDate = '';
       for (const pp of sorted) {
-        // Use Danish date for grouping
         const dkDate = new Date(pp.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Europe/Copenhagen' });
         if (dkDate !== currentDate) {
           if (currentBlock.length > 0) blocks.push({ startDate: currentDate, points: currentBlock });
@@ -237,43 +236,109 @@ export default function PricesPage() {
 
       // Find the applicable template: latest block start ≤ selected date
       const dateStr = selectedDate.format('YYYY-MM-DD');
-      const applicableBlock = [...blocks].reverse().find(b => b.startDate <= dateStr) || blocks[blocks.length - 1];
+      const activeBlockIdx = (() => {
+        for (let i = blocks.length - 1; i >= 0; i--) {
+          if (blocks[i].startDate <= dateStr) return i;
+        }
+        return blocks.length - 1;
+      })();
 
-      // Sort the block points by Danish hour
-      const blockPoints = [...(applicableBlock?.points || [])].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+      // Global max price across ALL blocks (for consistent bar scaling)
+      const globalMax = Math.max(...detail.pricePoints.map(p => p.price));
+
+      // Build 24-hour table for a single block
+      const renderTemplateBlock = (block: typeof blocks[0]) => {
+        const blockPoints = [...block.points].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+        const uniqueRates = [...new Set(blockPoints.map(p => p.price))].sort((a, b) => a - b);
+        return (
+          <div>
+            {uniqueRates.length <= 5 && (
+              <div style={{ marginBottom: 8 }}>
+                {uniqueRates.map((rate, i) => (
+                  <Tag key={i} style={{ marginBottom: 4 }}>
+                    {formatPrice4(rate)} DKK/kWh
+                  </Tag>
+                ))}
+              </div>
+            )}
+            <Table
+              dataSource={blockPoints}
+              columns={[
+                { title: 'TIME', dataIndex: 'timestamp', key: 'hour', width: 60,
+                  render: (v: string) => {
+                    const dkHour = new Date(v).toLocaleTimeString('da-DK', { timeZone: 'Europe/Copenhagen', hour: '2-digit', minute: '2-digit', hour12: false });
+                    return <Text className="tnum" strong>{dkHour}</Text>;
+                  }},
+                { title: 'DKK/kWh', dataIndex: 'price', key: 'price', align: 'right' as const,
+                  render: (v: number) => <Text className="tnum" strong>{formatPrice4(v)}</Text> },
+                { title: '', key: 'bar', width: 200,
+                  render: (_: unknown, row: { price: number }) => {
+                    const pct = globalMax > 0 ? (row.price / globalMax) * 100 : 0;
+                    return (
+                      <div style={{ background: '#f0fdfa', borderRadius: 4, height: 16, width: '100%' }}>
+                        <div style={{ background: '#0d9488', borderRadius: 4, height: 16, width: `${pct}%`, minWidth: pct > 0 ? 2 : 0 }} />
+                      </div>
+                    );
+                  }},
+              ]}
+              rowKey="timestamp"
+              size="small"
+              pagination={false}
+            />
+          </div>
+        );
+      };
 
       return (
         <div style={{ padding: '4px 0' }}>
           <div style={{ marginBottom: 10 }}>
             <Tag color="geekblue">Daglig skabelon</Tag>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              Gældende fra {formatDate(applicableBlock.startDate)} · {blocks.length} perioder · {detail.totalPricePoints} prispunkter i alt
+              {blocks.length} {blocks.length === 1 ? 'periode' : 'perioder'} · {detail.totalPricePoints} prispunkter i alt
+              {' · Gældende periode markeret for '}{selectedDate.format('D. MMM YYYY')}
             </Text>
           </div>
-          <Table
-            dataSource={blockPoints}
-            columns={[
-              { title: 'TIME', dataIndex: 'timestamp', key: 'hour', width: 60,
-                render: (v: string) => {
-                  const dkHour = new Date(v).toLocaleTimeString('da-DK', { timeZone: 'Europe/Copenhagen', hour: '2-digit', minute: '2-digit', hour12: false });
-                  return <Text className="tnum" strong>{dkHour}</Text>;
-                }},
-              { title: 'DKK/kWh', dataIndex: 'price', key: 'price', align: 'right' as const,
-                render: (v: number) => <Text className="tnum" strong>{formatPrice4(v)}</Text> },
-              { title: '', key: 'bar', width: 200,
-                render: (_: unknown, row: { price: number }) => {
-                  const max = Math.max(...blockPoints.map(p => p.price));
-                  const pct = max > 0 ? (row.price / max) * 100 : 0;
-                  return (
-                    <div style={{ background: '#f0fdfa', borderRadius: 4, height: 16, width: '100%' }}>
-                      <div style={{ background: '#0d9488', borderRadius: 4, height: 16, width: `${pct}%`, minWidth: pct > 0 ? 2 : 0 }} />
-                    </div>
-                  );
-                }},
-            ]}
-            rowKey="timestamp"
-            size="small"
-            pagination={false}
+          <Collapse
+            bordered={false}
+            defaultActiveKey={[String(activeBlockIdx)]}
+            expandIcon={({ isActive }) => <RightOutlined rotate={isActive ? 90 : 0} style={{ fontSize: 10, color: '#94a3b8' }} />}
+            style={{ background: 'transparent' }}
+            items={blocks.map((block, idx) => {
+              const nextBlock = blocks[idx + 1];
+              const isActive = idx === activeBlockIdx;
+              const uniqueRates = [...new Set(block.points.map(p => p.price))].sort((a, b) => a - b);
+              const rateRange = uniqueRates.length === 1
+                ? formatPrice4(uniqueRates[0])
+                : `${formatPrice4(uniqueRates[0])} – ${formatPrice4(uniqueRates[uniqueRates.length - 1])}`;
+
+              return {
+                key: String(idx),
+                style: {
+                  borderRadius: 8,
+                  marginBottom: 4,
+                  border: isActive ? '1.5px solid #5eead4' : '1px solid #e5e7eb',
+                  background: isActive ? '#f0fdfa' : '#fff',
+                  overflow: 'hidden',
+                },
+                label: (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%' }}>
+                    {isActive && <Tag color="teal" style={{ margin: 0 }}>Aktiv</Tag>}
+                    <Text strong={isActive} style={{ fontSize: 13 }}>
+                      {formatDate(block.startDate)}
+                      {nextBlock ? ` → ${formatDate(nextBlock.startDate)}` : ' → nu'}
+                    </Text>
+                    <div style={{ flex: 1 }} />
+                    <Text className="tnum" type="secondary" style={{ fontSize: 12 }}>
+                      {rateRange} DKK/kWh
+                    </Text>
+                    <Text className="tnum" type="secondary" style={{ fontSize: 11 }}>
+                      {block.points.length} timer
+                    </Text>
+                  </div>
+                ),
+                children: renderTemplateBlock(block),
+              };
+            })}
           />
         </div>
       );

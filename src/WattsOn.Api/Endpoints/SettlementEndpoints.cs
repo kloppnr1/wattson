@@ -244,8 +244,15 @@ public static class SettlementEndpoints
                 .AsNoTracking()
                 .ToListAsync();
 
+            // For migrated settlements, use a price point cutoff matching Xellent's rate resolution:
+            // "latest rate with StartDate < periodStart". This prevents templates that start
+            // mid-period from overriding the template that was in effect when Xellent billed.
+            var pointsCutoff = original.Status == SettlementStatus.Migrated
+                ? original.SettlementPeriod.Start
+                : (DateTimeOffset?)null;
+
             var datahubPrices = priceLinks
-                .Select(pl => new PriceWithPoints(pl.Price))
+                .Select(pl => new PriceWithPoints(pl.Price, pointsCutoff))
                 .ToList();
 
             // Load spot prices for the period
@@ -275,8 +282,7 @@ public static class SettlementEndpoints
                 .ToListAsync();
 
             var pricingModel = PricingModel.SpotAddon;
-            decimal combinedMarginRate = 0m;
-            SupplierMargin? activeMargin = null;
+            var namedMargins = new List<(string Name, SupplierMargin Margin)>();
 
             foreach (var pp in allProductPeriods)
             {
@@ -296,18 +302,9 @@ public static class SettlementEndpoints
 
                 if (margin is not null)
                 {
-                    combinedMarginRate += margin.PriceDkkPerKwh;
-                    activeMargin ??= margin; // Use the first as base
+                    var productName = product?.Name ?? "Leverandørmargin";
+                    namedMargins.Add((productName, margin));
                 }
-            }
-
-            // Create a synthetic margin with the combined rate
-            if (activeMargin is not null && combinedMarginRate != activeMargin.PriceDkkPerKwh)
-            {
-                activeMargin = SupplierMargin.Create(
-                    activeMargin.SupplierProductId,
-                    activeMargin.ValidFrom,
-                    combinedMarginRate);
             }
 
             var periodObs = timeSeries.Observations;
@@ -330,7 +327,7 @@ public static class SettlementEndpoints
             try
             {
                 recalculated = SettlementCalculator.Calculate(
-                    scopedTs, supply, datahubPrices, spotPrices, activeMargin, pricingModel);
+                    scopedTs, supply, datahubPrices, spotPrices, namedMargins, pricingModel);
             }
             catch (Exception ex)
             {
@@ -347,7 +344,8 @@ public static class SettlementEndpoints
                 observationsInPeriod = periodObs.Count,
                 spotPricesInPeriod = spotPrices.Count,
                 datahubPriceLinks = datahubPrices.Count,
-                marginRate = activeMargin?.PriceDkkPerKwh,
+                marginRate = namedMargins.Sum(m => m.Margin.PriceDkkPerKwh),
+                margins = namedMargins.Select(m => new { name = m.Name, rate = m.Margin.PriceDkkPerKwh }),
 
                 original = new
                 {
