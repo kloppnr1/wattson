@@ -163,6 +163,7 @@ export interface Settlement {
 export interface SettlementDocumentLine {
   lineNumber: number;
   description: string;
+  source: string;
   quantity: number;
   quantityUnit: string;
   unitPrice: number;
@@ -172,6 +173,7 @@ export interface SettlementDocumentLine {
   taxCategory: string;
   taxPercent: number;
   taxAmount: number;
+  details?: LineDetails;
 }
 
 export interface TaxSummaryItem {
@@ -322,6 +324,20 @@ export interface TierDetail {
   amount: number;
 }
 
+export interface HourDetail {
+  hour: number;
+  kwh: number;
+  rate: number;
+  amount: number;
+}
+
+export interface DailyDetail {
+  date: string;
+  kwh: number;
+  amount: number;
+  hours: HourDetail[];
+}
+
 export interface LineDetails {
   type: 'tarif' | 'abonnement' | 'spot' | 'margin';
   // tarif
@@ -331,6 +347,7 @@ export interface LineDetails {
   // abonnement
   days?: number;
   dailyRate?: number;
+  totalAmount?: number;
   // spot
   hoursMissing?: number;
   avgRate?: number;
@@ -338,6 +355,8 @@ export interface LineDetails {
   maxRate?: number;
   // margin
   ratePerKwh?: number;
+  // daily/hourly breakdown (tarif + spot)
+  daily?: DailyDetail[];
 }
 
 export interface RecalcLine {

@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using WattsOn.Api.Models;
+using WattsOn.Domain.Entities;
 using WattsOn.Domain.Enums;
+using WattsOn.Domain.Services;
 using WattsOn.Infrastructure.Persistence;
 
 namespace WattsOn.Api.Endpoints;
@@ -185,10 +187,162 @@ public static class SettlementDocumentEndpoints
             if (a is null) return Results.NotFound();
 
             var priceIds = a.Lines.Where(l => l.PriceId.HasValue).Select(l => l.PriceId!.Value).Distinct().ToList();
-            var prisVatMap = await db.Prices
+
+            // Load prices WITH price points for line detail computation
+            var prices = await db.Prices
+                .Include(p => p.PricePoints)
                 .Where(p => priceIds.Contains(p.Id))
                 .AsNoTracking()
-                .ToDictionaryAsync(p => p.Id, p => new { p.VatExempt, p.Description, p.ChargeId, OwnerGln = p.OwnerGln.Value });
+                .ToListAsync();
+
+            var prisVatMap = prices.ToDictionary(p => p.Id, p => new { p.VatExempt, p.Description, p.ChargeId, OwnerGln = p.OwnerGln.Value });
+
+            // Load observations for the settlement period (for tariff tier breakdowns)
+            var periodEnd = a.SettlementPeriod.End ?? a.SettlementPeriod.Start.AddMonths(1);
+            var timeSeries = await db.TimeSeriesCollection
+                .Include(ts => ts.Observations.Where(o =>
+                    o.Timestamp >= a.SettlementPeriod.Start && o.Timestamp < periodEnd))
+                .Where(ts => ts.MeteringPointId == a.MeteringPointId)
+                .Where(ts => ts.Observations.Any(o =>
+                    o.Timestamp >= a.SettlementPeriod.Start && o.Timestamp < periodEnd))
+                .AsNoTracking()
+                .FirstOrDefaultAsync();
+
+            var periodObs = timeSeries?.Observations.OrderBy(o => o.Timestamp).ToList()
+                ?? new List<Observation>();
+
+            // Load spot prices for the period
+            var spotPrices = await db.SpotPrices
+                .Where(sp => sp.PriceArea == a.MeteringPoint.GridArea)
+                .Where(sp => sp.Timestamp >= a.SettlementPeriod.Start && sp.Timestamp < periodEnd)
+                .OrderBy(sp => sp.Timestamp)
+                .AsNoTracking()
+                .ToListAsync();
+
+            // Build PriceWithPoints (with cutoff for migrated settlements)
+            var pointsCutoff = a.Status == SettlementStatus.Migrated
+                ? a.SettlementPeriod.Start : (DateTimeOffset?)null;
+
+            var priceWithPointsMap = prices.ToDictionary(
+                p => p.Id,
+                p => new PriceWithPoints(p, pointsCutoff));
+
+            var dkTz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Copenhagen");
+
+            // ---- Per-line detail builder ----
+            object? BuildLineDetails(SettlementLine line)
+            {
+                if (line.Source == SettlementLineSource.DataHubCharge)
+                {
+                    var isSubscription = line.Description.Contains("abonnement", StringComparison.OrdinalIgnoreCase);
+                    if (!isSubscription && line.PriceId.HasValue
+                        && priceWithPointsMap.TryGetValue(line.PriceId.Value, out var pwpFallback)
+                        && pwpFallback.Price.Type == PriceType.Abonnement)
+                        isSubscription = true;
+
+                    if (isSubscription)
+                    {
+                        var days = (decimal)(periodEnd - a.SettlementPeriod.Start).TotalDays;
+                        var dailyRate = line.Quantity.Value > 0 ? line.UnitPrice : 0m;
+                        var totalAmount = line.Amount.Amount;
+                        if (line.PriceId.HasValue && priceWithPointsMap.TryGetValue(line.PriceId.Value, out var pwpSub)
+                            && pwpSub.Price.Type == PriceType.Abonnement)
+                        {
+                            var fromPrice = pwpSub.GetPriceAt(a.SettlementPeriod.Start);
+                            if (fromPrice.HasValue) dailyRate = fromPrice.Value;
+                        }
+                        return new { type = "abonnement", days, dailyRate, totalAmount, daily = (object?)null };
+                    }
+                    else
+                    {
+                        PriceWithPoints? pwp = null;
+                        if (line.PriceId.HasValue && priceWithPointsMap.TryGetValue(line.PriceId.Value, out var candidate)
+                            && candidate.Price.Type == PriceType.Tarif)
+                            pwp = candidate;
+
+                        if (periodObs.Count == 0 || pwp is null)
+                            return new { type = "tarif", totalHours = periodObs.Count, hoursWithPrice = 0,
+                                tiers = Array.Empty<object>(), daily = Array.Empty<object>() };
+
+                        var obsData = periodObs.Select(obs =>
+                        {
+                            var rate = pwp.GetPriceAt(obs.Timestamp) ?? 0m;
+                            var kwh = obs.Quantity.Value;
+                            var lt = TimeZoneInfo.ConvertTime(obs.Timestamp, dkTz);
+                            return new { obs.Timestamp, Kwh = kwh, Rate = rate, Amount = kwh * rate, LocalDate = lt.Date, LocalHour = lt.Hour };
+                        }).ToList();
+
+                        var tiers = obsData
+                            .GroupBy(o => Math.Round(o.Rate, 6)).OrderBy(g => g.Key)
+                            .Select(g => new { rate = g.Key, hours = g.Count(),
+                                kwh = Math.Round(g.Sum(o => o.Kwh), 4),
+                                amount = Math.Round(g.Sum(o => o.Kwh * o.Rate), 4) })
+                            .ToList();
+
+                        var daily = obsData
+                            .GroupBy(o => o.LocalDate).OrderBy(g => g.Key)
+                            .Select(g => new {
+                                date = g.Key.ToString("yyyy-MM-dd"),
+                                kwh = Math.Round(g.Sum(o => o.Kwh), 4),
+                                amount = Math.Round(g.Sum(o => o.Amount), 4),
+                                hours = g.OrderBy(o => o.Timestamp).Select(o => new {
+                                    hour = o.LocalHour, kwh = Math.Round(o.Kwh, 4),
+                                    rate = Math.Round(o.Rate, 6), amount = Math.Round(o.Amount, 4),
+                                }).ToList(),
+                            }).ToList();
+
+                        return new { type = "tarif", totalHours = periodObs.Count,
+                            hoursWithPrice = obsData.Count(o => o.Rate > 0), tiers, daily };
+                    }
+                }
+
+                if (line.Source == SettlementLineSource.SpotPrice)
+                {
+                    if (periodObs.Count == 0)
+                        return new { type = "spot", totalHours = 0, hoursWithPrice = 0, hoursMissing = 0,
+                            avgRate = 0m, minRate = 0m, maxRate = 0m, daily = Array.Empty<object>() };
+
+                    var spotLookup = spotPrices.ToDictionary(s => s.Timestamp);
+                    var obsData = periodObs.Select(obs =>
+                    {
+                        spotLookup.TryGetValue(obs.Timestamp, out var sp);
+                        var rate = sp?.PriceDkkPerKwh ?? 0m;
+                        var kwh = obs.Quantity.Value;
+                        var lt = TimeZoneInfo.ConvertTime(obs.Timestamp, dkTz);
+                        return new { obs.Timestamp, Kwh = kwh, Rate = rate, HasPrice = sp != null,
+                            Amount = kwh * rate, LocalDate = lt.Date, LocalHour = lt.Hour };
+                    }).ToList();
+
+                    var withPrice = obsData.Where(h => h.HasPrice).ToList();
+                    var totalKwh = withPrice.Sum(h => h.Kwh);
+
+                    var daily = obsData
+                        .GroupBy(o => o.LocalDate).OrderBy(g => g.Key)
+                        .Select(g => new {
+                            date = g.Key.ToString("yyyy-MM-dd"),
+                            kwh = Math.Round(g.Sum(o => o.Kwh), 4),
+                            amount = Math.Round(g.Sum(o => o.Amount), 4),
+                            hours = g.OrderBy(o => o.Timestamp).Select(o => new {
+                                hour = o.LocalHour, kwh = Math.Round(o.Kwh, 4),
+                                rate = Math.Round(o.Rate, 6), amount = Math.Round(o.Amount, 4),
+                            }).ToList(),
+                        }).ToList();
+
+                    return new {
+                        type = "spot", totalHours = obsData.Count,
+                        hoursWithPrice = withPrice.Count, hoursMissing = obsData.Count - withPrice.Count,
+                        avgRate = totalKwh > 0 ? Math.Round(withPrice.Sum(h => h.Kwh * h.Rate) / totalKwh, 6) : 0m,
+                        minRate = withPrice.Count > 0 ? Math.Round(withPrice.Min(h => h.Rate), 6) : 0m,
+                        maxRate = withPrice.Count > 0 ? Math.Round(withPrice.Max(h => h.Rate), 6) : 0m,
+                        daily,
+                    };
+                }
+
+                if (line.Source == SettlementLineSource.SupplierMargin)
+                    return new { type = "margin", ratePerKwh = line.UnitPrice, daily = (object?)null };
+
+                return null;
+            }
 
             const decimal DanishVatRate = 25.0m;
 
@@ -232,15 +386,18 @@ public static class SettlementDocumentEndpoints
                 {
                     lineNumber = idx + 1,
                     description = line.Description,
+                    source = line.Source.ToString(),
                     quantity = line.Quantity.Value,
-                    quantityUnit = "KWH",
+                    quantityUnit = line.Description.Contains("abonnement", StringComparison.OrdinalIgnoreCase)
+                        ? "DAGE" : "KWH",
                     unitPrice = line.UnitPrice,
                     lineAmount = line.Amount.Amount,
                     chargeId = prisInfo?.ChargeId,
                     chargeOwnerGln = prisInfo?.OwnerGln,
                     taxCategory = vatExempt ? "Z" : "S",
                     taxPercent,
-                    taxAmount
+                    taxAmount,
+                    details = BuildLineDetails(line),
                 };
             }).ToList();
 

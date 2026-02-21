@@ -334,7 +334,9 @@ public static class SettlementEndpoints
                 recalcError = ex.Message;
             }
 
-            // ---- Per-line detail builder (tariff tiers, spot stats, subscription/margin breakdown) ----
+            var dkTz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Copenhagen");
+
+            // ---- Per-line detail builder (tariff tiers + daily/hourly, spot stats, subscription, margin) ----
             object? BuildLineDetails(SettlementLine line)
             {
                 if (line.Source == SettlementLineSource.DataHubCharge && line.PriceId.HasValue)
@@ -344,80 +346,98 @@ public static class SettlementEndpoints
 
                     if (pwp.Price.Type == PriceType.Tarif)
                     {
-                        var obsRates = periodObs.Select(obs =>
+                        if (periodObs.Count == 0)
+                            return new { type = "tarif", totalHours = 0, hoursWithPrice = 0,
+                                tiers = Array.Empty<object>(), daily = Array.Empty<object>() };
+
+                        var obsData = periodObs.Select(obs =>
                         {
-                            var rate = pwp.GetPriceAt(obs.Timestamp);
-                            return new { Kwh = obs.Quantity.Value, Rate = rate ?? 0m };
+                            var rate = pwp.GetPriceAt(obs.Timestamp) ?? 0m;
+                            var kwh = obs.Quantity.Value;
+                            var lt = TimeZoneInfo.ConvertTime(obs.Timestamp, dkTz);
+                            return new { obs.Timestamp, Kwh = kwh, Rate = rate, Amount = kwh * rate,
+                                LocalDate = lt.Date, LocalHour = lt.Hour };
                         }).ToList();
 
-                        var tiers = obsRates
-                            .GroupBy(o => Math.Round(o.Rate, 6))
-                            .OrderBy(g => g.Key)
-                            .Select(g => new
-                            {
-                                rate = g.Key,
-                                hours = g.Count(),
+                        var tiers = obsData
+                            .GroupBy(o => Math.Round(o.Rate, 6)).OrderBy(g => g.Key)
+                            .Select(g => new { rate = g.Key, hours = g.Count(),
                                 kwh = Math.Round(g.Sum(o => o.Kwh), 4),
-                                amount = Math.Round(g.Sum(o => o.Kwh * o.Rate), 4),
-                            })
+                                amount = Math.Round(g.Sum(o => o.Kwh * o.Rate), 4) })
                             .ToList();
 
-                        return new
-                        {
-                            type = "tarif",
-                            totalHours = periodObs.Count,
-                            hoursWithPrice = obsRates.Count(o => o.Rate > 0),
-                            tiers,
-                        };
+                        var daily = obsData
+                            .GroupBy(o => o.LocalDate).OrderBy(g => g.Key)
+                            .Select(g => new {
+                                date = g.Key.ToString("yyyy-MM-dd"),
+                                kwh = Math.Round(g.Sum(o => o.Kwh), 4),
+                                amount = Math.Round(g.Sum(o => o.Amount), 4),
+                                hours = g.OrderBy(o => o.Timestamp).Select(o => new {
+                                    hour = o.LocalHour, kwh = Math.Round(o.Kwh, 4),
+                                    rate = Math.Round(o.Rate, 6), amount = Math.Round(o.Amount, 4),
+                                }).ToList(),
+                            }).ToList();
+
+                        return new { type = "tarif", totalHours = periodObs.Count,
+                            hoursWithPrice = obsData.Count(o => o.Rate > 0), tiers, daily };
                     }
 
                     if (pwp.Price.Type == PriceType.Abonnement)
                     {
                         var days = (decimal)(periodEnd - original.SettlementPeriod.Start).TotalDays;
                         var dailyRate = pwp.GetPriceAt(original.SettlementPeriod.Start) ?? 0m;
-
-                        return new
-                        {
-                            type = "abonnement",
-                            days,
-                            dailyRate,
-                        };
+                        return new { type = "abonnement", days, dailyRate, daily = (object?)null };
                     }
                 }
 
                 if (line.Source == SettlementLineSource.SpotPrice)
                 {
+                    if (periodObs.Count == 0)
+                        return new { type = "spot", totalHours = 0, hoursWithPrice = 0, hoursMissing = 0,
+                            avgRate = 0m, minRate = 0m, maxRate = 0m, daily = Array.Empty<object>() };
+
                     var spotLookup = spotPrices.ToDictionary(s => s.Timestamp);
-                    var hourDetails = periodObs.Select(obs =>
+                    var obsData = periodObs.Select(obs =>
                     {
                         spotLookup.TryGetValue(obs.Timestamp, out var sp);
-                        return new { Kwh = obs.Quantity.Value, Rate = sp?.PriceDkkPerKwh ?? 0m, HasPrice = sp != null };
+                        var rate = sp?.PriceDkkPerKwh ?? 0m;
+                        var kwh = obs.Quantity.Value;
+                        var lt = TimeZoneInfo.ConvertTime(obs.Timestamp, dkTz);
+                        return new { obs.Timestamp, Kwh = kwh, Rate = rate, HasPrice = sp != null,
+                            Amount = kwh * rate, LocalDate = lt.Date, LocalHour = lt.Hour };
                     }).ToList();
 
-                    var withPrice = hourDetails.Where(h => h.HasPrice).ToList();
+                    var withPrice = obsData.Where(h => h.HasPrice).ToList();
                     var totalKwh = withPrice.Sum(h => h.Kwh);
 
-                    return new
-                    {
-                        type = "spot",
-                        totalHours = hourDetails.Count,
-                        hoursWithPrice = withPrice.Count,
-                        hoursMissing = hourDetails.Count - withPrice.Count,
-                        avgRate = totalKwh > 0
-                            ? Math.Round(withPrice.Sum(h => h.Kwh * h.Rate) / totalKwh, 6) : 0m,
+                    var daily = obsData
+                        .GroupBy(o => o.LocalDate).OrderBy(g => g.Key)
+                        .Select(g => new {
+                            date = g.Key.ToString("yyyy-MM-dd"),
+                            kwh = Math.Round(g.Sum(o => o.Kwh), 4),
+                            amount = Math.Round(g.Sum(o => o.Amount), 4),
+                            hours = g.OrderBy(o => o.Timestamp).Select(o => new {
+                                hour = o.LocalHour, kwh = Math.Round(o.Kwh, 4),
+                                rate = Math.Round(o.Rate, 6), amount = Math.Round(o.Amount, 4),
+                            }).ToList(),
+                        }).ToList();
+
+                    return new {
+                        type = "spot", totalHours = obsData.Count,
+                        hoursWithPrice = withPrice.Count, hoursMissing = obsData.Count - withPrice.Count,
+                        avgRate = totalKwh > 0 ? Math.Round(withPrice.Sum(h => h.Kwh * h.Rate) / totalKwh, 6) : 0m,
                         minRate = withPrice.Count > 0 ? Math.Round(withPrice.Min(h => h.Rate), 6) : 0m,
                         maxRate = withPrice.Count > 0 ? Math.Round(withPrice.Max(h => h.Rate), 6) : 0m,
+                        daily,
                     };
                 }
 
                 if (line.Source == SettlementLineSource.SupplierMargin)
                 {
                     var matchedMargin = namedMargins.FirstOrDefault(m => m.Name == line.Description);
-                    return new
-                    {
-                        type = "margin",
+                    return new { type = "margin",
                         ratePerKwh = matchedMargin.Margin?.PriceDkkPerKwh ?? line.UnitPrice,
-                    };
+                        daily = (object?)null };
                 }
 
                 return null;
