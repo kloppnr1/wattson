@@ -264,22 +264,50 @@ public static class SettlementEndpoints
                 .AsNoTracking()
                 .FirstOrDefaultAsync();
 
-            SupplierMargin? activeMargin = null;
-            var pricingModel = PricingModel.SpotAddon;
+            // Load ALL active product periods for the supply at settlement time
+            // (base product + addon products like "Grøn strøm").
+            // Sum their margins for the combined supplier rate.
+            var allProductPeriods = await db.SupplyProductPeriods
+                .Where(pp => pp.SupplyId == supply.Id)
+                .Where(pp => pp.Period.Start <= original.SettlementPeriod.Start)
+                .Where(pp => pp.Period.End == null || pp.Period.End > original.SettlementPeriod.Start)
+                .AsNoTracking()
+                .ToListAsync();
 
-            if (activeProductPeriod is not null)
+            var pricingModel = PricingModel.SpotAddon;
+            decimal combinedMarginRate = 0m;
+            SupplierMargin? activeMargin = null;
+
+            foreach (var pp in allProductPeriods)
             {
                 var product = await db.SupplierProducts
                     .AsNoTracking()
-                    .FirstOrDefaultAsync(p => p.Id == activeProductPeriod.SupplierProductId);
-                pricingModel = product?.PricingModel ?? PricingModel.SpotAddon;
+                    .FirstOrDefaultAsync(p => p.Id == pp.SupplierProductId);
 
-                activeMargin = await db.SupplierMargins
-                    .Where(m => m.SupplierProductId == activeProductPeriod.SupplierProductId)
+                if (product is not null && activeProductPeriod is not null && pp.Id == activeProductPeriod.Id)
+                    pricingModel = product.PricingModel;
+
+                var margin = await db.SupplierMargins
+                    .Where(m => m.SupplierProductId == pp.SupplierProductId)
                     .Where(m => m.ValidFrom <= original.SettlementPeriod.Start)
                     .OrderByDescending(m => m.ValidFrom)
                     .AsNoTracking()
                     .FirstOrDefaultAsync();
+
+                if (margin is not null)
+                {
+                    combinedMarginRate += margin.PriceDkkPerKwh;
+                    activeMargin ??= margin; // Use the first as base
+                }
+            }
+
+            // Create a synthetic margin with the combined rate
+            if (activeMargin is not null && combinedMarginRate != activeMargin.PriceDkkPerKwh)
+            {
+                activeMargin = SupplierMargin.Create(
+                    activeMargin.SupplierProductId,
+                    activeMargin.ValidFrom,
+                    combinedMarginRate);
             }
 
             var periodObs = timeSeries.Observations;

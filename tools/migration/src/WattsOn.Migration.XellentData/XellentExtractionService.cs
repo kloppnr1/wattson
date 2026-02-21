@@ -665,6 +665,18 @@ public class XellentExtractionService
                             });
                         }
                     }
+                    else if (assignment.ChargeTypeCode == 1) // Subscription
+                    {
+                        // Subscription rates in Xellent are MONTHLY amounts.
+                        // WattsOn's engine calculates subscriptions as: dailyRate × daysInPeriod.
+                        // Convert monthly → daily by dividing by days in the rate's effective month.
+                        var daysInMonth = DateTime.DaysInMonth(rate.StartDate.Year, rate.StartDate.Month);
+                        points.Add(new ExtractedPricePoint
+                        {
+                            Timestamp = ToUtc(rate.StartDate),
+                            Price = rate.Price / daysInMonth
+                        });
+                    }
                     else
                     {
                         // Flat rate — single price point per effective date
@@ -710,9 +722,9 @@ public class XellentExtractionService
 
         foreach (var gsrn in gsrns)
         {
-            // Group by (ChargeTypeId, ChargeTypeCode, OwnerId) to create separate links
-            // for each grid operator period (e.g. old vs new grid company after a switch).
-            var assignments = await (
+            // Pull raw rows into memory, then group — small dataset per GSRN,
+            // and allows sentinel handling in C# without complex SQL translation.
+            var rawRows = await (
                 from pec in _db.PriceElementChecks
                 join pecd in _db.PriceElementCheckData
                     on new { pec.DataAreaId, RefRecId = pec.RecId }
@@ -723,34 +735,86 @@ public class XellentExtractionService
                 where pec.DataAreaId == DataAreaId
                     && pec.MeteringPointId == gsrn
                     && pec.DeliveryCategory == DeliveryCategory
-                group new { pecd, pet } by new { pecd.PartyChargeTypeId, pecd.ChargeTypeCode, pecd.OwnerId } into g
                 select new
                 {
-                    PartyChargeTypeId = g.Key.PartyChargeTypeId,
-                    ChargeTypeCode = g.Key.ChargeTypeCode,
-                    OwnerGln = g.Key.OwnerId,
-                    Description = g.First().pet.Description,
-                    EarliestStart = g.Min(x => x.pecd.StartDate),
-                    LatestEnd = g.Max(x => x.pecd.EndDate)
+                    pecd.PartyChargeTypeId,
+                    pecd.ChargeTypeCode,
+                    pecd.OwnerId,
+                    pet.Description,
+                    pecd.StartDate,
+                    pecd.EndDate
                 }
             ).ToListAsync();
+
+            var assignments = rawRows
+                .GroupBy(r => new { r.PartyChargeTypeId, r.ChargeTypeCode, r.OwnerId })
+                .Select(g =>
+                {
+                    var nonSentinelStarts = g.Where(x => x.StartDate > NoEndDate).Select(x => x.StartDate).ToList();
+                    return new
+                    {
+                        PartyChargeTypeId = g.Key.PartyChargeTypeId,
+                        ChargeTypeCode = g.Key.ChargeTypeCode,
+                        OwnerGln = g.Key.OwnerId,
+                        Description = g.First().Description,
+                        EarliestStart = nonSentinelStarts.Count > 0 ? nonSentinelStarts.Min() : g.Min(x => x.StartDate),
+                        HasOpenEnd = g.Any(x => x.EndDate <= NoEndDate),
+                        LatestEnd = g.Max(x => x.EndDate)
+                    };
+                })
+                .ToList();
 
             foreach (var a in assignments)
             {
                 var ownerGln = ((long)a.OwnerGln).ToString();
                 var effectiveStart = a.EarliestStart;
-                // EndDate = 1900-01-01 means "open" in Xellent
-                var effectiveEnd = a.LatestEnd > new DateTime(1901, 1, 1) ? (DateTime?)a.LatestEnd : null;
+                var effectiveEnd = a.HasOpenEnd ? (DateTime?)null : (DateTime?)a.LatestEnd;
 
                 links.Add(new ExtractedPriceLink
                 {
                     Gsrn = gsrn,
                     ChargeId = a.PartyChargeTypeId,
+                    ChargeTypeCode = a.ChargeTypeCode,
                     OwnerGln = ownerGln,
                     EffectiveDate = ToUtc(effectiveStart),
                     EndDate = effectiveEnd.HasValue ? ToUtc(effectiveEnd.Value) : null
                 });
             }
+        }
+
+        // Detect grid operator switches and fix link boundaries.
+        // When the same chargeId exists under different owners (grid operator switch),
+        // the old owner's links should end when the new owner's start.
+        // For unique-to-old-operator charges, detect the switch date from shared charges.
+        foreach (var gsrnGroup in links.GroupBy(l => l.Gsrn))
+        {
+            var gsrnLinks = gsrnGroup.ToList();
+
+            // 1) Same chargeId, different owners → cap old owner at new owner's start
+            foreach (var chargeGroup in gsrnLinks.GroupBy(l => l.ChargeId).Where(g => g.Select(l => l.OwnerGln).Distinct().Count() > 1))
+            {
+                var byOwner = chargeGroup
+                    .GroupBy(l => l.OwnerGln)
+                    .Select(g => new { Owner = g.Key, Start = g.Min(l => l.EffectiveDate), Links = g.ToList() })
+                    .OrderBy(o => o.Start)
+                    .ToList();
+
+                for (var i = 0; i < byOwner.Count - 1; i++)
+                {
+                    var cap = byOwner[i + 1].Start;
+                    foreach (var link in byOwner[i].Links.Where(l => l.EndDate == null || l.EndDate > cap))
+                    {
+                        _logger.LogInformation("Capped {Charge} (owner {Owner}) at owner switch {Date:yyyy-MM-dd}", link.ChargeId, link.OwnerGln, cap);
+                        link.EndDate = cap;
+                    }
+                }
+            }
+
+            // Note: we intentionally do NOT cap open-ended links from old grid operators
+            // that have unique chargeIds (e.g. 22000 Abon-Net, 22100 Trans-lokalnet).
+            // These charges may continue after a grid operator switch even though
+            // the owner didn't change — only charges with the SAME chargeId under
+            // a new owner get capped (handled by Part 1 above).
         }
 
         _logger.LogInformation("Extracted {Count} price links for {GsrnCount} metering points",

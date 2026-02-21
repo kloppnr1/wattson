@@ -10,4 +10,10 @@ public class ExtractedPriceLink
     public string OwnerGln { get; set; } = null!;
     public DateTimeOffset EffectiveDate { get; set; }
     public DateTimeOffset? EndDate { get; set; }
+
+    /// <summary>
+    /// Xellent ChargeTypeCode: 1=Abonnement, 2=Gebyr, 3=Tarif.
+    /// Used to disambiguate when same (ChargeId, OwnerGln) has both tariff and subscription entries.
+    /// </summary>
+    public int ChargeTypeCode { get; set; }
 }

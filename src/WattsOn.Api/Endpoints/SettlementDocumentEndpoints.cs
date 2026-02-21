@@ -38,7 +38,10 @@ public static class SettlementDocumentEndpoints
                 query = query.Where(a => a.Status == SettlementStatus.Calculated);
             }
 
-            var settlements = await query.OrderBy(a => a.DocumentNumber).ToListAsync();
+            var settlements = await query
+                .OrderByDescending(a => a.SettlementPeriod.Start)
+                .ThenByDescending(a => a.DocumentNumber)
+                .ToListAsync();
 
             // Load price VAT info for all referenced prices
             var priceIds = settlements.SelectMany(a => a.Lines).Where(l => l.PriceId.HasValue).Select(l => l.PriceId!.Value).Distinct().ToList();

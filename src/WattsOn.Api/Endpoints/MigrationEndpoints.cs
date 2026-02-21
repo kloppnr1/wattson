@@ -415,9 +415,25 @@ public static class MigrationEndpoints
                 if (mp is null) { skipped++; continue; }
 
                 var ownerGln = GlnNumber.Create(link.OwnerGln);
-                var price = await db.Prices
+
+                // Map Xellent ChargeTypeCode to WattsOn PriceType for disambiguation
+                // (same ChargeId+Owner can have both tariff and subscription entries)
+                PriceType? expectedType = link.ChargeTypeCode switch
+                {
+                    1 => PriceType.Abonnement,
+                    2 => PriceType.Gebyr,
+                    3 => PriceType.Tarif,
+                    _ => null
+                };
+
+                var priceQuery = db.Prices
                     .Where(p => p.ChargeId == link.ChargeId)
-                    .FirstOrDefaultAsync(p => p.OwnerGln.Value == ownerGln.Value);
+                    .Where(p => p.OwnerGln.Value == ownerGln.Value);
+
+                if (expectedType.HasValue)
+                    priceQuery = priceQuery.Where(p => p.Type == expectedType.Value);
+
+                var price = await priceQuery.FirstOrDefaultAsync();
                 if (price is null) { skipped++; continue; }
 
                 var exists = await db.PriceLinks.AnyAsync(pl =>
@@ -712,7 +728,8 @@ record MigrationPriceLinkDto(
     string ChargeId,
     string OwnerGln,
     DateTimeOffset EffectiveDate,
-    DateTimeOffset? EndDate = null);
+    DateTimeOffset? EndDate = null,
+    int ChargeTypeCode = 0);
 
 record MigrationSettlementBatchRequest(
     List<MigrationSettlementDto> Settlements);

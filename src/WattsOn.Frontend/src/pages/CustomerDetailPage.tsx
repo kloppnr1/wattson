@@ -48,7 +48,10 @@ export default function CustomerDetailPage() {
       .then(([customerRes, docsRes]) => {
         setCustomer(customerRes.data);
         const identifier = customerRes.data.cpr || customerRes.data.cvr;
-        setSettlements(docsRes.data.filter(d => d.buyer.identifier === identifier));
+        const customerDocs = docsRes.data.filter(d => d.buyer.identifier === identifier);
+        // Sort newest period first
+        customerDocs.sort((a, b) => new Date(b.period.start).getTime() - new Date(a.period.start).getTime());
+        setSettlements(customerDocs);
       })
       .catch(err => setError(err.response?.status === 404 ? 'Customer ikke fundet' : err.message))
       .finally(() => setLoading(false));

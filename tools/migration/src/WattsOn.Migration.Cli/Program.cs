@@ -370,7 +370,7 @@ pushCommand.SetHandler(async (context) =>
     {
         var linkResult = await wattsOn.MigratePriceLinks(new
         {
-            links = data.PriceLinks.Select(l => new { gsrn = l.Gsrn, chargeId = l.ChargeId, ownerGln = l.OwnerGln, effectiveDate = l.EffectiveDate, endDate = l.EndDate }).ToList()
+            links = data.PriceLinks.Select(l => new { gsrn = l.Gsrn, chargeId = l.ChargeId, chargeTypeCode = l.ChargeTypeCode, ownerGln = l.OwnerGln, effectiveDate = l.EffectiveDate, endDate = l.EndDate }).ToList()
         });
         result.PriceLinksCreated = linkResult.GetProperty("created").GetInt32();
         result.PriceLinksSkipped = linkResult.GetProperty("skipped").GetInt32();

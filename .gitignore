@@ -39,3 +39,4 @@ appsettings.Development.json
 # Test results
 TestResults/
 coverage/
+publish/
