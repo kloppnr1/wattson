@@ -315,6 +315,32 @@ export const getSettlementDocument = (id: string) =>
 export const confirmSettlement = (id: string, externalInvoiceReference: string) =>
   api.post(`/settlement-documents/${id}/confirm`, { externalInvoiceReference });
 
+export interface RecalcLine {
+  source: string;
+  description: string;
+  quantityKwh: number;
+  unitPrice: number;
+  amount: number;
+}
+
+export interface RecalcResult {
+  settlementId: string;
+  status: string;
+  period: { start: string; end: string | null };
+  pricingModel: string;
+  observationsInPeriod: number;
+  spotPricesInPeriod: number;
+  datahubPriceLinks: number;
+  marginRate: number | null;
+  original: { totalEnergyKwh: number; totalAmount: number; lines: RecalcLine[] };
+  recalculated: { totalEnergyKwh: number; totalAmount: number; lines: RecalcLine[] } | null;
+  recalcError: string | null;
+  comparison: { totalAmountDiff: number; totalEnergyDiff: number } | null;
+}
+
+export const recalculateSettlement = (settlementId: string) =>
+  api.post<RecalcResult>(`/settlements/${settlementId}/recalculate`);
+
 // Inbox / Outbox
 export const getInbox = (unprocessed?: boolean) => api.get<InboxMessage[]>('/inbox', { params: { unprocessed } });
 export const getOutbox = (unsent?: boolean) => api.get<any[]>('/outbox', { params: { unsent } });

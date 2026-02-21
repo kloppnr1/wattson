@@ -2,15 +2,16 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card, Descriptions, Table, Tag, Spin, Alert, Space, Typography,
-  Button, Row, Col, Divider, Input, Modal, message,
+  Button, Row, Col, Divider, Input, Modal, message, Statistic, Tooltip,
 } from 'antd';
 import {
   ArrowLeftOutlined, FileTextOutlined, SwapOutlined,
   CheckCircleOutlined, HomeOutlined, LinkOutlined,
-  ExclamationCircleOutlined,
+  ExclamationCircleOutlined, CalculatorOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons';
-import type { SettlementDocument, SettlementDocumentLine } from '../api/client';
-import { getSettlementDocument, confirmSettlement } from '../api/client';
+import type { SettlementDocument, SettlementDocumentLine, RecalcResult, RecalcLine } from '../api/client';
+import { getSettlementDocument, confirmSettlement, recalculateSettlement } from '../api/client';
 
 const { Title, Text } = Typography;
 
@@ -34,6 +35,9 @@ export default function SettlementDetailPage() {
   const [confirmModal, setConfirmModal] = useState(false);
   const [invoiceRef, setInvoiceRef] = useState('');
   const [confirming, setConfirming] = useState(false);
+  const [recalc, setRecalc] = useState<RecalcResult | null>(null);
+  const [recalcLoading, setRecalcLoading] = useState(false);
+  const [recalcOpen, setRecalcOpen] = useState(false);
   const navigate = useNavigate();
 
   const loadDoc = () => {
@@ -61,6 +65,52 @@ export default function SettlementDetailPage() {
     } finally {
       setConfirming(false);
     }
+  };
+
+  const handleRecalculate = async () => {
+    if (!doc) return;
+    setRecalcLoading(true);
+    setRecalcOpen(true);
+    try {
+      const res = await recalculateSettlement(doc.settlementId);
+      setRecalc(res.data);
+    } catch (err: any) {
+      message.error('Genberegning fejlede: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setRecalcLoading(false);
+    }
+  };
+
+  // Build comparison table data: match original lines to recalculated by base description
+  const buildComparisonRows = (result: RecalcResult) => {
+    const stripMigrated = (d: string) => d.replace(/ \(migreret.*?\)/, '');
+    const origMap = new Map<string, RecalcLine>();
+    for (const l of result.original.lines) origMap.set(stripMigrated(l.description), l);
+    const recalcMap = new Map<string, RecalcLine>();
+    if (result.recalculated) {
+      for (const l of result.recalculated.lines) recalcMap.set(l.description, l);
+    }
+    const allKeys = new Set([...origMap.keys(), ...recalcMap.keys()]);
+    return Array.from(allKeys).sort().map(key => {
+      const orig = origMap.get(key);
+      const recalc = recalcMap.get(key);
+      const origAmt = orig?.amount ?? 0;
+      const recalcAmt = recalc?.amount ?? 0;
+      const diff = recalcAmt - origAmt;
+      return {
+        key,
+        description: key,
+        origQty: orig?.quantityKwh ?? null,
+        origUnit: orig?.unitPrice ?? null,
+        origAmt,
+        recalcQty: recalc?.quantityKwh ?? null,
+        recalcUnit: recalc?.unitPrice ?? null,
+        recalcAmt,
+        diff,
+        onlyOrig: !recalc && !!orig,
+        onlyRecalc: !orig && !!recalc,
+      };
+    });
   };
 
   if (loading) return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
@@ -151,10 +201,10 @@ export default function SettlementDetailPage() {
           </Col>
         </Row>
 
-        {/* Action button */}
-        {canConfirm && (
-          <>
-            <Divider style={{ margin: '20px 0 16px' }} />
+        {/* Action buttons */}
+        <Divider style={{ margin: '20px 0 16px' }} />
+        <Space>
+          {canConfirm && (
             <Button
               type="primary" icon={<CheckCircleOutlined />}
               onClick={() => setConfirmModal(true)}
@@ -162,8 +212,17 @@ export default function SettlementDetailPage() {
             >
               Bekræft fakturering
             </Button>
-          </>
-        )}
+          )}
+          <Tooltip title="Genberegner afregningen med WattsOns beregningsmotor uden at gemme. Sammenligner med det originale resultat.">
+            <Button
+              icon={<CalculatorOutlined />}
+              onClick={handleRecalculate}
+              loading={recalcLoading}
+            >
+              Genberegn & sammenlign
+            </Button>
+          </Tooltip>
+        </Space>
 
         {doc.externalInvoiceReference && (
           <>
@@ -301,6 +360,189 @@ export default function SettlementDetailPage() {
           )}
         />
       </Card>
+
+      {/* Recalculation comparison */}
+      {recalcOpen && (
+        <Card
+          title={
+            <Space>
+              <CalculatorOutlined />
+              <span>Genberegning — sammenligning</span>
+              <Tag color="blue">Ikke gemt</Tag>
+            </Space>
+          }
+          extra={<Button size="small" onClick={() => { setRecalcOpen(false); setRecalc(null); }}>Luk</Button>}
+          style={{ borderRadius: 12 }}
+        >
+          {recalcLoading && <Spin style={{ display: 'block', margin: '40px auto' }} />}
+          {recalc && !recalcLoading && (
+            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+              {/* Summary stats */}
+              <Row gutter={16}>
+                <Col xs={12} md={6}>
+                  <Statistic title="Observationer" value={recalc.observationsInPeriod} />
+                </Col>
+                <Col xs={12} md={6}>
+                  <Statistic title="Spotpriser" value={recalc.spotPricesInPeriod} />
+                </Col>
+                <Col xs={12} md={6}>
+                  <Statistic title="Pristilknytninger" value={recalc.datahubPriceLinks} />
+                </Col>
+                <Col xs={12} md={6}>
+                  <Statistic
+                    title="Prismodel"
+                    value={recalc.pricingModel === 'SpotAddon' ? 'Spot + tillæg' : recalc.pricingModel}
+                    valueStyle={{ fontSize: 16 }}
+                  />
+                </Col>
+              </Row>
+
+              {recalc.recalcError && !recalc.recalculated && (
+                <Alert type="warning" showIcon message="Genberegning kunne ikke gennemføres" description={recalc.recalcError} />
+              )}
+
+              {/* Totals comparison */}
+              {recalc.recalculated && (
+                <>
+                  <Row gutter={16}>
+                    <Col xs={24} md={8}>
+                      <Card size="small" style={{ borderRadius: 10, background: '#f8fafb' }}>
+                        <div className="micro-label">ORIGINAL</div>
+                        <div className="amount" style={{ fontSize: 22, marginTop: 4 }}>
+                          {formatDKK(recalc.original.totalAmount)}
+                        </div>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {recalc.original.totalEnergyKwh.toFixed(2)} kWh
+                        </Text>
+                      </Card>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Card size="small" style={{ borderRadius: 10, background: '#f0fdf4' }}>
+                        <div className="micro-label">GENBEREGNET</div>
+                        <div className="amount" style={{ fontSize: 22, marginTop: 4 }}>
+                          {formatDKK(recalc.recalculated.totalAmount)}
+                        </div>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {recalc.recalculated.totalEnergyKwh.toFixed(2)} kWh
+                        </Text>
+                      </Card>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Card size="small" style={{
+                        borderRadius: 10,
+                        background: recalc.comparison && Math.abs(recalc.comparison.totalAmountDiff) < 1 ? '#f0fdf4' : '#fefce8',
+                      }}>
+                        <div className="micro-label">DIFFERENCE</div>
+                        <div className="amount" style={{
+                          fontSize: 22, marginTop: 4,
+                          color: recalc.comparison && Math.abs(recalc.comparison.totalAmountDiff) < 1 ? '#059669'
+                            : recalc.comparison && Math.abs(recalc.comparison.totalAmountDiff) < 50 ? '#d97706' : '#dc2626',
+                        }}>
+                          {recalc.comparison ? (recalc.comparison.totalAmountDiff >= 0 ? '+' : '') + formatDKK(recalc.comparison.totalAmountDiff) : '—'}
+                        </div>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {recalc.comparison && recalc.original.totalAmount !== 0
+                            ? `${((recalc.comparison.totalAmountDiff / recalc.original.totalAmount) * 100).toFixed(1)}%`
+                            : ''}
+                        </Text>
+                      </Card>
+                    </Col>
+                  </Row>
+
+                  {/* Line-by-line comparison table */}
+                  <Table
+                    dataSource={buildComparisonRows(recalc)}
+                    rowKey="key"
+                    pagination={false}
+                    size="small"
+                    rowClassName={r => r.onlyOrig ? 'row-missing-recalc' : r.onlyRecalc ? 'row-extra-recalc' : ''}
+                    columns={[
+                      {
+                        title: 'LINJE', dataIndex: 'description', key: 'description',
+                        render: (v: string, r: any) => (
+                          <Space size={4}>
+                            <Text style={{ fontSize: 12 }}>{v}</Text>
+                            {r.onlyOrig && <Tag color="default" style={{ fontSize: 10 }}>kun original</Tag>}
+                            {r.onlyRecalc && <Tag color="blue" style={{ fontSize: 10 }}>kun genberegnet</Tag>}
+                          </Space>
+                        ),
+                      },
+                      {
+                        title: 'ORIGINAL', key: 'orig', align: 'right' as const, width: 120,
+                        render: (_: any, r: any) => r.origAmt !== 0 ? (
+                          <Text className="tnum" style={{ fontSize: 12 }}>{formatDKK(r.origAmt)}</Text>
+                        ) : <Text type="secondary">—</Text>,
+                      },
+                      {
+                        title: 'GENBEREGNET', key: 'recalc', align: 'right' as const, width: 120,
+                        render: (_: any, r: any) => r.recalcAmt !== 0 ? (
+                          <Text className="tnum" style={{ fontSize: 12 }}>{formatDKK(r.recalcAmt)}</Text>
+                        ) : <Text type="secondary">—</Text>,
+                      },
+                      {
+                        title: 'DIFF', key: 'diff', align: 'right' as const, width: 100,
+                        render: (_: any, r: any) => {
+                          if (Math.abs(r.diff) < 0.01) return <Text type="success" style={{ fontSize: 12 }}>✓</Text>;
+                          const color = Math.abs(r.diff) < 1 ? '#059669' : Math.abs(r.diff) < 10 ? '#d97706' : '#dc2626';
+                          return <Text className="tnum" style={{ fontSize: 12, color }}>{(r.diff >= 0 ? '+' : '') + formatDKK(r.diff)}</Text>;
+                        },
+                      },
+                    ]}
+                    summary={() => {
+                      const totalOrig = recalc.original.totalAmount;
+                      const totalRecalc = recalc.recalculated!.totalAmount;
+                      const totalDiff = totalRecalc - totalOrig;
+                      return (
+                        <Table.Summary.Row style={{ background: '#f8fafb' }}>
+                          <Table.Summary.Cell index={0}><Text strong>Total</Text></Table.Summary.Cell>
+                          <Table.Summary.Cell index={1} align="right">
+                            <Text strong className="tnum">{formatDKK(totalOrig)}</Text>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={2} align="right">
+                            <Text strong className="tnum">{formatDKK(totalRecalc)}</Text>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={3} align="right">
+                            <Text strong className="tnum" style={{
+                              color: Math.abs(totalDiff) < 1 ? '#059669' : Math.abs(totalDiff) < 50 ? '#d97706' : '#dc2626',
+                            }}>
+                              {(totalDiff >= 0 ? '+' : '') + formatDKK(totalDiff)}
+                            </Text>
+                          </Table.Summary.Cell>
+                        </Table.Summary.Row>
+                      );
+                    }}
+                  />
+
+                  <Alert
+                    type="info" showIcon icon={<InfoCircleOutlined />}
+                    message="Genberegningen er ikke gemt"
+                    description="Denne genberegning bruger WattsOns beregningsmotor med aktuelle priser og tidsserier. Resultatet gemmes ikke — det er kun til sammenligning."
+                    style={{ borderRadius: 8 }}
+                  />
+                </>
+              )}
+
+              {/* No observations state */}
+              {!recalc.recalculated && recalc.recalcError && (
+                <Alert
+                  type="info" showIcon
+                  message="Manglende data"
+                  description={
+                    <Space direction="vertical">
+                      <Text>{recalc.recalcError}</Text>
+                      <Text type="secondary">
+                        Genberegning kræver tidsserier (forbrugsdata) for perioden. Ældre migrerede
+                        perioder har muligvis ikke tidsserier i WattsOn endnu.
+                      </Text>
+                    </Space>
+                  }
+                  style={{ borderRadius: 8 }}
+                />
+              )}
+            </Space>
+          )}
+        </Card>
+      )}
 
       {/* Confirm modal */}
       <Modal
