@@ -120,6 +120,88 @@ public class XellentExtractionService
     }
 
     /// <summary>
+    /// Enrich metering point product periods with addon products from the ProductExtend chain.
+    /// These are rate types like "Grøn strøm" that exist as separate SupplierProducts
+    /// but need SupplyProductPeriods to link them to the supply.
+    /// Call AFTER ExtractDistinctProductsAsync so we know which rate types are primary vs addon.
+    /// </summary>
+    public async Task EnrichWithAddonProductPeriodsAsync(
+        List<ExtractedCustomer> customers, HashSet<string> addonProductNames)
+    {
+        if (addonProductNames.Count == 0) return;
+
+        foreach (var customer in customers)
+        {
+            foreach (var mp in customer.MeteringPoints)
+            {
+                var gsrn = mp.XellentMeteringPoint ?? mp.Gsrn;
+
+                // Query the full chain for this metering point to find addon product periods
+                var addonPeriods = await (
+                    from dp in _db.ExuDelpoints
+                    join agr in _db.ExuAgreementTables
+                        on new { dp.Dataareaid, Agreementnum = dp.Attachmentnum }
+                        equals new { agr.Dataareaid, agr.Agreementnum }
+                    join cp in _db.ExuContractPartTables
+                        on new { agr.Dataareaid, Instagreenum = agr.Agreementnum }
+                        equals new { cp.Dataareaid, cp.Instagreenum }
+                    join pe in _db.ExuProductExtendTables
+                        on new { Dataareaid = cp.Dataareaid, cp.Productnum }
+                        equals new { Dataareaid = pe.DataAreaId, pe.Productnum }
+                    join inv in _db.InventTables
+                        on new { DataAreaId = pe.DataAreaId, ItemId = pe.Producttype }
+                        equals new { inv.DataAreaId, inv.ItemId }
+                    where dp.Dataareaid == DataAreaId
+                        && dp.Meteringpoint == gsrn
+                        && dp.Deliverycategory == DeliveryCategory
+                        && inv.ItemType == 2
+                        && inv.ExuUseRateFromFlexPricing == 0
+                        && addonProductNames.Contains(pe.Producttype)
+                    select new
+                    {
+                        ProductType = pe.Producttype,
+                        CpStart = cp.Startdate,
+                        CpEnd = cp.Enddate,
+                        PeStart = pe.Startdate,
+                        PeEnd = pe.Enddate
+                    }
+                ).ToListAsync();
+
+                foreach (var ap in addonPeriods)
+                {
+                    // Effective period = intersection of ContractPart and ProductExtend validity
+                    var start = ap.CpStart > ap.PeStart ? ap.CpStart : ap.PeStart;
+                    var cpEnd = ap.CpEnd == NoEndDate ? (DateTime?)null : ap.CpEnd;
+                    var peEnd = ap.PeEnd == NoEndDate ? (DateTime?)null : ap.PeEnd;
+                    DateTimeOffset? end = (cpEnd, peEnd) switch
+                    {
+                        (null, null) => null,
+                        (DateTime a, null) => ToUtc(a),
+                        (null, DateTime b) => ToUtc(b),
+                        (DateTime a, DateTime b) => ToUtc(a < b ? a : b),
+                    };
+
+                    // Skip invalid periods where end < start (addon was deactivated before the ContractPart started)
+                    if (end.HasValue && end.Value < ToUtc(start)) continue;
+
+                    mp.ProductPeriods.Add(new ExtractedProductPeriod
+                    {
+                        ProductName = ap.ProductType,
+                        Start = ToUtc(start),
+                        End = end,
+                    });
+                }
+
+                // Deduplicate and sort
+                mp.ProductPeriods = mp.ProductPeriods
+                    .DistinctBy(pp => (pp.ProductName, pp.Start))
+                    .OrderBy(pp => pp.Start)
+                    .ToList();
+            }
+        }
+    }
+
+    /// <summary>
     /// Extract distinct products and their rate history from all account numbers.
     /// </summary>
     public async Task<List<ExtractedProduct>> ExtractDistinctProductsAsync(string[] accountNumbers)
@@ -158,44 +240,183 @@ public class XellentExtractionService
                 .OrderByDescending(pe => pe.Startdate)
                 .FirstOrDefaultAsync();
 
-            List<ExuRateTable> rates;
+            var rates = new List<ExuRateTable>();
             if (productExtend != null)
             {
-                // Get rates matching this product's rate type
+                // Try 1: Generic rates (Productnum == "") — most common
                 rates = await _db.ExuRateTables
                     .Where(r => r.Dataareaid == DataAreaId
                         && r.Deliverycategory == DeliveryCategory
                         && r.Ratetype == productExtend.Producttype
-                        && r.Productnum == "" // Generic rates (per-kWh), not subscriptions
-                        && r.Rate != 0)
+                        && r.Productnum == "")
                     .OrderBy(r => r.Startdate)
                     .ToListAsync();
+
+                // Try 2: Product-specific rates via ProductExtend type (Productnum == productNum)
+                if (rates.Count == 0 || rates.All(r => r.Rate == 0))
+                {
+                    var specific = await _db.ExuRateTables
+                        .Where(r => r.Dataareaid == DataAreaId
+                            && r.Deliverycategory == DeliveryCategory
+                            && r.Ratetype == productExtend.Producttype
+                            && r.Productnum == productNum)
+                        .OrderBy(r => r.Startdate)
+                        .ToListAsync();
+                    if (specific.Count > 0 && specific.Any(r => r.Rate != 0))
+                        rates = specific;
+                }
+
+                // Try 3: Self-referencing rates (Ratetype=productNum, Productnum=productNum)
+                // Some products like V Kvartal store rates under their own name, not the ProductExtend type
+                if (rates.Count == 0 || rates.All(r => r.Rate == 0))
+                {
+                    var selfRates = await _db.ExuRateTables
+                        .Where(r => r.Dataareaid == DataAreaId
+                            && r.Deliverycategory == DeliveryCategory
+                            && r.Ratetype == productNum
+                            && r.Productnum == productNum)
+                        .OrderBy(r => r.Startdate)
+                        .ToListAsync();
+
+                    if (selfRates.Count > 0 && selfRates.Any(r => r.Rate != 0))
+                    {
+                        rates = selfRates;
+                        _logger.LogInformation("Product {Name}: found {Count} self-referencing rates (Ratetype=Productnum='{Name}')",
+                            productNum, rates.Count, productNum);
+                    }
+                }
+
+                // Try 4: Any rates for the ProductExtend rate type (no Productnum filter)
+                if (rates.Count == 0 || rates.All(r => r.Rate == 0))
+                {
+                    var anyRates = await _db.ExuRateTables
+                        .Where(r => r.Dataareaid == DataAreaId
+                            && r.Deliverycategory == DeliveryCategory
+                            && r.Ratetype == productExtend.Producttype)
+                        .OrderBy(r => r.Startdate)
+                        .ToListAsync();
+                    if (anyRates.Count > 0 && anyRates.Any(r => r.Rate != 0))
+                        rates = anyRates;
+                }
+
+                _logger.LogInformation("Product {Name}: {Model}, rateType={RateType}, {RateCount} rates from ExuRateTable",
+                    productNum, pricingModel, productExtend.Producttype, rates.Count);
             }
             else
             {
-                // Fallback: get all generic rates
-                rates = await _db.ExuRateTables
+                // No ProductExtend — try self-referencing rates as last resort
+                var selfRates = await _db.ExuRateTables
                     .Where(r => r.Dataareaid == DataAreaId
                         && r.Deliverycategory == DeliveryCategory
-                        && r.Productnum == ""
-                        && r.Rate != 0)
+                        && r.Ratetype == productNum
+                        && r.Productnum == productNum)
                     .OrderBy(r => r.Startdate)
                     .ToListAsync();
+
+                if (selfRates.Count > 0)
+                {
+                    rates = selfRates;
+                    _logger.LogInformation("Product {Name}: no ProductExtend, but found {Count} self-referencing rates",
+                        productNum, rates.Count);
+                }
+                else
+                {
+                    _logger.LogWarning("Product {Name}: no ExuProductExtendTable entry and no rates found — rates will be derived from billing history",
+                        productNum);
+                }
             }
 
             products.Add(new ExtractedProduct
             {
                 Name = productNum,
                 PricingModel = pricingModel,
-                Rates = rates.Select(r => new ExtractedRate
-                {
-                    StartDate = ToUtc(r.Startdate),
-                    RateDkkPerKwh = r.Rate,
-                }).ToList()
+                // Filter zero rates, then deduplicate by StartDate (keep highest RecId as tie-breaker)
+                Rates = rates
+                    .Where(r => r.Rate != 0 || rates.All(rr => rr.Rate == 0))
+                    .GroupBy(r => r.Startdate)
+                    .Select(g => g.OrderByDescending(r => r.Recid).First())
+                    .OrderBy(r => r.Startdate)
+                    .Select(r => new ExtractedRate
+                    {
+                        StartDate = ToUtc(r.Startdate),
+                        RateDkkPerKwh = r.Rate,
+                    }).ToList()
+            });
+        }
+
+        // Also extract secondary product rate types from the full margin chain.
+        // These are rate types like "Grøn strøm", "Leje af plads" that come through:
+        // ContractPart → ProductExtend → InventTable(ItemType=2, UseRateFromFlexPricing=0) → RateTable
+        // They exist as separate price components applied alongside the main product margin.
+        var existingNames = products.Select(p => p.Name).ToHashSet();
+
+        // Collect primary rate types already used by main products — skip these as addons
+        // e.g. "Handelsomkostninger" is V Kvartal's primary rate type, "V Klima" is V Fordel U's
+        var primaryRateTypes = new HashSet<string>();
+        foreach (var productNum in productNums)
+        {
+            var pe = await _db.ExuProductExtendTables
+                .Where(p => p.DataAreaId == DataAreaId && p.Productnum == productNum)
+                .OrderByDescending(p => p.Startdate)
+                .FirstOrDefaultAsync();
+            if (pe != null) primaryRateTypes.Add(pe.Producttype);
+        }
+
+        var allProductTypes = await (
+            from cust in _db.CustTables
+            join contract in _db.ExuContractTables
+                on new { cust.Accountnum, cust.Dataareaid }
+                equals new { Accountnum = contract.Custaccount, contract.Dataareaid }
+            join cp in _db.ExuContractPartTables
+                on new { contract.Contractnum, contract.Dataareaid }
+                equals new { cp.Contractnum, cp.Dataareaid }
+            join pe in _db.ExuProductExtendTables
+                on new { Dataareaid = cp.Dataareaid, cp.Productnum }
+                equals new { Dataareaid = pe.DataAreaId, pe.Productnum }
+            join inv in _db.InventTables
+                on new { DataAreaId = pe.DataAreaId, ItemId = pe.Producttype }
+                equals new { inv.DataAreaId, inv.ItemId }
+            where cust.Dataareaid == DataAreaId
+                && accountNumbers.Contains(cust.Accountnum)
+                && contract.Deliverycategory == DeliveryCategory
+                && inv.ItemType == 2
+                && inv.ExuUseRateFromFlexPricing == 0
+            select new { pe.Producttype, cp.Productnum }
+        ).Distinct().ToListAsync();
+
+        foreach (var pt in allProductTypes)
+        {
+            // Skip if already extracted as a product name OR if it's a primary rate type of a main product
+            // e.g. "Handelsomkostninger" is V Kvartal's primary rate type — not a separate addon
+            if (existingNames.Contains(pt.Producttype) || primaryRateTypes.Contains(pt.Producttype)) continue;
+
+            var rates = await _db.ExuRateTables
+                .Where(r => r.Dataareaid == DataAreaId
+                    && r.Deliverycategory == DeliveryCategory
+                    && r.Ratetype == pt.Producttype
+                    && r.Productnum == "")
+                .OrderBy(r => r.Startdate)
+                .ToListAsync();
+
+            if (rates.Count == 0) continue;
+
+            products.Add(new ExtractedProduct
+            {
+                Name = pt.Producttype,
+                Description = $"Tillæg via {pt.Productnum}",
+                PricingModel = "SpotAddon", // These are per-kWh rate components
+                Rates = rates
+                    .Where(r => r.Rate != 0 || rates.All(rr => rr.Rate == 0))
+                    .Select(r => new ExtractedRate
+                    {
+                        StartDate = ToUtc(r.Startdate),
+                        RateDkkPerKwh = r.Rate,
+                    }).ToList()
             });
 
-            _logger.LogInformation("Product {Name}: {Model}, {RateType}, {RateCount} rates",
-                productNum, pricingModel, productExtend?.Producttype ?? "generic", rates.Count);
+            existingNames.Add(pt.Producttype);
+            _logger.LogInformation("Product margin component {Type}: {Count} rates (via product {Product})",
+                pt.Producttype, rates.Count, pt.Productnum);
         }
 
         return products;
@@ -351,46 +572,75 @@ public class XellentExtractionService
 
         foreach (var gsrn in gsrns)
         {
-            // Get all charge assignments for this metering point (all types, not just tariffs)
+            // Get charge assignments with the ACTUAL owner GLN from PriceElementCheckData.OwnerId.
+            // OwnerId is the GridCompanyId (GLN as numeric) that identifies which grid operator's
+            // rates apply to this metering point.
+            // Group by (ChargeTypeId, ChargeTypeCode, OwnerId) to capture grid operator switches —
+            // e.g. customer 405013 switched from GLN 5790000681372 to 5790001089030 on 2023-03-01.
+            // Each owner gets its own Price entry with its own rate history.
             var assignments = await (
                 from pec in _db.PriceElementChecks
                 join pecd in _db.PriceElementCheckData
                     on new { pec.DataAreaId, RefRecId = pec.RecId }
                     equals new { pecd.DataAreaId, RefRecId = pecd.PriceElementCheckRefRecId }
                 join pet in _db.PriceElementTables
-                    on new { pecd.DataAreaId, pecd.PartyChargeTypeId }
-                    equals new { pet.DataAreaId, pet.PartyChargeTypeId }
+                    on new { pecd.DataAreaId, pecd.PartyChargeTypeId, pecd.ChargeTypeCode, GridCompanyId = pecd.OwnerId }
+                    equals new { pet.DataAreaId, pet.PartyChargeTypeId, pet.ChargeTypeCode, pet.GridCompanyId }
                 where pec.DataAreaId == DataAreaId
                     && pec.MeteringPointId == gsrn
                     && pec.DeliveryCategory == DeliveryCategory
-                group new { pecd, pet } by pecd.PartyChargeTypeId into g
+                group new { pecd, pet } by new { pecd.PartyChargeTypeId, pecd.ChargeTypeCode, pecd.OwnerId } into g
                 select new
                 {
-                    PartyChargeTypeId = g.Key,
+                    PartyChargeTypeId = g.Key.PartyChargeTypeId,
                     Description = g.First().pet.Description,
-                    ChargeTypeCode = g.First().pet.ChargeTypeCode,
-                    EarliestStart = g.Min(x => x.pecd.StartDate)
+                    ChargeTypeCode = g.Key.ChargeTypeCode,
+                    OwnerGln = g.Key.OwnerId,
+                    EarliestStart = g.Min(x => x.pecd.StartDate),
+                    LatestEnd = g.Max(x => x.pecd.EndDate)
                 }
             ).ToListAsync();
 
             foreach (var assignment in assignments)
             {
-                if (result.ContainsKey(assignment.PartyChargeTypeId))
+                // Key by PartyChargeTypeId + ChargeTypeCode + OwnerGln to keep each grid operator separate
+                var ownerGln = ((long)assignment.OwnerGln).ToString();
+                var resultKey = $"{assignment.PartyChargeTypeId}:{assignment.ChargeTypeCode}:{ownerGln}";
+                if (result.ContainsKey(resultKey))
                     continue;
 
-                // Get all rate entries for this charge
+                // Get rate entries filtered by:
+                //   - PartyChargeTypeId + ChargeTypeCode (charge identity)
+                //   - GridCompanyId = OwnerId (correct grid operator for this metering point)
+                //   - ValidInMarketToExcl = 1900-01-01 (only active/current versions, not superseded)
+                // Then dedup by StartDate (take highest RecId if still duplicated across CompanyId)
                 var rates = await _db.PriceElementRates
                     .Where(r => r.DataAreaId == DataAreaId
-                        && r.PartyChargeTypeId == assignment.PartyChargeTypeId)
+                        && r.PartyChargeTypeId == assignment.PartyChargeTypeId
+                        && r.ChargeTypeCode == assignment.ChargeTypeCode
+                        && r.GridCompanyId == assignment.OwnerGln
+                        && r.ValidInMarketToExcl == NoEndDate)
                     .OrderBy(r => r.StartDate)
+                    .ThenByDescending(r => r.RecId)
                     .ToListAsync();
+
+                // Dedup: keep one rate per StartDate (highest RecId wins)
+                rates = rates
+                    .GroupBy(r => r.StartDate)
+                    .Select(g => g.First()) // Already sorted by RecId desc within group
+                    .OrderBy(r => r.StartDate)
+                    .ToList();
 
                 if (rates.Count == 0)
                 {
-                    _logger.LogWarning("No rates found for charge {ChargeId} ({Desc})",
-                        assignment.PartyChargeTypeId, assignment.Description);
+                    _logger.LogWarning("No rates found for charge {ChargeId} ({Desc}) owner {Gln}",
+                        assignment.PartyChargeTypeId, assignment.Description, ownerGln);
                     continue;
                 }
+
+                _logger.LogInformation("Charge {ChargeId}:{ChargeType} owner={Gln}: {Count} rate periods (was {Raw} before dedup)",
+                    assignment.PartyChargeTypeId, assignment.ChargeTypeCode, ownerGln,
+                    rates.Count, rates.Count); // After dedup
 
                 // Detect if this is an hourly-differentiated tariff
                 // (any rate entry with non-zero Price2..Price24 means hourly)
@@ -429,10 +679,10 @@ public class XellentExtractionService
                 var chargeType = MapChargeType(assignment.ChargeTypeCode);
                 var category = ClassifyCharge(assignment.PartyChargeTypeId, assignment.Description, assignment.ChargeTypeCode);
 
-                result[assignment.PartyChargeTypeId] = new ExtractedPrice
+                result[resultKey] = new ExtractedPrice
                 {
                     ChargeId = assignment.PartyChargeTypeId,
-                    OwnerGln = InferOwnerGln(assignment.PartyChargeTypeId, assignment.Description),
+                    OwnerGln = ownerGln,
                     Type = chargeType,
                     Description = assignment.Description.Trim(),
                     EffectiveDate = ToUtc(rates.Min(r => r.StartDate)),
@@ -460,33 +710,45 @@ public class XellentExtractionService
 
         foreach (var gsrn in gsrns)
         {
+            // Group by (ChargeTypeId, ChargeTypeCode, OwnerId) to create separate links
+            // for each grid operator period (e.g. old vs new grid company after a switch).
             var assignments = await (
                 from pec in _db.PriceElementChecks
                 join pecd in _db.PriceElementCheckData
                     on new { pec.DataAreaId, RefRecId = pec.RecId }
                     equals new { pecd.DataAreaId, RefRecId = pecd.PriceElementCheckRefRecId }
                 join pet in _db.PriceElementTables
-                    on new { pecd.DataAreaId, pecd.PartyChargeTypeId }
-                    equals new { pet.DataAreaId, pet.PartyChargeTypeId }
+                    on new { pecd.DataAreaId, pecd.PartyChargeTypeId, pecd.ChargeTypeCode, GridCompanyId = pecd.OwnerId }
+                    equals new { pet.DataAreaId, pet.PartyChargeTypeId, pet.ChargeTypeCode, pet.GridCompanyId }
                 where pec.DataAreaId == DataAreaId
                     && pec.MeteringPointId == gsrn
                     && pec.DeliveryCategory == DeliveryCategory
-                group new { pecd, pet } by pecd.PartyChargeTypeId into g
+                group new { pecd, pet } by new { pecd.PartyChargeTypeId, pecd.ChargeTypeCode, pecd.OwnerId } into g
                 select new
                 {
-                    PartyChargeTypeId = g.Key,
-                    EarliestStart = g.Min(x => x.pecd.StartDate)
+                    PartyChargeTypeId = g.Key.PartyChargeTypeId,
+                    ChargeTypeCode = g.Key.ChargeTypeCode,
+                    OwnerGln = g.Key.OwnerId,
+                    Description = g.First().pet.Description,
+                    EarliestStart = g.Min(x => x.pecd.StartDate),
+                    LatestEnd = g.Max(x => x.pecd.EndDate)
                 }
             ).ToListAsync();
 
             foreach (var a in assignments)
             {
+                var ownerGln = ((long)a.OwnerGln).ToString();
+                var effectiveStart = a.EarliestStart;
+                // EndDate = 1900-01-01 means "open" in Xellent
+                var effectiveEnd = a.LatestEnd > new DateTime(1901, 1, 1) ? (DateTime?)a.LatestEnd : null;
+
                 links.Add(new ExtractedPriceLink
                 {
                     Gsrn = gsrn,
                     ChargeId = a.PartyChargeTypeId,
-                    OwnerGln = InferOwnerGln(a.PartyChargeTypeId, ""),
-                    EffectiveDate = ToUtc(a.EarliestStart)
+                    OwnerGln = ownerGln,
+                    EffectiveDate = ToUtc(effectiveStart),
+                    EndDate = effectiveEnd.HasValue ? ToUtc(effectiveEnd.Value) : null
                 });
             }
         }
@@ -577,31 +839,39 @@ public class XellentExtractionService
         // Get active tariff assignments for this metering point
         // Aligned with CorrectionService.GetTariffsAsync:
         // - ChargeTypeCode == 3 (tariffs only, excludes abonnementer/gebyrer)
-        // - Group by PartyChargeTypeId in the query to avoid duplicates
+        // - Join on BOTH PartyChargeTypeId AND ChargeTypeCode
+        // - Group by PartyChargeTypeId to avoid duplicates
         var tariffAssignments = await (
             from pec in _db.PriceElementChecks
             join pecd in _db.PriceElementCheckData
                 on new { pec.DataAreaId, RefRecId = pec.RecId }
                 equals new { pecd.DataAreaId, RefRecId = pecd.PriceElementCheckRefRecId }
             join pet in _db.PriceElementTables
-                on new { pecd.DataAreaId, pecd.PartyChargeTypeId }
-                equals new { pet.DataAreaId, pet.PartyChargeTypeId }
+                on new { pecd.DataAreaId, pecd.PartyChargeTypeId, pecd.ChargeTypeCode, GridCompanyId = pecd.OwnerId }
+                equals new { pet.DataAreaId, pet.PartyChargeTypeId, pet.ChargeTypeCode, pet.GridCompanyId }
             where pec.DataAreaId == DataAreaId
                 && pec.MeteringPointId == gsrn
                 && pec.DeliveryCategory == DeliveryCategory
-                && pet.ChargeTypeCode == 3 // Tariff only (same as CorrectionService)
+                && pecd.ChargeTypeCode == 3 // Tariff only
                 && pecd.StartDate <= forDateOnly
                 && (pecd.EndDate == NoEndDate || pecd.EndDate >= forDateOnly)
-            group pet by pecd.PartyChargeTypeId into g
-            select new { PartyChargeTypeId = g.Key, Description = g.First().Description }
+            group new { pet, pecd } by new { pecd.PartyChargeTypeId, pecd.OwnerId } into g
+            select new
+            {
+                PartyChargeTypeId = g.Key.PartyChargeTypeId,
+                Description = g.First().pet.Description,
+                OwnerGln = g.Key.OwnerId
+            }
         ).ToListAsync();
 
         foreach (var tariff in tariffAssignments)
         {
-            // Count all candidate rates for provenance
+            // Count all candidate rates for provenance — filter by ChargeTypeCode + GridCompanyId
             var candidateRates = await _db.PriceElementRates
                 .Where(r => r.DataAreaId == DataAreaId
                     && r.PartyChargeTypeId == tariff.PartyChargeTypeId
+                    && r.ChargeTypeCode == 3 // Tariff rates only
+                    && r.GridCompanyId == tariff.OwnerGln
                     && r.StartDate <= forDateOnly)
                 .OrderByDescending(r => r.StartDate)
                 .ToListAsync();

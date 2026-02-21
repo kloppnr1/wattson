@@ -59,7 +59,6 @@ public static class PriceEndpoints
                 PriceResolution = price.PriceResolution?.ToString(),
                 PricePoints = price.PricePoints
                     .OrderByDescending(pp => pp.Timestamp)
-                    .Take(100)
                     .Select(pp => new { pp.Timestamp, pp.Price }),
                 TotalPricePoints = price.PricePoints.Count
             });

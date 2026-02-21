@@ -187,6 +187,12 @@ public static class MigrationEndpoints
                     ? Period.Create(pp.ProductStart, pp.ProductEnd)
                     : Period.From(pp.ProductStart);
 
+                // Check for existing period (dedup on re-push)
+                var exists = await db.SupplyProductPeriods.AnyAsync(x =>
+                    x.SupplyId == supply.Id && x.SupplierProductId == product.Id
+                    && x.Period.Start == pp.ProductStart);
+                if (exists) { skipped++; continue; }
+
                 var spp = SupplyProductPeriod.Create(supply.Id, product.Id, period);
                 db.SupplyProductPeriods.Add(spp);
                 created++;
@@ -517,37 +523,62 @@ public static class MigrationEndpoints
                     settlement.AddLine(marginLine);
                 }
 
-                // Add tariff/charge lines — includes tariffs, subscriptions, fees, and product margins
-                // Link to Price entity if available, otherwise create without FK
+                // Add tariff/charge lines — routed to correct Source by type:
+                //   PRODUCT:* → SupplierMargin (product margin from ExuRateTable)
+                //   Subscriptions/fees → DataHubCharge flat amount (abonnement/gebyr)
+                //   Tariffs → DataHubCharge per-kWh (with Price FK when available)
                 if (s.TariffLines != null)
                 {
                     foreach (var tariff in s.TariffLines)
                     {
-                        // For product margins (PRODUCT:xxx) or subscriptions, don't try to match a Price entity
-                        var isProductLine = tariff.ChargeId.StartsWith("PRODUCT:");
-                        Price? price = null;
-                        if (!isProductLine && !tariff.IsSubscription)
+                        if (tariff.ChargeId.StartsWith("PRODUCT:"))
                         {
-                            price = await db.Prices
-                                .FirstOrDefaultAsync(p => p.ChargeId == tariff.ChargeId);
-                        }
-
-                        // Use pre-calculated amount if provided, otherwise derive from energy × unit price
-                        var energy = EnergyQuantity.Create(tariff.EnergyKwh);
-                        var unitPrice = tariff.AmountDkk.HasValue && tariff.EnergyKwh != 0
-                            ? tariff.AmountDkk.Value / tariff.EnergyKwh
-                            : tariff.AvgUnitPrice;
-
-                        var tariffLine = price is not null
-                            ? SettlementLine.Create(
-                                settlement.Id, price.Id,
-                                $"{tariff.Description} (migreret)",
-                                energy, unitPrice)
-                            : SettlementLine.CreateMigrated(
+                            // Product margins → SupplierMargin source
+                            // These are per-kWh rates from ExuRateTable (supplier's own pricing)
+                            var energy = EnergyQuantity.Create(tariff.EnergyKwh);
+                            var unitPrice = tariff.EnergyKwh != 0
+                                ? (tariff.AmountDkk ?? tariff.EnergyKwh * tariff.AvgUnitPrice) / tariff.EnergyKwh
+                                : tariff.AvgUnitPrice;
+                            var productLine = SettlementLine.CreateMargin(
                                 settlement.Id,
-                                $"{tariff.Description} [{tariff.ChargeId}] (migreret)",
+                                $"{tariff.Description} (migreret)",
                                 energy, unitPrice);
-                        settlement.AddLine(tariffLine);
+                            settlement.AddLine(productLine);
+                        }
+                        else if (tariff.IsSubscription)
+                        {
+                            // Subscriptions/fees → DataHubCharge, flat monthly amount
+                            // Not per-kWh — the amount IS the fixed charge
+                            var amount = tariff.AmountDkk ?? 0;
+                            var subLine = SettlementLine.CreateMigratedSubscription(
+                                settlement.Id,
+                                $"{tariff.Description} [{tariff.ChargeId}] (migreret, abonnement)",
+                                amount);
+                            settlement.AddLine(subLine);
+                        }
+                        else
+                        {
+                            // Regular tariffs → DataHubCharge, per-kWh
+                            // Link to Price entity if we have a matching DataHub charge
+                            var price = await db.Prices
+                                .FirstOrDefaultAsync(p => p.ChargeId == tariff.ChargeId);
+
+                            var energy = EnergyQuantity.Create(tariff.EnergyKwh);
+                            var unitPrice = tariff.AmountDkk.HasValue && tariff.EnergyKwh != 0
+                                ? tariff.AmountDkk.Value / tariff.EnergyKwh
+                                : tariff.AvgUnitPrice;
+
+                            var tariffLine = price is not null
+                                ? SettlementLine.Create(
+                                    settlement.Id, price.Id,
+                                    $"{tariff.Description} (migreret)",
+                                    energy, unitPrice)
+                                : SettlementLine.CreateMigrated(
+                                    settlement.Id,
+                                    $"{tariff.Description} [{tariff.ChargeId}] (migreret)",
+                                    energy, unitPrice);
+                            settlement.AddLine(tariffLine);
+                        }
                     }
                 }
 

@@ -18,6 +18,9 @@ public class PriceElementTable
     [Column("CHARGETYPECODE")]
     public int ChargeTypeCode { get; set; }
 
+    [Column("GRIDCOMPANYID", TypeName = "numeric(28, 12)")]
+    public decimal GridCompanyId { get; set; }
+
     [Column("DESCRIPTION")]
     [StringLength(50)]
     public string Description { get; set; } = null!;

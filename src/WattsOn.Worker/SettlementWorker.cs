@@ -52,12 +52,23 @@ public class SettlementWorker : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<WattsOnDbContext>();
 
-        // Find latest time series that don't have a matching settlement
+        // Find latest time series that don't have a matching settlement.
+        // Also exclude time series where a migrated settlement already covers the same
+        // metering point + period (migrated settlements reference placeholder time series,
+        // not the actual imported observations).
         var unsettled = await db.TimeSeriesCollection
             .Include(ts => ts.Observations)
             .Where(ts => ts.IsLatest)
             .Where(ts => !db.Settlements.Any(a =>
                 a.TimeSeriesId == ts.Id && a.TimeSeriesVersion == ts.Version))
+            .Where(ts => !db.Settlements.Any(a =>
+                a.MeteringPointId == ts.MeteringPointId
+                && a.SettlementPeriod.Start == ts.Period.Start
+                && a.SettlementPeriod.End == ts.Period.End
+                && (a.Status == SettlementStatus.Invoiced
+                    || a.Status == SettlementStatus.Migrated
+                    || a.Status == SettlementStatus.Calculated
+                    || a.Status == SettlementStatus.Adjusted)))
             .OrderBy(ts => ts.ReceivedAt)
             .Take(10)
             .ToListAsync(ct);

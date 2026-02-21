@@ -21,6 +21,9 @@ public class PriceElementCheckData
     [Column("CHARGETYPECODE")]
     public int ChargeTypeCode { get; set; }
 
+    [Column("OWNERID", TypeName = "numeric(28, 12)")]
+    public decimal OwnerId { get; set; }
+
     [Column("STARTDATE", TypeName = "datetime")]
     public DateTime StartDate { get; set; }
 

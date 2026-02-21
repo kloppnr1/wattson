@@ -15,6 +15,15 @@ public class PriceElementRates
     [StringLength(10)]
     public string PartyChargeTypeId { get; set; } = null!;
 
+    [Column("CHARGETYPECODE")]
+    public int ChargeTypeCode { get; set; }
+
+    [Column("GRIDCOMPANYID", TypeName = "numeric(28, 12)")]
+    public decimal GridCompanyId { get; set; }
+
+    [Column("VALIDINMARKETTOEXCL", TypeName = "datetime")]
+    public DateTime ValidInMarketToExcl { get; set; }
+
     [Column("STARTDATE", TypeName = "datetime")]
     public DateTime StartDate { get; set; }
 

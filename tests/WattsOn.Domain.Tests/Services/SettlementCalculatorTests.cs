@@ -65,7 +65,112 @@ public class SettlementCalculatorTests
         return new PriceWithPoints(pris);
     }
 
+    /// <summary>
+    /// Create an hourly template tariff — 24 price points per period (one per UTC hour),
+    /// repeating daily within that period. Mirrors how DataHub sends time-differentiated
+    /// nettarifs (e.g., peak/off-peak/night pricing per quarter).
+    /// </summary>
+    private static PriceWithPoints CreateTemplateTariff(
+        string chargeId,
+        string description,
+        DateTimeOffset templateStart,
+        decimal nightPrice,
+        decimal dayPrice,
+        decimal peakPrice)
+    {
+        var pris = Price.Create(
+            chargeId,
+            GlnNumber.Create("5790001330552"),
+            PriceType.Tarif,
+            description,
+            Period.From(templateStart),
+            priceResolution: Resolution.PT1H);
+
+        // 24-hour template: night (0-5), day (6-16), peak (17-20), day (21-22), night (23)
+        for (int h = 0; h < 24; h++)
+        {
+            var price = h switch
+            {
+                >= 0 and <= 5 => nightPrice,
+                >= 17 and <= 20 => peakPrice,
+                23 => nightPrice,
+                _ => dayPrice
+            };
+            pris.AddPricePoint(templateStart.AddHours(h), price);
+        }
+
+        return new PriceWithPoints(pris);
+    }
+
     // --- Basic tariff calculation ---
+
+    [Fact]
+    public void Calculate_TemplateTariff_MatchesByHourOfDay()
+    {
+        // Template defined at Q4 2025 start (Oct 1 00:00 UTC)
+        var templateStart = new DateTimeOffset(2025, 10, 1, 0, 0, 0, TimeSpan.Zero);
+        var nettarif = CreateTemplateTariff("CD", "Nettarif C", templateStart,
+            nightPrice: 0.10m, dayPrice: 0.30m, peakPrice: 0.90m);
+
+        // Time series in January 2026 — well AFTER the template date
+        var ts = CreateJanuaryTimeSeries(kwhPerHour: 1.0m);
+        var supply = CreateSupply();
+
+        var settlement = SettlementCalculator.Calculate(ts, supply, [nettarif], Array.Empty<SpotPrice>());
+
+        // 744 hours in January 2026:
+        //   Night (h 0-5, 23) = 7 hours/day × 31 days = 217 hours × 0.10 = 21.70
+        //   Day   (h 6-16, 21-22) = 13 hours/day × 31 days = 403 hours × 0.30 = 120.90
+        //   Peak  (h 17-20) = 4 hours/day × 31 days = 124 hours × 0.90 = 111.60
+        //   Total: 254.20
+        var expected = 217m * 0.10m + 403m * 0.30m + 124m * 0.90m;
+        Assert.Equal(expected, settlement.TotalAmount.Amount);
+    }
+
+    [Fact]
+    public void Calculate_TemplateTariff_NewTemplateSupersedesOld()
+    {
+        // Two template periods: Q4 2025 and Q1 2026
+        var q4Start = new DateTimeOffset(2025, 10, 1, 0, 0, 0, TimeSpan.Zero);
+        var q1Start = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+        // Build a price with two 24-hour templates
+        var pris = Price.Create(
+            "CD", GlnNumber.Create("5790001330552"), PriceType.Tarif, "Nettarif C",
+            Period.From(q4Start), priceResolution: Resolution.PT1H);
+
+        // Q4 template: all 0.50
+        for (int h = 0; h < 24; h++)
+            pris.AddPricePoint(q4Start.AddHours(h), 0.50m);
+
+        // Q1 template: all 0.25 (supersedes Q4 for January observations)
+        for (int h = 0; h < 24; h++)
+            pris.AddPricePoint(q1Start.AddHours(h), 0.25m);
+
+        var nettarif = new PriceWithPoints(pris);
+        var ts = CreateJanuaryTimeSeries(kwhPerHour: 1.0m);
+        var supply = CreateSupply();
+
+        var settlement = SettlementCalculator.Calculate(ts, supply, [nettarif], Array.Empty<SpotPrice>());
+
+        // All 744 hours should use Q1 rate (0.25), not Q4 (0.50)
+        Assert.Equal(744m * 0.25m, settlement.TotalAmount.Amount);
+    }
+
+    [Fact]
+    public void Calculate_TemplateTariff_FallsBackForNonTemplatePrice()
+    {
+        // A flat tariff with no PriceResolution should use step-function as before
+        var ts = CreateJanuaryTimeSeries(kwhPerHour: 1.0m);
+        var supply = CreateSupply();
+        var flat = CreateFlatTariff("ST-001", "Systemtarif", 0.054m);
+
+        var settlement = SettlementCalculator.Calculate(ts, supply, [flat], Array.Empty<SpotPrice>());
+
+        // 744 hours × 1.0 kWh × 0.054 — allow for per-observation rounding
+        Assert.Equal(744m, settlement.TotalEnergy.Value);
+        Assert.InRange(settlement.TotalAmount.Amount, 40.17m, 40.20m);
+    }
 
     [Fact]
     public void Calculate_SingleFlatTariff_CorrectTotal()

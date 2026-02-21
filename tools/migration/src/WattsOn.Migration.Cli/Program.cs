@@ -80,8 +80,20 @@ extractCommand.SetHandler(async (context) =>
     // Customers + products
     data.Customers = await extraction.ExtractCustomersAsync(accounts);
     data.Products = await extraction.ExtractDistinctProductsAsync(accounts);
-    logger.LogInformation("Customers: {C}, Products: {P}, MPs: {M}",
-        data.Customers.Count, data.Products.Count, data.Customers.Sum(c => c.MeteringPoints.Count));
+
+    // Identify addon products (those with descriptions starting with "Tillæg") and enrich supply product periods
+    var mainProductNames = data.Products.Where(p => p.Description == null || !p.Description.StartsWith("Tillæg")).Select(p => p.Name).ToHashSet();
+    var addonProductNames = data.Products.Where(p => p.Description != null && p.Description.StartsWith("Tillæg")).Select(p => p.Name).ToHashSet();
+    if (addonProductNames.Count > 0)
+    {
+        await extraction.EnrichWithAddonProductPeriodsAsync(data.Customers, addonProductNames);
+        logger.LogInformation("Enriched {Count} addon product periods: {Names}",
+            addonProductNames.Count, string.Join(", ", addonProductNames));
+    }
+
+    logger.LogInformation("Customers: {C}, Products: {P} ({Main} main + {Addon} addons), MPs: {M}",
+        data.Customers.Count, data.Products.Count, mainProductNames.Count, addonProductNames.Count,
+        data.Customers.Sum(c => c.MeteringPoints.Count));
 
     var allGsrns = data.Customers.SelectMany(c => c.MeteringPoints).Select(mp => mp.Gsrn).ToList();
 
@@ -111,6 +123,67 @@ extractCommand.SetHandler(async (context) =>
             data.Settlements.AddRange(settlements);
         }
         logger.LogInformation("Settlements: {S}", data.Settlements.Count);
+    }
+
+    // Derive margin rates from billing data for products missing ExuRateTable rates.
+    // This is the most accurate source — it's what was ACTUALLY invoiced.
+    if (data.Settlements.Count > 0 && data.Products.Count > 0)
+    {
+        var productPeriods = data.Customers
+            .SelectMany(c => c.MeteringPoints)
+            .SelectMany(mp => mp.ProductPeriods)
+            .OrderBy(pp => pp.Start)
+            .ToList();
+
+        foreach (var product in data.Products)
+        {
+            // Find product periods for this product
+            var periods = productPeriods.Where(pp => pp.ProductName == product.Name).ToList();
+            if (periods.Count == 0) continue;
+
+            // Derive rates from settlement margin data per product period
+            var derivedRates = new List<ExtractedRate>();
+            foreach (var period in periods)
+            {
+                var periodStart = period.Start.UtcDateTime;
+                var periodEnd = period.End?.UtcDateTime ?? DateTime.MaxValue;
+
+                var periodSettlements = data.Settlements
+                    .Where(s => s.PeriodStart >= periodStart && s.PeriodStart < periodEnd)
+                    .ToList();
+
+                if (periodSettlements.Count == 0) continue;
+
+                var totalEnergy = periodSettlements.Sum(s => s.TotalEnergyKwh);
+                var totalMargin = periodSettlements.Sum(s => s.MarginAmountDkk);
+
+                if (totalEnergy > 0)
+                {
+                    derivedRates.Add(new ExtractedRate
+                    {
+                        StartDate = period.Start,
+                        EndDate = period.End,
+                        RateDkkPerKwh = Math.Round(totalMargin / totalEnergy, 6)
+                    });
+                }
+            }
+
+            var hasRealRates = product.Rates.Any(r => r.RateDkkPerKwh != 0);
+
+            if (derivedRates.Count > 0 && !hasRealRates)
+            {
+                // No ExuRateTable rates (or all zero) — use billing-derived rates
+                product.Rates = derivedRates;
+                logger.LogInformation("Product {Name}: derived {Count} margin rates from billing data (ExuRateTable had {Old} rates, all zero)",
+                    product.Name, derivedRates.Count, product.Rates.Count);
+            }
+            else if (derivedRates.Count > 0)
+            {
+                // Both exist — log comparison for verification
+                logger.LogInformation("Product {Name}: {ExuCount} ExuRateTable rates, {DerivedCount} billing-derived rates",
+                    product.Name, product.Rates.Count, derivedRates.Count);
+            }
+        }
     }
 
     // Save cache
@@ -396,12 +469,163 @@ xellentReportCommand.SetHandler(async (context) =>
 // ═══════════════════════════════════════════════════════════════
 // ROOT command (backward compat: direct migration still works)
 // ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// INVESTIGATE command — raw Xellent DB queries for debugging
+// ═══════════════════════════════════════════════════════════════
+var invProductOption = new Option<string>("--product", "Product number to investigate") { IsRequired = true };
+var invConnectionOption = new Option<string>("--xellent-connection", "Xellent SQL Server connection string") { IsRequired = true };
+
+var investigateCommand = new Command("investigate", "Investigate product rate structure in Xellent DB")
+{
+    invProductOption, invConnectionOption
+};
+
+investigateCommand.SetHandler(async (context) =>
+{
+    var productNum = context.ParseResult.GetValueForOption(invProductOption)!;
+    var connection = context.ParseResult.GetValueForOption(invConnectionOption)!;
+
+    var services = new ServiceCollection();
+    services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
+    services.AddDbContext<XellentDbContext>(o => o.UseSqlServer(connection, s => s.UseCompatibilityLevel(110)));
+    var sp = services.BuildServiceProvider();
+    var db = sp.GetRequiredService<XellentDbContext>();
+
+    Console.WriteLine($"═══ Investigating product: {productNum} ═══\n");
+
+    // 1. InventTable
+    var inv = await db.InventTables.FirstOrDefaultAsync(i => i.DataAreaId == "hol" && i.ItemId == productNum);
+    if (inv != null)
+        Console.WriteLine($"InventTable: ItemId={inv.ItemId}, ItemType={inv.ItemType}, UseRateFromFlexPricing={inv.ExuUseRateFromFlexPricing}");
+    else
+        Console.WriteLine($"InventTable: NOT FOUND for ItemId={productNum}");
+
+    // 2. All ExuProductExtendTable entries
+    var extends_ = await db.ExuProductExtendTables
+        .Where(pe => pe.DataAreaId == "hol" && pe.Productnum == productNum)
+        .OrderBy(pe => pe.Startdate)
+        .ToListAsync();
+    Console.WriteLine($"\nExuProductExtendTable ({extends_.Count} entries):");
+    foreach (var pe in extends_)
+        Console.WriteLine($"  Producttype={pe.Producttype,-25} Start={pe.Startdate:yyyy-MM-dd}  End={pe.Enddate:yyyy-MM-dd}");
+
+    // 3. For each product type, check InventTable and RateTable
+    var productTypes = extends_.Select(pe => pe.Producttype).Distinct().ToList();
+    foreach (var pt in productTypes)
+    {
+        var ptInv = await db.InventTables.FirstOrDefaultAsync(i => i.DataAreaId == "hol" && i.ItemId == pt);
+        Console.WriteLine($"\n─── Product type: {pt} ───");
+        if (ptInv != null)
+            Console.WriteLine($"  InventTable: ItemType={ptInv.ItemType}, UseRateFromFlexPricing={ptInv.ExuUseRateFromFlexPricing}");
+        else
+            Console.WriteLine($"  InventTable: NOT FOUND");
+
+        // Generic rates (Productnum = "")
+        var genericRates = await db.ExuRateTables
+            .Where(r => r.Dataareaid == "hol" && r.Ratetype == pt && r.Deliverycategory == "El-ekstern" && r.Productnum == "")
+            .OrderBy(r => r.Startdate)
+            .ToListAsync();
+        Console.WriteLine($"  ExuRateTable (generic, Productnum=''): {genericRates.Count} entries");
+        foreach (var r in genericRates.TakeLast(5))
+            Console.WriteLine($"    Start={r.Startdate:yyyy-MM-dd}  Rate={r.Rate}  CompanyId={r.Companyid}");
+        if (genericRates.Count > 5) Console.WriteLine($"    ... ({genericRates.Count - 5} earlier entries)");
+
+        // Product-specific rates (Productnum = productNum)
+        var specificRates = await db.ExuRateTables
+            .Where(r => r.Dataareaid == "hol" && r.Ratetype == pt && r.Deliverycategory == "El-ekstern" && r.Productnum == productNum)
+            .OrderBy(r => r.Startdate)
+            .ToListAsync();
+        Console.WriteLine($"  ExuRateTable (product-specific, Productnum='{productNum}'): {specificRates.Count} entries");
+        foreach (var r in specificRates.TakeLast(5))
+            Console.WriteLine($"    Start={r.Startdate:yyyy-MM-dd}  Rate={r.Rate}  CompanyId={r.Companyid}");
+        if (specificRates.Count > 5) Console.WriteLine($"    ... ({specificRates.Count - 5} earlier entries)");
+
+        // Any delivery category
+        var allCatRates = await db.ExuRateTables
+            .Where(r => r.Dataareaid == "hol" && r.Ratetype == pt && r.Productnum == "")
+            .Select(r => r.Deliverycategory)
+            .Distinct()
+            .ToListAsync();
+        Console.WriteLine($"  Delivery categories with generic rates: [{string.Join(", ", allCatRates)}]");
+    }
+
+    // 4. Check RateTable for the product itself as Ratetype
+    var selfRates = await db.ExuRateTables
+        .Where(r => r.Dataareaid == "hol" && r.Ratetype == productNum && r.Deliverycategory == "El-ekstern")
+        .OrderBy(r => r.Startdate)
+        .ToListAsync();
+    Console.WriteLine($"\n─── RateTable where Ratetype='{productNum}' ───");
+    Console.WriteLine($"  {selfRates.Count} entries");
+    foreach (var r in selfRates.TakeLast(5))
+        Console.WriteLine($"    Start={r.Startdate:yyyy-MM-dd}  Rate={r.Rate}  Productnum={r.Productnum}  CompanyId={r.Companyid}");
+
+    // 5. Check ALL RateTable entries mentioning this product in ANY column
+    var anyMention = await db.ExuRateTables
+        .Where(r => r.Dataareaid == "hol" && (r.Productnum == productNum || r.Ratetype == productNum))
+        .CountAsync();
+    Console.WriteLine($"\n  Total RateTable rows mentioning '{productNum}' in any column: {anyMention}");
+});
+
+// ═══════════════════════════════════════════════════════════════
+// SCHEMA command — dump actual DB table columns for investigation
+// ═══════════════════════════════════════════════════════════════
+var schemaCommand = new Command("schema", "Dump table columns from Xellent DB")
+{
+    xellentConnectionOption
+};
+schemaCommand.SetHandler(async (context) =>
+{
+    var connStr = context.ParseResult.GetValueForOption(xellentConnectionOption)!;
+    var services = new ServiceCollection();
+    services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
+    services.AddDbContext<XellentDbContext>(o => o.UseSqlServer(connStr, s => s.UseCompatibilityLevel(110)));
+    var sp = services.BuildServiceProvider();
+    var db = sp.GetRequiredService<XellentDbContext>();
+
+    var tables = new[] { "EXU_PRICEELEMENTTABLE", "EXU_PRICEELEMENTRATES", "EXU_PRICEELEMENTCHECKDATA", "EXU_PRICEELEMENTCHECK" };
+    foreach (var table in tables)
+    {
+        Console.WriteLine($"\n═══ {table} ═══");
+        var cols = await db.Database.SqlQueryRaw<SchemaRow>(
+            $"SELECT COLUMN_NAME as Name, DATA_TYPE as DataType FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{table}' ORDER BY ORDINAL_POSITION")
+            .ToListAsync();
+        foreach (var c in cols)
+            Console.WriteLine($"  {c.Name,-40} {c.DataType}");
+    }
+
+    // Also check CD tariff rate rows to see what differentiates them
+    Console.WriteLine("\n═══ CD tariff rate sample (2024-01, first 10 rows) ═══");
+    var cdRates = await db.Database.SqlQueryRaw<CdRateSample>(
+        @"SELECT TOP 10 RECID as RecId, STARTDATE as StartDate, PRICE as Price1, PRICE2_ as Price2, PRICE24_ as Price24
+          FROM EXU_PRICEELEMENTRATES
+          WHERE DATAAREAID = 'ER' AND PARTYCHARGETYPEID = 'CD' AND CHARGETYPECODE = 3
+            AND STARTDATE >= '2024-01-01' AND STARTDATE < '2024-04-01'
+          ORDER BY STARTDATE, RECID")
+        .ToListAsync();
+    foreach (var r in cdRates)
+        Console.WriteLine($"  RecId={r.RecId} Start={r.StartDate:yyyy-MM-dd} P1={r.Price1:F6} P2={r.Price2:F6} P24={r.Price24:F6}");
+
+    // Check PriceElementTable entries for CD
+    Console.WriteLine("\n═══ PriceElementTable rows for 'CD' ═══");
+    var cdTables = await db.PriceElementTables
+        .Where(t => t.DataAreaId == "ER" && t.PartyChargeTypeId == "CD")
+        .ToListAsync();
+    foreach (var t in cdTables)
+        Console.WriteLine($"  RecId={t.RecId} ChargeType={t.ChargeTypeCode} Desc='{t.Description}'");
+});
+
 var rootCommand = new RootCommand("WattsOn Migration Tool — extract from Xellent, push to WattsOn")
 {
     extractCommand,
     pushCommand,
     reportCommand,
-    xellentReportCommand
+    xellentReportCommand,
+    investigateCommand,
+    schemaCommand
 };
 
 return await rootCommand.InvokeAsync(args);
+
+// Helper types for schema query
+public record SchemaRow { public string Name { get; init; } = ""; public string DataType { get; init; } = ""; }
+public record CdRateSample { public long RecId { get; init; } public DateTime StartDate { get; init; } public decimal Price1 { get; init; } public decimal Price2 { get; init; } public decimal Price24 { get; init; } }

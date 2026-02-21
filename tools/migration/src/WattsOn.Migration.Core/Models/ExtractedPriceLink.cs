@@ -9,4 +9,5 @@ public class ExtractedPriceLink
     public string ChargeId { get; set; } = null!;
     public string OwnerGln { get; set; } = null!;
     public DateTimeOffset EffectiveDate { get; set; }
+    public DateTimeOffset? EndDate { get; set; }
 }

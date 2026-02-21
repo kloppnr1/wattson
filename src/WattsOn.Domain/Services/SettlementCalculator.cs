@@ -329,11 +329,26 @@ public static class SettlementCalculator
 /// <summary>
 /// Wraps a Price with its price points for settlement calculation.
 /// Pre-loaded and sorted for efficient lookup.
+///
+/// Supports two price point layouts:
+/// 1. Step function — each point defines the price from that timestamp onward
+///    (e.g., systemtarif with one value per quarter)
+/// 2. Daily template — 24 hourly price points per tariff period that repeat
+///    every day within that period (e.g., nettarif with peak/off-peak/night).
+///    Detected automatically when PriceResolution is PT1H and points form
+///    24-hour blocks separated by gaps.
 /// </summary>
 public class PriceWithPoints
 {
     public Price Price { get; }
     private readonly List<(DateTimeOffset Timestamp, decimal Price)> _sortedPoints;
+
+    /// <summary>
+    /// Template index for hourly tariffs. Each entry is a template period:
+    /// the period start timestamp and a dictionary mapping UTC hour (0–23) to price.
+    /// Sorted by period start for binary-search-friendly lookup.
+    /// </summary>
+    private readonly List<(DateTimeOffset PeriodStart, Dictionary<int, decimal> HourlyPrices)>? _templates;
 
     public PriceWithPoints(Price price)
     {
@@ -342,6 +357,54 @@ public class PriceWithPoints
             .OrderBy(pp => pp.Timestamp)
             .Select(pp => (pp.Timestamp, pp.Price))
             .ToList();
+
+        _templates = BuildTemplateIndex();
+    }
+
+    /// <summary>
+    /// Detect and build the template index for hourly tariffs.
+    /// Returns null if the price is not template-based.
+    /// </summary>
+    private List<(DateTimeOffset PeriodStart, Dictionary<int, decimal> HourlyPrices)>? BuildTemplateIndex()
+    {
+        // Only hourly tariffs can be template-based
+        if (Price.Type != PriceType.Tarif) return null;
+        if (Price.PriceResolution != Resolution.PT1H) return null;
+        if (_sortedPoints.Count < 23) return null;
+
+        // Split into blocks: consecutive hourly points separated by gaps (>1.5h or time going backward)
+        var templates = new List<(DateTimeOffset PeriodStart, Dictionary<int, decimal> HourlyPrices)>();
+        var blockStart = 0;
+
+        for (var i = 1; i <= _sortedPoints.Count; i++)
+        {
+            var isEnd = i == _sortedPoints.Count;
+            var isGap = !isEnd && (
+                (_sortedPoints[i].Timestamp - _sortedPoints[i - 1].Timestamp).TotalHours > 1.5 ||
+                _sortedPoints[i].Timestamp <= _sortedPoints[i - 1].Timestamp);
+
+            if (isEnd || isGap)
+            {
+                var blockSize = i - blockStart;
+                // Valid template: 23–25 hours (allows DST transitions)
+                if (blockSize is >= 23 and <= 25)
+                {
+                    var periodStart = _sortedPoints[blockStart].Timestamp;
+                    var hourlyPrices = new Dictionary<int, decimal>();
+                    for (var j = blockStart; j < i; j++)
+                    {
+                        var hour = _sortedPoints[j].Timestamp.UtcDateTime.Hour;
+                        hourlyPrices[hour] = _sortedPoints[j].Price; // Last wins if duplicate hour (DST)
+                    }
+                    templates.Add((periodStart, hourlyPrices));
+                }
+                blockStart = i;
+            }
+        }
+
+        return templates.Count > 0
+            ? templates.OrderBy(t => t.PeriodStart).ToList()
+            : null;
     }
 
     public decimal? GetPriceAt(DateTimeOffset timestamp)
@@ -351,6 +414,27 @@ public class PriceWithPoints
         if (Price.Type == PriceType.Abonnement)
             return _sortedPoints[0].Price;
 
+        // Template lookup: find latest template period ≤ timestamp, then match by UTC hour
+        if (_templates is not null)
+        {
+            Dictionary<int, decimal>? applicable = null;
+            foreach (var (periodStart, hourlyPrices) in _templates)
+            {
+                if (periodStart <= timestamp)
+                    applicable = hourlyPrices;
+                else
+                    break;
+            }
+
+            if (applicable is not null)
+            {
+                var hour = timestamp.UtcDateTime.Hour;
+                if (applicable.TryGetValue(hour, out var price))
+                    return price;
+            }
+        }
+
+        // Fallback: step function (flat tariffs, or template detection failed)
         decimal? result = null;
         foreach (var point in _sortedPoints)
         {
@@ -364,6 +448,10 @@ public class PriceWithPoints
     public decimal? GetAveragePriceInHour(DateTimeOffset hourStart)
     {
         if (_sortedPoints.Count == 0) return null;
+
+        // For template tariffs, GetPriceAt already returns the correct hourly price
+        if (_templates is not null)
+            return GetPriceAt(hourStart);
 
         var hourEnd = hourStart.AddHours(1);
         var pointsInHour = _sortedPoints

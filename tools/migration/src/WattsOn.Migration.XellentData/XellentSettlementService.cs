@@ -9,6 +9,9 @@ namespace WattsOn.Migration.XellentData;
 /// Mirrors the CorrectionService logic from NewSettlement.XellentSettlement exactly.
 /// Produces settlement provenance using the SAME queries and rate lookups.
 /// This is the "reference" calculation — what XellentSettlement would produce.
+///
+/// OPTIMIZED: All reference data pre-loaded in ~6 queries, then iterated in memory.
+/// Previous version did ~13 queries × 65 periods = ~845 queries (SIGKILL after timeout).
 /// </summary>
 public class XellentSettlementService
 {
@@ -28,12 +31,13 @@ public class XellentSettlementService
 
     /// <summary>
     /// Build settlement provenance for a metering point using CorrectionService-equivalent logic.
+    /// Pre-loads all reference data in bulk, then iterates in memory.
     /// </summary>
     public async Task<List<ExtractedSettlement>> BuildSettlementsAsync(string meteringPointId)
     {
         var result = new List<ExtractedSettlement>();
 
-        // Step 1: Get all billing periods (same as CorrectionService.GetBillingPeriodsAsync)
+        // ── BULK LOAD 1: All billing periods ──
         var periods = await _db.FlexBillingHistoryTables
             .Where(h => h.DataAreaId == DataAreaId
                      && h.MeteringPoint == meteringPointId
@@ -41,17 +45,155 @@ public class XellentSettlementService
             .OrderBy(h => h.HistKeyNumber)
             .ToListAsync();
 
+        if (periods.Count == 0) return result;
         _logger.LogInformation("Found {Count} billing periods for {Mp}", periods.Count, meteringPointId);
 
+        // ── BULK LOAD 2: ALL hourly lines for ALL periods at once ──
+        var histKeys = periods.Select(p => p.HistKeyNumber).ToHashSet();
+        var allHourlyLines = await _db.FlexBillingHistoryLines
+            .Where(l => l.DataAreaId == DataAreaId && histKeys.Contains(l.HistKeyNumber))
+            .OrderBy(l => l.HistKeyNumber).ThenBy(l => l.DateTime24Hour)
+            .ToListAsync();
+
+        var hourlyByPeriod = allHourlyLines
+            .GroupBy(l => l.HistKeyNumber)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        _logger.LogInformation("Loaded {Lines} hourly lines across {Periods} periods",
+            allHourlyLines.Count, hourlyByPeriod.Count);
+
+        // ── BULK LOAD 3: All tariff assignments for this metering point (no date filter — filter in memory) ──
+        var tariffAssignments = await (
+            from pec in _db.PriceElementChecks
+            join pecd in _db.PriceElementCheckData
+                on new { pec.DataAreaId, RefRecId = pec.RecId }
+                equals new { pecd.DataAreaId, RefRecId = pecd.PriceElementCheckRefRecId }
+            join pet in _db.PriceElementTables
+                on new { pecd.DataAreaId, pecd.PartyChargeTypeId, pecd.ChargeTypeCode }
+                equals new { pet.DataAreaId, pet.PartyChargeTypeId, pet.ChargeTypeCode }
+            where pec.DataAreaId == DataAreaId
+               && pec.MeteringPointId == meteringPointId
+               && pec.DeliveryCategory == DeliveryCategory
+            select new TariffAssignment
+            {
+                PartyChargeTypeId = pecd.PartyChargeTypeId,
+                ChargeTypeCode = pecd.ChargeTypeCode,
+                Description = pet.Description,
+                StartDate = pecd.StartDate,
+                EndDate = pecd.EndDate,
+                OwnerId = pecd.OwnerId
+            }
+        ).ToListAsync();
+
+        _logger.LogInformation("Loaded {Count} tariff assignment rows", tariffAssignments.Count);
+
+        // ── BULK LOAD 4: ALL price element rates for all relevant charge IDs ──
+        // Filter by GridCompanyId (owner) and ValidInMarketToExcl (only active versions)
+        var chargeKeys = tariffAssignments
+            .Select(a => new { a.PartyChargeTypeId, a.ChargeTypeCode })
+            .Distinct()
+            .ToList();
+
+        var chargeIds = chargeKeys.Select(k => k.PartyChargeTypeId).Distinct().ToList();
+
+        // Get the active owner GLN per charge (most recent assignment)
+        var ownerByCharge = tariffAssignments
+            .GroupBy(a => (a.PartyChargeTypeId, a.ChargeTypeCode))
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(a => a.StartDate).First().OwnerId);
+        var ownerIds = ownerByCharge.Values.Distinct().ToList();
+
+        var allRates = await _db.PriceElementRates
+            .Where(r => r.DataAreaId == DataAreaId
+                && chargeIds.Contains(r.PartyChargeTypeId)
+                && ownerIds.Contains(r.GridCompanyId)
+                && r.ValidInMarketToExcl == NoEndDate)
+            .OrderByDescending(r => r.StartDate)
+            .ThenByDescending(r => r.RecId) // tie-breaker for duplicate StartDates
+            .ToListAsync();
+
+        // Group by (PartyChargeTypeId, ChargeTypeCode) for fast lookup
+        // Also filter each group to only the correct owner, and dedup by StartDate
+        var ratesByKey = allRates
+            .GroupBy(r => (r.PartyChargeTypeId, r.ChargeTypeCode))
+            .ToDictionary(g => g.Key, g =>
+            {
+                var ownerId = ownerByCharge.GetValueOrDefault(g.Key);
+                return g
+                    .Where(r => r.GridCompanyId == ownerId)
+                    .GroupBy(r => r.StartDate)
+                    .Select(dg => dg.First()) // Dedup: highest RecId wins (already sorted desc)
+                    .OrderByDescending(r => r.StartDate)
+                    .ThenByDescending(r => r.RecId)
+                    .ToList();
+            });
+
+        _logger.LogInformation("Loaded {Count} rate rows for {Keys} charge keys (filtered by owner + active version)",
+            ratesByKey.Values.Sum(v => v.Count), ratesByKey.Count);
+
+        // ── BULK LOAD 5: Product type chain (Delpoint → Agreement → ContractPart → ProductExtend → InventTable) ──
+        var productTypes = await (
+            from dp in _db.ExuDelpoints
+            join agr in _db.ExuAgreementTables
+                on new { dp.Dataareaid, Agreementnum = dp.Attachmentnum }
+                equals new { agr.Dataareaid, agr.Agreementnum }
+            join cp in _db.ExuContractPartTables
+                on new { agr.Dataareaid, Instagreenum = agr.Agreementnum }
+                equals new { cp.Dataareaid, cp.Instagreenum }
+            join pe in _db.ExuProductExtendTables
+                on new { Dataareaid = cp.Dataareaid, cp.Productnum }
+                equals new { Dataareaid = pe.DataAreaId, pe.Productnum }
+            join inv in _db.InventTables
+                on new { DataAreaId = pe.DataAreaId, ItemId = pe.Producttype }
+                equals new { inv.DataAreaId, inv.ItemId }
+            where dp.Dataareaid == DataAreaId
+               && dp.Meteringpoint == meteringPointId
+               && dp.Deliverycategory == DeliveryCategory
+               && inv.ItemType == 2
+               && inv.ExuUseRateFromFlexPricing == 0
+            select new ProductTypeInfo
+            {
+                Productnum = cp.Productnum,
+                Producttype = pe.Producttype,
+                CpStartDate = cp.Startdate,
+                CpEndDate = cp.Enddate,
+                PeStartDate = pe.Startdate,
+                PeEndDate = pe.Enddate
+            }
+        ).ToListAsync();
+
+        _logger.LogInformation("Loaded {Count} product type entries", productTypes.Count);
+
+        // ── BULK LOAD 6: ALL rate table entries for relevant product types ──
+        var productTypeNames = productTypes.Select(pt => pt.Producttype).Distinct().ToList();
+        var allProductRates = productTypeNames.Count > 0
+            ? await _db.ExuRateTables
+                .Where(r => r.Dataareaid == DataAreaId
+                         && productTypeNames.Contains(r.Ratetype)
+                         && r.Deliverycategory == DeliveryCategory
+                         && r.Productnum == "")
+                .OrderByDescending(r => r.Startdate)
+                .ThenByDescending(r => r.Recid) // tie-breaker for duplicate dates
+                .ToListAsync()
+            : new List<ExuRateTable>();
+
+        var productRatesByType = allProductRates
+            .GroupBy(r => r.Ratetype)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(r => r.Startdate).ThenByDescending(r => r.Recid).ToList());
+
+        _logger.LogInformation("Loaded {Count} product rate entries for {Types} types",
+            allProductRates.Count, productRatesByType.Count);
+
+        _logger.LogInformation("All reference data loaded — building {Count} settlements in memory", periods.Count);
+
+        // ═══════════════════════════════════════════════════════════
+        // IN-MEMORY: Iterate periods using pre-loaded data
+        // ═══════════════════════════════════════════════════════════
         foreach (var period in periods)
         {
-            // Step 2: Get hourly data (same as CorrectionService.GetHourlyDataAsync)
-            var hourlyLines = await _db.FlexBillingHistoryLines
-                .Where(l => l.DataAreaId == DataAreaId && l.HistKeyNumber == period.HistKeyNumber)
-                .OrderBy(l => l.DateTime24Hour)
-                .ToListAsync();
-
-            if (hourlyLines.Count == 0) continue;
+            if (!hourlyByPeriod.TryGetValue(period.HistKeyNumber, out var hourlyLines) || hourlyLines.Count == 0)
+                continue;
 
             var periodStart = period.ReqStartDate != NoEndDate && period.ReqStartDate.Year > 1901
                 ? period.ReqStartDate
@@ -74,11 +216,11 @@ public class XellentSettlementService
             var spotAmount = hourlyLines.Sum(l => l.TimeValue * l.PowerExchangePrice);
             var marginAmount = electricityAmount - spotAmount;
 
-            // Step 3: Get tariffs using EXACT CorrectionService.GetTariffsAsync logic
-            var tariffLines = await GetTariffLinesWithProvenance(meteringPointId, periodStart, hourlyLines);
+            // Tariff lines — in-memory filtering of pre-loaded data
+            var tariffLines = BuildTariffLines(periodStart, hourlyLines, tariffAssignments, ratesByKey);
 
-            // Step 4: Get product margin rates using CorrectionService.GetProductRatesForHour logic
-            var productMarginLines = await GetProductMarginLinesWithProvenance(meteringPointId, periodStart, hourlyLines);
+            // Product margin lines — in-memory filtering of pre-loaded data
+            var productMarginLines = BuildProductMarginLines(periodStart, hourlyLines, productTypes, productRatesByType);
 
             var allTariffLines = tariffLines.Concat(productMarginLines).ToList();
             var totalAmount = electricityAmount + allTariffLines.Sum(t => t.AmountDkk);
@@ -105,48 +247,37 @@ public class XellentSettlementService
     }
 
     /// <summary>
-    /// Exact mirror of CorrectionService.GetTariffsAsync + GetTariffRatesForHour
+    /// In-memory equivalent of GetTariffLinesWithProvenance.
+    /// Uses pre-loaded tariff assignments and rates.
     /// </summary>
-    private async Task<List<ExtractedTariffLine>> GetTariffLinesWithProvenance(
-        string meteringPointId, DateTime forDate, List<FlexBillingHistoryLine> hourlyData)
+    private List<ExtractedTariffLine> BuildTariffLines(
+        DateTime forDate,
+        List<FlexBillingHistoryLine> hourlyData,
+        List<TariffAssignment> allAssignments,
+        Dictionary<(string, int), List<PriceElementRates>> ratesByKey)
     {
         var forDateOnly = forDate.Date;
         var tariffLines = new List<ExtractedTariffLine>();
 
-        // All charge types — tariffs (code 3), subscriptions (code 2), fees (code 1)
-        // For migration: capture everything that was invoiced, not just tariffs
-        var tariffAssignments = await (
-            from pec in _db.PriceElementChecks
-            join pecd in _db.PriceElementCheckData
-                on new { pec.DataAreaId, RefRecId = pec.RecId }
-                equals new { pecd.DataAreaId, RefRecId = pecd.PriceElementCheckRefRecId }
-            join pet in _db.PriceElementTables
-                on new { pecd.DataAreaId, pecd.PartyChargeTypeId }
-                equals new { pet.DataAreaId, pet.PartyChargeTypeId }
-            where pec.DataAreaId == DataAreaId
-               && pec.MeteringPointId == meteringPointId
-               && pec.DeliveryCategory == DeliveryCategory
-               && pecd.StartDate <= forDateOnly
-               && (pecd.EndDate == NoEndDate || pecd.EndDate >= forDateOnly)
-            group pet by pecd.PartyChargeTypeId into g
-            select new { PartyChargeTypeId = g.Key, Description = g.First().Description, ChargeTypeCode = g.First().ChargeTypeCode }
-        ).ToListAsync();
+        // Filter assignments valid for this date, then deduplicate by (PartyChargeTypeId, ChargeTypeCode)
+        var activeAssignments = allAssignments
+            .Where(a => a.StartDate <= forDateOnly && (a.EndDate == NoEndDate || a.EndDate >= forDateOnly))
+            .GroupBy(a => (a.PartyChargeTypeId, a.ChargeTypeCode))
+            .Select(g => g.First())
+            .ToList();
 
-        foreach (var tariff in tariffAssignments)
+        foreach (var tariff in activeAssignments)
         {
-            // Same rate lookup as CorrectionService
-            var candidateRates = await _db.PriceElementRates
-                .Where(r => r.DataAreaId == DataAreaId
-                         && r.PartyChargeTypeId == tariff.PartyChargeTypeId
-                         && r.StartDate <= forDateOnly)
-                .OrderByDescending(r => r.StartDate)
-                .ToListAsync();
+            var key = (tariff.PartyChargeTypeId, tariff.ChargeTypeCode);
+            if (!ratesByKey.TryGetValue(key, out var candidateRates)) continue;
 
-            if (candidateRates.Count == 0) continue;
+            // Find most recent rate with StartDate <= forDate (rates are pre-sorted desc)
+            var rate = candidateRates.FirstOrDefault(r => r.StartDate <= forDateOnly);
+            if (rate == null) continue;
 
-            var rate = candidateRates[0];
+            var applicableCandidates = candidateRates.Count(r => r.StartDate <= forDateOnly);
             var isHourly = HasHourlyRates(rate);
-            var isSubscription = tariff.ChargeTypeCode != TariffChargeTypeCode; // code 2 = subscription, code 1 = fee
+            var isSubscription = tariff.ChargeTypeCode != TariffChargeTypeCode;
 
             var hourlyRates = isHourly ? new decimal[24] : null;
             if (isHourly)
@@ -169,16 +300,14 @@ public class XellentSettlementService
                 IsHourly = isHourly,
                 FlatRate = rate.Price,
                 HourlyRates = hourlyRates,
-                CandidateRateCount = candidateRates.Count,
+                CandidateRateCount = applicableCandidates,
                 SelectionRule = $"ChargeTypeCode={tariff.ChargeTypeCode} ({chargeTypeLabel}): " +
                     $"most recent rate with StartDate <= {forDateOnly:yyyy-MM-dd} " +
-                    $"(selected {rate.StartDate:yyyy-MM-dd} from {candidateRates.Count} candidates)"
+                    $"(selected {rate.StartDate:yyyy-MM-dd} from {applicableCandidates} candidates)"
             };
 
             if (isSubscription)
             {
-                // Subscriptions/fees: flat monthly amount, NOT per-kWh
-                // The rate from PriceElementRates IS the monthly amount (e.g. 29.17 DKK/month)
                 var flatAmount = rate.Price;
                 if (flatAmount == 0) continue;
 
@@ -187,16 +316,15 @@ public class XellentSettlementService
                     PartyChargeTypeId = tariff.PartyChargeTypeId,
                     Description = tariff.Description,
                     AmountDkk = flatAmount,
-                    EnergyKwh = 0, // subscriptions aren't per-kWh
+                    EnergyKwh = 0,
                     AvgUnitPrice = 0,
                     IsSubscription = true,
                     RateProvenance = provenance,
-                    HourlyDetail = new() // no hourly breakdown for subscriptions
+                    HourlyDetail = new()
                 });
             }
             else
             {
-                // Tariffs: calculate per-hour amount = kWh × rate
                 decimal totalAmount = 0m;
                 decimal totalEnergy = 0m;
                 var hourlyDetail = new List<HourlyTariffDetail>();
@@ -243,54 +371,32 @@ public class XellentSettlementService
     }
 
     /// <summary>
-    /// Mirror of CorrectionService.GetProductRatesForHour — product margin from ExuRateTable chain.
-    /// This is the piece WattsOn extraction was MISSING.
+    /// In-memory equivalent of GetProductMarginLinesWithProvenance.
+    /// Uses pre-loaded product types and rate tables.
     /// </summary>
-    private async Task<List<ExtractedTariffLine>> GetProductMarginLinesWithProvenance(
-        string meteringPointId, DateTime forDate, List<FlexBillingHistoryLine> hourlyData)
+    private List<ExtractedTariffLine> BuildProductMarginLines(
+        DateTime forDate,
+        List<FlexBillingHistoryLine> hourlyData,
+        List<ProductTypeInfo> allProductTypes,
+        Dictionary<string, List<ExuRateTable>> productRatesByType)
     {
         var forDateOnly = forDate.Date;
         var lines = new List<ExtractedTariffLine>();
 
-        // Same chain as CorrectionService.GetProductRatesForHour:
-        // Delpoint → Agreement → ContractPart → ProductExtend → InventTable → RateTable
-        var productTypes = await (
-            from dp in _db.ExuDelpoints
-            join agr in _db.ExuAgreementTables
-                on new { dp.Dataareaid, Agreementnum = dp.Attachmentnum }
-                equals new { agr.Dataareaid, agr.Agreementnum }
-            join cp in _db.ExuContractPartTables
-                on new { agr.Dataareaid, Instagreenum = agr.Agreementnum }
-                equals new { cp.Dataareaid, cp.Instagreenum }
-            join pe in _db.ExuProductExtendTables
-                on new { Dataareaid = cp.Dataareaid, cp.Productnum }
-                equals new { Dataareaid = pe.DataAreaId, pe.Productnum }
-            join inv in _db.InventTables
-                on new { DataAreaId = pe.DataAreaId, ItemId = pe.Producttype }
-                equals new { inv.DataAreaId, inv.ItemId }
-            where dp.Dataareaid == DataAreaId
-               && dp.Meteringpoint == meteringPointId
-               && dp.Deliverycategory == DeliveryCategory
-               && cp.Startdate <= forDateOnly
-               && (cp.Enddate >= forDateOnly || cp.Enddate == NoEndDate)
-               && pe.Startdate <= forDateOnly
-               && (pe.Enddate >= forDateOnly || pe.Enddate == NoEndDate)
-               && inv.ItemType == 2
-               && inv.ExuUseRateFromFlexPricing == 0
-            select new { cp.Productnum, pe.Producttype }
-        ).ToListAsync();
+        // Filter product types valid for this date
+        var activeProducts = allProductTypes
+            .Where(pt => pt.CpStartDate <= forDateOnly
+                      && (pt.CpEndDate >= forDateOnly || pt.CpEndDate == NoEndDate)
+                      && pt.PeStartDate <= forDateOnly
+                      && (pt.PeEndDate >= forDateOnly || pt.PeEndDate == NoEndDate))
+            .ToList();
 
-        foreach (var pt in productTypes)
+        foreach (var pt in activeProducts)
         {
-            var rate = await _db.ExuRateTables
-                .Where(r => r.Dataareaid == DataAreaId
-                         && r.Ratetype == pt.Producttype
-                         && r.Deliverycategory == DeliveryCategory
-                         && r.Startdate <= forDateOnly
-                         && r.Productnum == "")
-                .OrderByDescending(r => r.Startdate)
-                .FirstOrDefaultAsync();
+            if (!productRatesByType.TryGetValue(pt.Producttype, out var rates)) continue;
 
+            // Find most recent rate with StartDate <= forDate (pre-sorted desc)
+            var rate = rates.FirstOrDefault(r => r.Startdate <= forDateOnly);
             if (rate == null || rate.Rate == 0) continue;
 
             var provenance = new TariffRateProvenance
@@ -300,7 +406,7 @@ public class XellentSettlementService
                 RateStartDate = rate.Startdate,
                 IsHourly = false,
                 FlatRate = rate.Rate,
-                CandidateRateCount = 1,
+                CandidateRateCount = rates.Count(r => r.Startdate <= forDateOnly),
                 SelectionRule = $"CorrectionService.GetProductRatesForHour: " +
                     $"Delpoint→Agreement→ContractPart(product={pt.Productnum})→ProductExtend(type={pt.Producttype})→" +
                     $"InventTable(ItemType=2, UseRateFromFlexPricing=0)→RateTable(generic, Productnum='')"
@@ -358,5 +464,27 @@ public class XellentSettlementService
         if (localDate.Kind == DateTimeKind.Utc) return localDate;
         var offset = DanishTz.GetUtcOffset(localDate);
         return new DateTimeOffset(DateTime.SpecifyKind(localDate, DateTimeKind.Unspecified), offset).ToUniversalTime();
+    }
+
+    // ── Helper records for pre-loaded data ──
+
+    private record TariffAssignment
+    {
+        public string PartyChargeTypeId { get; init; } = null!;
+        public int ChargeTypeCode { get; init; }
+        public string Description { get; init; } = null!;
+        public DateTime StartDate { get; init; }
+        public DateTime EndDate { get; init; }
+        public decimal OwnerId { get; init; }
+    }
+
+    private record ProductTypeInfo
+    {
+        public string Productnum { get; init; } = null!;
+        public string Producttype { get; init; } = null!;
+        public DateTime CpStartDate { get; init; }
+        public DateTime CpEndDate { get; init; }
+        public DateTime PeStartDate { get; init; }
+        public DateTime PeEndDate { get; init; }
     }
 }

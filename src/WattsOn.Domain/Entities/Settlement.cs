@@ -267,6 +267,28 @@ public class SettlementLine : Entity
         };
     }
 
+    /// <summary>
+    /// Create a flat-amount line for migrated subscriptions/fees (abonnementer/gebyrer).
+    /// These are fixed monthly charges from DataHub — not per-kWh.
+    /// Amount is stored directly; Quantity is zero (not energy-based).
+    /// </summary>
+    public static SettlementLine CreateMigratedSubscription(
+        Guid settlementId,
+        string description,
+        decimal amountDkk)
+    {
+        return new SettlementLine
+        {
+            SettlementId = settlementId,
+            Source = SettlementLineSource.DataHubCharge,
+            PriceId = null,
+            Description = description,
+            Quantity = EnergyQuantity.Zero,
+            UnitPrice = amountDkk,
+            Amount = Money.DKK(amountDkk)
+        };
+    }
+
     public static SettlementLine CreateMargin(
         Guid settlementId,
         string description,
