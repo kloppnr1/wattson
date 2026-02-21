@@ -424,8 +424,10 @@ public static class MigrationEndpoints
                     pl.MeteringPointId == mp.Id && pl.PriceId == price.Id);
                 if (exists) { skipped++; continue; }
 
-                var priceLink = PriceLink.Create(mp.Id, price.Id,
-                    Period.From(link.EffectiveDate));
+                var linkPeriod = link.EndDate.HasValue
+                    ? Period.Create(link.EffectiveDate, link.EndDate.Value)
+                    : Period.From(link.EffectiveDate);
+                var priceLink = PriceLink.Create(mp.Id, price.Id, linkPeriod);
                 db.PriceLinks.Add(priceLink);
                 created++;
             }
@@ -709,7 +711,8 @@ record MigrationPriceLinkDto(
     string Gsrn,
     string ChargeId,
     string OwnerGln,
-    DateTimeOffset EffectiveDate);
+    DateTimeOffset EffectiveDate,
+    DateTimeOffset? EndDate = null);
 
 record MigrationSettlementBatchRequest(
     List<MigrationSettlementDto> Settlements);

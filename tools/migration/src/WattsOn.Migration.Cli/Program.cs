@@ -198,16 +198,23 @@ extractCommand.SetHandler(async (context) =>
 // ═══════════════════════════════════════════════════════════════
 // PUSH command — reads local cache, pushes to WattsOn API
 // ═══════════════════════════════════════════════════════════════
+var yearsBackOption = new Option<int>(
+    name: "--years-back",
+    description: "Only migrate data from this many years before the supply end date (default: 3)",
+    getDefaultValue: () => 3);
+
 var pushCommand = new Command("push", "Push cached data to WattsOn API (no VPN needed)")
 {
     cacheFileOption,
-    wattsOnUrlOption
+    wattsOnUrlOption,
+    yearsBackOption
 };
 
 pushCommand.SetHandler(async (context) =>
 {
     var cacheFile = context.ParseResult.GetValueForOption(cacheFileOption)!;
     var wattsOnUrl = context.ParseResult.GetValueForOption(wattsOnUrlOption)!;
+    var yearsBack = context.ParseResult.GetValueForOption(yearsBackOption);
 
     var services = new ServiceCollection();
     services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Information));
@@ -224,6 +231,58 @@ pushCommand.SetHandler(async (context) =>
 
     var data = JsonSerializer.Deserialize<ExtractedData>(await File.ReadAllTextAsync(cacheFile), jsonOptions)!;
     logger.LogInformation("Loaded cache: {Summary}", data.Summary.Replace("\n", " ").Trim());
+
+    // ─── Apply migration window: only push data from (supply end - yearsBack) ───
+    // Find the latest supply end date across all customers/MPs
+    var allSupplyEnds = data.Customers
+        .SelectMany(c => c.MeteringPoints)
+        .Select(mp => mp.SupplyEnd ?? DateTimeOffset.UtcNow)
+        .ToList();
+    var latestSupplyEnd = allSupplyEnds.Count > 0 ? allSupplyEnds.Max() : DateTimeOffset.UtcNow;
+    var migrationCutoff = latestSupplyEnd.AddYears(-yearsBack);
+    logger.LogInformation("Migration window: {YearsBack} years back from {SupplyEnd:yyyy-MM-dd} → cutoff {Cutoff:yyyy-MM-dd}",
+        yearsBack, latestSupplyEnd, migrationCutoff);
+
+    // Filter settlements
+    var origSettlementCount = data.Settlements.Count;
+    data.Settlements = data.Settlements
+        .Where(s => s.PeriodStart >= migrationCutoff)
+        .ToList();
+    if (origSettlementCount != data.Settlements.Count)
+        logger.LogInformation("Settlements: {Kept}/{Total} after {YearsBack}-year cutoff",
+            data.Settlements.Count, origSettlementCount, yearsBack);
+
+    // Filter product periods on customers
+    foreach (var c in data.Customers)
+    {
+        foreach (var mp in c.MeteringPoints)
+        {
+            // Trim supply start to cutoff if it's earlier
+            if (mp.SupplyStart < migrationCutoff)
+                mp.SupplyStart = migrationCutoff;
+
+            // Filter product periods
+            mp.ProductPeriods = mp.ProductPeriods
+                .Where(pp => pp.End == null || pp.End > migrationCutoff)
+                .Select(pp =>
+                {
+                    if (pp.Start < migrationCutoff) pp.Start = migrationCutoff;
+                    return pp;
+                })
+                .ToList();
+        }
+    }
+
+    // Filter time series observations
+    foreach (var ts in data.TimeSeries)
+    {
+        var origCount = ts.Observations.Count;
+        ts.Observations = ts.Observations
+            .Where(o => o.Timestamp >= migrationCutoff)
+            .ToList();
+        if (origCount != ts.Observations.Count)
+            logger.LogInformation("Time series: {Kept}/{Total} observations after cutoff", ts.Observations.Count, origCount);
+    }
 
     var sw = Stopwatch.StartNew();
     var result = new MigrationResult();
@@ -311,7 +370,7 @@ pushCommand.SetHandler(async (context) =>
     {
         var linkResult = await wattsOn.MigratePriceLinks(new
         {
-            links = data.PriceLinks.Select(l => new { gsrn = l.Gsrn, chargeId = l.ChargeId, ownerGln = l.OwnerGln, effectiveDate = l.EffectiveDate }).ToList()
+            links = data.PriceLinks.Select(l => new { gsrn = l.Gsrn, chargeId = l.ChargeId, ownerGln = l.OwnerGln, effectiveDate = l.EffectiveDate, endDate = l.EndDate }).ToList()
         });
         result.PriceLinksCreated = linkResult.GetProperty("created").GetInt32();
         result.PriceLinksSkipped = linkResult.GetProperty("skipped").GetInt32();
