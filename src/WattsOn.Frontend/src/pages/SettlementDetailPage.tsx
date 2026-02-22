@@ -110,6 +110,16 @@ export default function SettlementDetailPage() {
       return n;
     };
 
+    // Classify lines into categories for grouping
+    const classifyLine = (desc: string, source: string): string => {
+      if (source === 'SpotPrice') return 'spot';
+      if (source === 'SupplierMargin') return 'margin';
+      // DataHub charges
+      const d = desc.toLowerCase();
+      if (d.includes('abo') || d.includes('abonnement')) return 'subscription';
+      return 'tariff';
+    };
+
     const origMap = new Map<string, RecalcLine>();
     const origDescMap = new Map<string, string>(); // normalized → original description
     for (const l of result.original.lines) {
@@ -125,12 +135,10 @@ export default function SettlementDetailPage() {
 
     // Try to match "Leverandørmargin" to base product margin if no direct match
     if (origMap.has('Leverandørmargin') && !recalcMap.has('Leverandørmargin')) {
-      // Find the base product margin in recalc (not Grøn strøm or other addons)
       const baseMargin = result.recalculated?.lines.find(l =>
         l.source === 'SupplierMargin' && !origMap.has(l.description) && l.description !== 'Grøn strøm'
       );
       if (baseMargin) {
-        // Rename the original entry to match the recalc name
         const origLine = origMap.get('Leverandørmargin')!;
         origMap.delete('Leverandørmargin');
         origMap.set(baseMargin.description, origLine);
@@ -140,12 +148,14 @@ export default function SettlementDetailPage() {
     }
 
     const allKeys = new Set([...origMap.keys(), ...recalcMap.keys()]);
-    return Array.from(allKeys).sort().map(key => {
+    const rows = Array.from(allKeys).map(key => {
       const orig = origMap.get(key);
       const recalc = recalcMap.get(key);
       const origAmt = orig?.amount ?? 0;
       const recalcAmt = recalc?.amount ?? 0;
       const diff = recalcAmt - origAmt;
+      const source = recalc?.source ?? orig?.source ?? '';
+      const category = classifyLine(key, source);
       return {
         key,
         description: key,
@@ -157,11 +167,33 @@ export default function SettlementDetailPage() {
         recalcUnit: recalc?.unitPrice ?? null,
         recalcAmt,
         diff,
+        diffPct: origAmt !== 0 ? (diff / Math.abs(origAmt)) * 100 : null,
         onlyOrig: !recalc && !!orig,
         onlyRecalc: !orig && !!recalc,
         details: recalc?.details ?? null,
+        category,
       };
+    })
+    // Filter out noise: both sides zero or negligible
+    .filter(r => Math.abs(r.origAmt) >= 0.01 || Math.abs(r.recalcAmt) >= 0.01);
+
+    // Sort by category, then by amount descending
+    const categoryOrder: Record<string, number> = { tariff: 0, subscription: 1, spot: 2, margin: 3 };
+    rows.sort((a, b) => {
+      const catDiff = (categoryOrder[a.category] ?? 9) - (categoryOrder[b.category] ?? 9);
+      if (catDiff !== 0) return catDiff;
+      return Math.abs(b.origAmt || b.recalcAmt) - Math.abs(a.origAmt || a.recalcAmt);
     });
+
+    return rows;
+  };
+
+  // Category labels and colors for grouped display
+  const categoryConfig: Record<string, { label: string; color: string; bg: string }> = {
+    tariff: { label: 'Tariffer', color: '#1e40af', bg: '#dbeafe' },
+    subscription: { label: 'Abonnementer', color: '#7c3aed', bg: '#ede9fe' },
+    spot: { label: 'Spotpris', color: '#0369a1', bg: '#e0f2fe' },
+    margin: { label: 'Leverandør', color: '#047857', bg: '#d1fae5' },
   };
 
   // Format rate for display
@@ -759,129 +791,176 @@ export default function SettlementDetailPage() {
               )}
 
               {/* Totals comparison */}
-              {recalc.recalculated && (
+              {recalc.recalculated && (() => {
+                const compRows = buildComparisonRows(recalc);
+                const totalOrig = recalc.original.totalAmount;
+                const totalRecalc = recalc.recalculated!.totalAmount;
+                const totalDiff = totalRecalc - totalOrig;
+                const totalPct = totalOrig !== 0 ? (totalDiff / Math.abs(totalOrig)) * 100 : 0;
+                const energyDiff = recalc.recalculated!.totalEnergyKwh - recalc.original.totalEnergyKwh;
+                const energyPct = recalc.original.totalEnergyKwh !== 0
+                  ? (energyDiff / recalc.original.totalEnergyKwh) * 100 : 0;
+
+                // Compute category subtotals
+                const categories = ['tariff', 'subscription', 'spot', 'margin'] as const;
+                const catSubtotals = categories.map(cat => {
+                  const catRows = compRows.filter(r => r.category === cat);
+                  if (catRows.length === 0) return null;
+                  const origSum = catRows.reduce((s, r) => s + r.origAmt, 0);
+                  const recalcSum = catRows.reduce((s, r) => s + r.recalcAmt, 0);
+                  const diff = recalcSum - origSum;
+                  return { cat, rows: catRows, origSum, recalcSum, diff, pct: origSum !== 0 ? (diff / Math.abs(origSum)) * 100 : null };
+                }).filter(Boolean) as { cat: string; rows: typeof compRows; origSum: number; recalcSum: number; diff: number; pct: number | null }[];
+
+                const diffColor = (d: number) => Math.abs(d) < 0.5 ? '#059669' : Math.abs(d) < 10 ? '#d97706' : '#dc2626';
+                const diffPctBadge = (d: number, pct: number | null) => {
+                  if (Math.abs(d) < 0.01) return <Text style={{ fontSize: 11, color: '#059669' }}>✓</Text>;
+                  const c = diffColor(d);
+                  return (
+                    <span style={{ color: c, fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
+                      {(d >= 0 ? '+' : '') + formatDKK(d)}
+                      {pct !== null && <span style={{ marginLeft: 4, fontSize: 11, opacity: 0.7 }}>({pct >= 0 ? '+' : ''}{pct.toFixed(1)}%)</span>}
+                    </span>
+                  );
+                };
+
+                return (
                 <>
+                  {/* Top summary: amount + energy comparison */}
                   <Row gutter={16}>
-                    <Col xs={24} md={8}>
+                    <Col xs={12} md={6}>
                       <Card size="small" style={{ borderRadius: 10, background: '#f8fafb' }}>
                         <div className="micro-label">ORIGINAL</div>
-                        <div className="amount" style={{ fontSize: 22, marginTop: 4 }}>
-                          {formatDKK(recalc.original.totalAmount)}
-                        </div>
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                          {recalc.original.totalEnergyKwh.toFixed(2)} kWh
-                        </Text>
+                        <div className="amount" style={{ fontSize: 20, marginTop: 4 }}>{formatDKK(totalOrig)}</div>
+                        <Text type="secondary" style={{ fontSize: 12 }}>{recalc.original.totalEnergyKwh.toFixed(2)} kWh</Text>
                       </Card>
                     </Col>
-                    <Col xs={24} md={8}>
+                    <Col xs={12} md={6}>
                       <Card size="small" style={{ borderRadius: 10, background: '#f0fdf4' }}>
                         <div className="micro-label">GENBEREGNET</div>
-                        <div className="amount" style={{ fontSize: 22, marginTop: 4 }}>
-                          {formatDKK(recalc.recalculated.totalAmount)}
+                        <div className="amount" style={{ fontSize: 20, marginTop: 4 }}>{formatDKK(totalRecalc)}</div>
+                        <Text type="secondary" style={{ fontSize: 12 }}>{recalc.recalculated!.totalEnergyKwh.toFixed(2)} kWh</Text>
+                      </Card>
+                    </Col>
+                    <Col xs={12} md={6}>
+                      <Card size="small" style={{ borderRadius: 10, background: Math.abs(totalPct) < 2 ? '#f0fdf4' : '#fefce8' }}>
+                        <div className="micro-label">AFVIGELSE (BELØB)</div>
+                        <div className="amount" style={{ fontSize: 20, marginTop: 4, color: diffColor(totalDiff) }}>
+                          {(totalDiff >= 0 ? '+' : '') + formatDKK(totalDiff)}
                         </div>
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                          {recalc.recalculated.totalEnergyKwh.toFixed(2)} kWh
+                        <Text style={{ fontSize: 13, fontWeight: 600, color: diffColor(totalDiff) }}>
+                          {totalPct >= 0 ? '+' : ''}{totalPct.toFixed(1)}%
                         </Text>
                       </Card>
                     </Col>
-                    <Col xs={24} md={8}>
-                      <Card size="small" style={{
-                        borderRadius: 10,
-                        background: recalc.comparison && Math.abs(recalc.comparison.totalAmountDiff) < 1 ? '#f0fdf4' : '#fefce8',
-                      }}>
-                        <div className="micro-label">DIFFERENCE</div>
-                        <div className="amount" style={{
-                          fontSize: 22, marginTop: 4,
-                          color: recalc.comparison && Math.abs(recalc.comparison.totalAmountDiff) < 1 ? '#059669'
-                            : recalc.comparison && Math.abs(recalc.comparison.totalAmountDiff) < 50 ? '#d97706' : '#dc2626',
-                        }}>
-                          {recalc.comparison ? (recalc.comparison.totalAmountDiff >= 0 ? '+' : '') + formatDKK(recalc.comparison.totalAmountDiff) : '—'}
+                    <Col xs={12} md={6}>
+                      <Card size="small" style={{ borderRadius: 10, background: Math.abs(energyPct) < 2 ? '#f0fdf4' : '#fefce8' }}>
+                        <div className="micro-label">AFVIGELSE (ENERGI)</div>
+                        <div className="amount" style={{ fontSize: 20, marginTop: 4, color: diffColor(energyDiff) }}>
+                          {(energyDiff >= 0 ? '+' : '')}{energyDiff.toFixed(2)} kWh
                         </div>
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                          {recalc.comparison && recalc.original.totalAmount !== 0
-                            ? `${((recalc.comparison.totalAmountDiff / recalc.original.totalAmount) * 100).toFixed(1)}%`
-                            : ''}
+                        <Text style={{ fontSize: 13, fontWeight: 600, color: diffColor(energyDiff) }}>
+                          {energyPct >= 0 ? '+' : ''}{energyPct.toFixed(1)}%
                         </Text>
                       </Card>
                     </Col>
                   </Row>
 
-                  {/* Line-by-line comparison table */}
-                  <Table
-                    dataSource={buildComparisonRows(recalc)}
-                    rowKey="key"
-                    pagination={false}
-                    size="small"
-                    rowClassName={r => r.onlyOrig ? 'row-missing-recalc' : r.onlyRecalc ? 'row-extra-recalc' : ''}
-                    expandable={{
-                      expandedRowRender: renderLineDetail,
-                      rowExpandable: (r: any) => r.origQty !== null || r.recalcQty !== null,
-                    }}
-                    columns={[
-                      {
-                        title: 'LINJE', dataIndex: 'description', key: 'description',
-                        render: (v: string, r: any) => (
-                          <Space size={4}>
-                            <Text style={{ fontSize: 12 }}>{v}</Text>
-                            {r.onlyOrig && <Tag style={{ background: '#f3f4f6', color: '#6b7280', border: '1px solid #d1d5db', fontSize: 11, fontWeight: 500 }}>kun original</Tag>}
-                            {r.onlyRecalc && <Tag style={{ background: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd', fontSize: 11, fontWeight: 500 }}>kun genberegnet</Tag>}
-                          </Space>
-                        ),
-                      },
-                      {
-                        title: 'ORIGINAL', key: 'orig', align: 'right' as const, width: 120,
-                        render: (_: any, r: any) => r.origAmt !== 0 ? (
-                          <Text className="tnum" style={{ fontSize: 12 }}>{formatDKK(r.origAmt)}</Text>
-                        ) : <Text type="secondary">—</Text>,
-                      },
-                      {
-                        title: 'GENBEREGNET', key: 'recalc', align: 'right' as const, width: 120,
-                        render: (_: any, r: any) => r.recalcAmt !== 0 ? (
-                          <Text className="tnum" style={{ fontSize: 12 }}>{formatDKK(r.recalcAmt)}</Text>
-                        ) : <Text type="secondary">—</Text>,
-                      },
-                      {
-                        title: 'DIFF', key: 'diff', align: 'right' as const, width: 100,
-                        render: (_: any, r: any) => {
-                          if (Math.abs(r.diff) < 0.01) return <Text type="success" style={{ fontSize: 12 }}>✓</Text>;
-                          const color = Math.abs(r.diff) < 1 ? '#059669' : Math.abs(r.diff) < 10 ? '#d97706' : '#dc2626';
-                          return <Text className="tnum" style={{ fontSize: 12, color }}>{(r.diff >= 0 ? '+' : '') + formatDKK(r.diff)}</Text>;
-                        },
-                      },
-                    ]}
-                    summary={() => {
-                      const totalOrig = recalc.original.totalAmount;
-                      const totalRecalc = recalc.recalculated!.totalAmount;
-                      const totalDiff = totalRecalc - totalOrig;
+                  {/* Category breakdown cards */}
+                  <Row gutter={12}>
+                    {catSubtotals.map(cs => {
+                      const cc = categoryConfig[cs.cat];
                       return (
-                        <Table.Summary.Row style={{ background: '#f8fafb' }}>
-                          <Table.Summary.Cell index={0}><Text strong>Total</Text></Table.Summary.Cell>
-                          <Table.Summary.Cell index={1} align="right">
-                            <Text strong className="tnum">{formatDKK(totalOrig)}</Text>
-                          </Table.Summary.Cell>
-                          <Table.Summary.Cell index={2} align="right">
-                            <Text strong className="tnum">{formatDKK(totalRecalc)}</Text>
-                          </Table.Summary.Cell>
-                          <Table.Summary.Cell index={3} align="right">
-                            <Text strong className="tnum" style={{
-                              color: Math.abs(totalDiff) < 1 ? '#059669' : Math.abs(totalDiff) < 50 ? '#d97706' : '#dc2626',
-                            }}>
-                              {(totalDiff >= 0 ? '+' : '') + formatDKK(totalDiff)}
-                            </Text>
-                          </Table.Summary.Cell>
-                        </Table.Summary.Row>
+                        <Col key={cs.cat} xs={12} md={6}>
+                          <div style={{
+                            borderRadius: 8, padding: '10px 12px',
+                            background: cc.bg, borderLeft: `3px solid ${cc.color}`,
+                          }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: cc.color }}>{cc.label}</div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                              <Text className="tnum" style={{ fontSize: 12 }}>{formatDKK(cs.origSum)}</Text>
+                              <Text className="tnum" style={{ fontSize: 12 }}>→ {formatDKK(cs.recalcSum)}</Text>
+                            </div>
+                            <div style={{ textAlign: 'right', marginTop: 2 }}>
+                              {diffPctBadge(cs.diff, cs.pct)}
+                            </div>
+                          </div>
+                        </Col>
                       );
-                    }}
-                  />
+                    })}
+                  </Row>
+
+                  {/* Grouped line-by-line comparison table */}
+                  <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                      <thead>
+                        <tr style={{ background: '#f8fafb', borderBottom: '2px solid #e5e7eb' }}>
+                          <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Linje</th>
+                          <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase', width: 110 }}>Original</th>
+                          <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase', width: 110 }}>Genberegnet</th>
+                          <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase', width: 140 }}>Afvigelse</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {catSubtotals.map((cs, ci) => {
+                          const cc = categoryConfig[cs.cat];
+                          return [
+                            // Category header row
+                            <tr key={`cat-${cs.cat}`} style={{ background: cc.bg + '40', borderTop: ci > 0 ? '2px solid #e5e7eb' : undefined }}>
+                              <td colSpan={4} style={{ padding: '6px 12px' }}>
+                                <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: cc.color }}>
+                                  {cc.label}
+                                </span>
+                              </td>
+                            </tr>,
+                            // Line rows
+                            ...cs.rows.map((r) => (
+                              <tr key={r.key} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                                <td style={{ padding: '6px 12px 6px 24px' }}>
+                                  <span>{r.description}</span>
+                                  {r.onlyOrig && <Tag style={{ marginLeft: 6, background: '#f3f4f6', color: '#6b7280', border: '1px solid #d1d5db', fontSize: 10 }}>kun original</Tag>}
+                                  {r.onlyRecalc && <Tag style={{ marginLeft: 6, background: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd', fontSize: 10 }}>kun genberegnet</Tag>}
+                                </td>
+                                <td className="tnum" style={{ textAlign: 'right', padding: '6px 12px', color: r.origAmt === 0 ? '#9ca3af' : undefined }}>
+                                  {r.origAmt !== 0 ? formatDKK(r.origAmt) : '—'}
+                                </td>
+                                <td className="tnum" style={{ textAlign: 'right', padding: '6px 12px', color: r.recalcAmt === 0 ? '#9ca3af' : undefined }}>
+                                  {r.recalcAmt !== 0 ? formatDKK(r.recalcAmt) : '—'}
+                                </td>
+                                <td style={{ textAlign: 'right', padding: '6px 12px' }}>
+                                  {diffPctBadge(r.diff, r.diffPct)}
+                                </td>
+                              </tr>
+                            )),
+                            // Category subtotal
+                            <tr key={`sub-${cs.cat}`} style={{ background: '#f8fafb', borderBottom: '1px solid #e5e7eb' }}>
+                              <td style={{ padding: '6px 12px', fontWeight: 600, fontSize: 12, color: '#374151' }}>Subtotal {cc.label.toLowerCase()}</td>
+                              <td className="tnum" style={{ textAlign: 'right', padding: '6px 12px', fontWeight: 600 }}>{formatDKK(cs.origSum)}</td>
+                              <td className="tnum" style={{ textAlign: 'right', padding: '6px 12px', fontWeight: 600 }}>{formatDKK(cs.recalcSum)}</td>
+                              <td style={{ textAlign: 'right', padding: '6px 12px', fontWeight: 600 }}>{diffPctBadge(cs.diff, cs.pct)}</td>
+                            </tr>,
+                          ];
+                        })}
+                        {/* Grand total */}
+                        <tr style={{ background: '#f0f4f8', borderTop: '2px solid #cbd5e1' }}>
+                          <td style={{ padding: '10px 12px', fontWeight: 700, fontSize: 14 }}>Total</td>
+                          <td className="tnum" style={{ textAlign: 'right', padding: '10px 12px', fontWeight: 700, fontSize: 14 }}>{formatDKK(totalOrig)}</td>
+                          <td className="tnum" style={{ textAlign: 'right', padding: '10px 12px', fontWeight: 700, fontSize: 14 }}>{formatDKK(totalRecalc)}</td>
+                          <td style={{ textAlign: 'right', padding: '10px 12px', fontWeight: 700, fontSize: 14 }}>{diffPctBadge(totalDiff, totalPct)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
 
                   <Alert
                     type="info" showIcon icon={<InfoCircleOutlined />}
                     message="Genberegningen er ikke gemt"
-                    description="Denne genberegning bruger WattsOns beregningsmotor med aktuelle priser og tidsserier. Resultatet gemmes ikke — det er kun til sammenligning."
+                    description="Denne genberegning bruger WattsOns beregningsmotor med aktuelle priser og tidsserier. Resultatet gemmes ikke — det er kun til sammenligning. Energiforskelle skyldes primært opløsningsforskel (PT15M observationer vs. Xellents timefakturering)."
                     style={{ borderRadius: 8 }}
                   />
                 </>
-              )}
+                );
+              })()}
 
               {/* No observations state */}
               {!recalc.recalculated && recalc.recalcError && (

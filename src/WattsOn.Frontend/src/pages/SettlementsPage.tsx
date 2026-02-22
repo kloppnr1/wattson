@@ -1,15 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Card, Table, Spin, Alert, Space, Typography, Segmented, Row, Col,
   Statistic, Select, Input, DatePicker, Tag, Button, Tooltip, Badge,
+  Progress,
 } from 'antd';
 import {
   SwapOutlined, WarningOutlined, ExclamationCircleOutlined,
-  CheckCircleOutlined,
+  CheckCircleOutlined, CalculatorOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import type { SettlementDocument } from '../api/client';
-import { getSettlementDocuments } from '../api/client';
+import type { SettlementDocument, RecalcResult } from '../api/client';
+import { getSettlementDocuments, recalculateSettlement } from '../api/client';
 import { formatDate, formatDateTime, formatPeriodEnd } from '../utils/format';
 import api from '../api/client';
 
@@ -45,6 +46,101 @@ export default function SettlementsPage() {
   const [issues, setIssues] = useState<SettlementIssue[]>([]);
   const [issuesLoading, setIssuesLoading] = useState(false);
   const [dismissingId, setDismissingId] = useState<string | null>(null);
+
+  // Batch validation
+  interface ValidationRow {
+    settlementId: string;
+    period: string;
+    periodStart: string;
+    status: string;
+    origAmount: number;
+    origEnergy: number;
+    recalcAmount: number | null;
+    recalcEnergy: number | null;
+    amountDiff: number | null;
+    amountPct: number | null;
+    energyDiff: number | null;
+    energyPct: number | null;
+    error: string | null;
+    lineCount: number;
+    result: RecalcResult | null;
+  }
+  const [validationRows, setValidationRows] = useState<ValidationRow[]>([]);
+  const [validationRunning, setValidationRunning] = useState(false);
+  const [validationProgress, setValidationProgress] = useState(0);
+  const [validationTotal, setValidationTotal] = useState(0);
+  const abortRef = useRef(false);
+
+  const runBatchValidation = useCallback(async () => {
+    const migrated = allDocs.filter(d => d.status === 'Migrated');
+    if (migrated.length === 0) return;
+
+    abortRef.current = false;
+    setValidationRunning(true);
+    setValidationProgress(0);
+    setValidationTotal(migrated.length);
+    setValidationRows([]);
+
+    const results: ValidationRow[] = [];
+    const CONCURRENCY = 3;
+
+    // Process in batches
+    for (let i = 0; i < migrated.length; i += CONCURRENCY) {
+      if (abortRef.current) break;
+      const batch = migrated.slice(i, i + CONCURRENCY);
+      const batchResults = await Promise.allSettled(
+        batch.map(async (doc) => {
+          try {
+            const res = await recalculateSettlement(doc.settlementId);
+            const r = res.data;
+            const row: ValidationRow = {
+              settlementId: doc.settlementId,
+              period: `${formatDate(doc.period.start)} — ${doc.period.end ? formatPeriodEnd(doc.period.end) : '→'}`,
+              periodStart: doc.period.start,
+              status: doc.status,
+              origAmount: r.original.totalAmount,
+              origEnergy: r.original.totalEnergyKwh,
+              recalcAmount: r.recalculated?.totalAmount ?? null,
+              recalcEnergy: r.recalculated?.totalEnergyKwh ?? null,
+              amountDiff: r.comparison?.totalAmountDiff ?? null,
+              amountPct: r.original.totalAmount !== 0 && r.comparison
+                ? (r.comparison.totalAmountDiff / Math.abs(r.original.totalAmount)) * 100 : null,
+              energyDiff: r.comparison?.totalEnergyDiff ?? null,
+              energyPct: r.original.totalEnergyKwh !== 0 && r.comparison
+                ? (r.comparison.totalEnergyDiff / r.original.totalEnergyKwh) * 100 : null,
+              error: r.recalcError,
+              lineCount: r.recalculated?.lines.length ?? 0,
+              result: r,
+            };
+            return row;
+          } catch (err: any) {
+            return {
+              settlementId: doc.settlementId,
+              period: `${formatDate(doc.period.start)} — ${doc.period.end ? formatPeriodEnd(doc.period.end) : '→'}`,
+              periodStart: doc.period.start,
+              status: doc.status,
+              origAmount: doc.totalExclVat,
+              origEnergy: 0,
+              recalcAmount: null, recalcEnergy: null,
+              amountDiff: null, amountPct: null,
+              energyDiff: null, energyPct: null,
+              error: err.message || 'Ukendt fejl',
+              lineCount: 0,
+              result: null,
+            } as ValidationRow;
+          }
+        })
+      );
+
+      for (const br of batchResults) {
+        if (br.status === 'fulfilled') results.push(br.value);
+      }
+      setValidationRows([...results]);
+      setValidationProgress(Math.min(i + CONCURRENCY, migrated.length));
+    }
+
+    setValidationRunning(false);
+  }, [allDocs]);
 
   const fetchIssues = async (status = 'Open') => {
     setIssuesLoading(true);
@@ -289,6 +385,15 @@ export default function SettlementsPage() {
             ),
             value: 'issues',
           },
+          {
+            label: (
+              <Space size={4}>
+                <CalculatorOutlined />
+                <span>Validering</span>
+              </Space>
+            ),
+            value: 'validation',
+          },
         ]}
       />
 
@@ -350,6 +455,195 @@ export default function SettlementsPage() {
             />
           </Card>
         </>
+      )}
+
+      {tab === 'validation' && (
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Card style={{ borderRadius: 8 }}>
+            <Row align="middle" justify="space-between">
+              <Col>
+                <Space direction="vertical" size={4}>
+                  <Text strong style={{ fontSize: 16 }}>Migreret → Genberegnet</Text>
+                  <Text type="secondary">
+                    Sammenligner alle migrerede afregninger med WattsOns beregningsmotor.
+                    Viser afvigelser i beløb og energi per periode.
+                  </Text>
+                </Space>
+              </Col>
+              <Col>
+                <Space>
+                  {validationRunning && (
+                    <Button onClick={() => { abortRef.current = true; }}>Stop</Button>
+                  )}
+                  <Button
+                    type="primary"
+                    icon={<CalculatorOutlined />}
+                    onClick={runBatchValidation}
+                    loading={validationRunning}
+                    style={{ background: '#5d7a91', borderColor: '#5d7a91' }}
+                  >
+                    {validationRows.length > 0 ? 'Kør igen' : 'Genberegn alle'}
+                    {' '}({allDocs.filter(d => d.status === 'Migrated').length} afregninger)
+                  </Button>
+                </Space>
+              </Col>
+            </Row>
+            {validationRunning && (
+              <Progress
+                percent={Math.round((validationProgress / validationTotal) * 100)}
+                format={() => `${validationProgress} / ${validationTotal}`}
+                style={{ marginTop: 12 }}
+                strokeColor="#5d7a91"
+              />
+            )}
+          </Card>
+
+          {validationRows.length > 0 && (() => {
+            const withRecalc = validationRows.filter(r => r.recalcAmount !== null);
+            const withError = validationRows.filter(r => r.error && r.recalcAmount === null);
+            const avgPct = withRecalc.length > 0
+              ? withRecalc.reduce((s, r) => s + Math.abs(r.amountPct ?? 0), 0) / withRecalc.length : 0;
+            const totalOrigAmt = withRecalc.reduce((s, r) => s + r.origAmount, 0);
+            const totalRecalcAmt = withRecalc.reduce((s, r) => s + (r.recalcAmount ?? 0), 0);
+            const totalDiff = totalRecalcAmt - totalOrigAmt;
+            const totalPct = totalOrigAmt !== 0 ? (totalDiff / Math.abs(totalOrigAmt)) * 100 : 0;
+
+            const diffColor = (pct: number | null) => {
+              if (pct === null) return '#9ca3af';
+              const abs = Math.abs(pct);
+              return abs < 2 ? '#059669' : abs < 10 ? '#d97706' : '#dc2626';
+            };
+
+            const pctBar = (pct: number | null) => {
+              if (pct === null) return null;
+              const abs = Math.min(Math.abs(pct), 30);
+              const c = diffColor(pct);
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+                  <span className="tnum" style={{ fontSize: 12, color: c, fontWeight: 500, minWidth: 55, textAlign: 'right' }}>
+                    {pct >= 0 ? '+' : ''}{pct.toFixed(1)}%
+                  </span>
+                  <div style={{ width: 60, height: 8, borderRadius: 4, background: '#f3f4f6', overflow: 'hidden' }}>
+                    <div style={{
+                      width: `${(abs / 30) * 100}%`,
+                      height: '100%',
+                      borderRadius: 4,
+                      background: c,
+                      transition: 'width 0.3s',
+                    }} />
+                  </div>
+                </div>
+              );
+            };
+
+            return (
+              <>
+                {/* Summary stats */}
+                <Row gutter={16}>
+                  <Col xs={12} md={6}>
+                    <Card size="small" style={{ borderRadius: 10 }}>
+                      <div className="micro-label">GENBEREGNET</div>
+                      <div style={{ fontSize: 28, fontWeight: 700, marginTop: 4 }}>{withRecalc.length}</div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>af {validationRows.length}</Text>
+                    </Card>
+                  </Col>
+                  <Col xs={12} md={6}>
+                    <Card size="small" style={{ borderRadius: 10 }}>
+                      <div className="micro-label">GNS. AFVIGELSE</div>
+                      <div style={{ fontSize: 28, fontWeight: 700, marginTop: 4, color: diffColor(avgPct) }}>
+                        {avgPct.toFixed(1)}%
+                      </div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>gennemsnit abs.</Text>
+                    </Card>
+                  </Col>
+                  <Col xs={12} md={6}>
+                    <Card size="small" style={{ borderRadius: 10 }}>
+                      <div className="micro-label">TOTAL AFVIGELSE</div>
+                      <div className="tnum" style={{ fontSize: 20, fontWeight: 700, marginTop: 4, color: diffColor(totalPct) }}>
+                        {(totalDiff >= 0 ? '+' : '')}{formatDKK(totalDiff)}
+                      </div>
+                      <Text style={{ fontSize: 13, fontWeight: 600, color: diffColor(totalPct) }}>
+                        {totalPct >= 0 ? '+' : ''}{totalPct.toFixed(1)}%
+                      </Text>
+                    </Card>
+                  </Col>
+                  <Col xs={12} md={6}>
+                    <Card size="small" style={{ borderRadius: 10 }}>
+                      <div className="micro-label">MANGLENDE DATA</div>
+                      <div style={{ fontSize: 28, fontWeight: 700, marginTop: 4, color: withError.length > 0 ? '#d97706' : '#059669' }}>
+                        {withError.length}
+                      </div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>perioder uden observationer</Text>
+                    </Card>
+                  </Col>
+                </Row>
+
+                {/* Results table */}
+                <Card style={{ borderRadius: 8, padding: 0 }} styles={{ body: { padding: 0 } }}>
+                  <Table
+                    dataSource={validationRows.sort((a, b) => a.periodStart.localeCompare(b.periodStart))}
+                    rowKey="settlementId"
+                    pagination={false}
+                    size="small"
+                    onRow={record => ({
+                      onClick: () => navigate(`/settlements/${record.settlementId}`),
+                      style: { cursor: 'pointer' },
+                    })}
+                    columns={[
+                      {
+                        title: 'PERIODE', dataIndex: 'period', key: 'period', width: 200,
+                        render: (v: string) => <Text className="tnum" style={{ fontSize: 12 }}>{v}</Text>,
+                      },
+                      {
+                        title: 'ORIGINAL', key: 'orig', align: 'right' as const, width: 120,
+                        render: (_: any, r: ValidationRow) => (
+                          <Text className="tnum" style={{ fontSize: 12 }}>{formatDKK(r.origAmount)}</Text>
+                        ),
+                      },
+                      {
+                        title: 'GENBEREGNET', key: 'recalc', align: 'right' as const, width: 120,
+                        render: (_: any, r: ValidationRow) => r.recalcAmount !== null ? (
+                          <Text className="tnum" style={{ fontSize: 12 }}>{formatDKK(r.recalcAmount)}</Text>
+                        ) : <Text type="secondary" style={{ fontSize: 12 }}>—</Text>,
+                      },
+                      {
+                        title: 'BELØB DIFF', key: 'amountDiff', align: 'right' as const, width: 110,
+                        render: (_: any, r: ValidationRow) => r.amountDiff !== null ? (
+                          <Text className="tnum" style={{ fontSize: 12, color: diffColor(r.amountPct), fontWeight: 500 }}>
+                            {(r.amountDiff >= 0 ? '+' : '') + formatDKK(r.amountDiff)}
+                          </Text>
+                        ) : <Text type="secondary" style={{ fontSize: 12 }}>—</Text>,
+                      },
+                      {
+                        title: 'BELØB %', key: 'amountPct', align: 'right' as const, width: 140,
+                        sorter: (a: ValidationRow, b: ValidationRow) => Math.abs(a.amountPct ?? 0) - Math.abs(b.amountPct ?? 0),
+                        render: (_: any, r: ValidationRow) => pctBar(r.amountPct),
+                      },
+                      {
+                        title: 'ENERGI %', key: 'energyPct', align: 'right' as const, width: 140,
+                        render: (_: any, r: ValidationRow) => pctBar(r.energyPct),
+                      },
+                      {
+                        title: '', key: 'status', width: 60,
+                        render: (_: any, r: ValidationRow) => {
+                          if (r.error && r.recalcAmount === null)
+                            return <Tooltip title={r.error}><Tag color="orange" style={{ fontSize: 10, margin: 0 }}>!</Tag></Tooltip>;
+                          if (r.amountPct !== null && Math.abs(r.amountPct) < 2)
+                            return <CheckCircleOutlined style={{ color: '#059669', fontSize: 14 }} />;
+                          if (r.amountPct !== null && Math.abs(r.amountPct) < 10)
+                            return <ExclamationCircleOutlined style={{ color: '#d97706', fontSize: 14 }} />;
+                          if (r.amountPct !== null)
+                            return <ExclamationCircleOutlined style={{ color: '#dc2626', fontSize: 14 }} />;
+                          return null;
+                        },
+                      },
+                    ]}
+                  />
+                </Card>
+              </>
+            );
+          })()}
+        </Space>
       )}
 
       {tab === 'issues' && (

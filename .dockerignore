@@ -2,3 +2,5 @@
 **/obj/
 **/node_modules/
 **/.git/
+tools/migration/cache/
+tools/migration/publish/
