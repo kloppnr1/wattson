@@ -42,6 +42,7 @@ export default function SettlementDetailPage() {
   const [recalcLoading, setRecalcLoading] = useState(false);
   const [recalcOpen, setRecalcOpen] = useState(false);
   const [expandedCompRows, setExpandedCompRows] = useState<Set<string>>(new Set());
+  const [expandedSettleRows, setExpandedSettleRows] = useState<Set<number>>(new Set());
   const recalcRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
@@ -254,53 +255,14 @@ export default function SettlementDetailPage() {
   };
 
   // Expandable row: per-line calculation breakdown
-  const renderLineDetail = (row: ReturnType<typeof buildComparisonRows>[number]) => {
-    const d = row.details;
-    const hasOrig = row.origQty !== null;
-    const hasRecalc = row.recalcQty !== null;
+  // Shared detail renderer for both settlement lines and recalc comparison rows
+  const renderBreakdownDetail = (d: LineDetails | undefined | null, daily?: DailyDetail[] | null) => {
+    if (!d) return <Text type="secondary" style={{ fontSize: 12 }}>Ingen yderligere detaljer tilgængelige</Text>;
 
     return (
-      <div style={{ padding: '8px 0' }}>
-        {/* Side-by-side qty × rate breakdown */}
-        <Row gutter={24}>
-          {hasOrig && (
-            <Col xs={24} md={12}>
-              <div style={{ background: '#f8fafb', borderRadius: 8, padding: '10px 14px', marginBottom: 8 }}>
-                <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6b7280', marginBottom: 6 }}>Original</div>
-                <div style={{ fontSize: 13 }}>
-                  <span className="tnum" style={{ fontWeight: 500 }}>{row.origQty!.toFixed(2)}</span>
-                  <Text type="secondary"> {d?.type === 'abonnement' ? 'dage' : 'kWh'} × </Text>
-                  <span className="tnum" style={{ fontWeight: 500 }}>{fmtRate(row.origUnit!)}</span>
-                  <Text type="secondary"> DKK/{d?.type === 'abonnement' ? 'dag' : 'kWh'}</Text>
-                </div>
-                <div style={{ marginTop: 2 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>= </Text>
-                  <span className="tnum" style={{ fontWeight: 600, fontSize: 14 }}>{formatDKK(row.origAmt)}</span>
-                </div>
-              </div>
-            </Col>
-          )}
-          {hasRecalc && (
-            <Col xs={24} md={12}>
-              <div style={{ background: '#f0fdf4', borderRadius: 8, padding: '10px 14px', marginBottom: 8 }}>
-                <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6b7280', marginBottom: 6 }}>Genberegnet</div>
-                <div style={{ fontSize: 13 }}>
-                  <span className="tnum" style={{ fontWeight: 500 }}>{row.recalcQty!.toFixed(2)}</span>
-                  <Text type="secondary"> {d?.type === 'abonnement' ? 'dage' : 'kWh'} × </Text>
-                  <span className="tnum" style={{ fontWeight: 500 }}>{fmtRate(row.recalcUnit!)}</span>
-                  <Text type="secondary"> DKK/{d?.type === 'abonnement' ? 'dag' : 'kWh'}{d?.type === 'tarif' ? ' (vægtet gns.)' : ''}</Text>
-                </div>
-                <div style={{ marginTop: 2 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>= </Text>
-                  <span className="tnum" style={{ fontWeight: 600, fontSize: 14 }}>{formatDKK(row.recalcAmt)}</span>
-                </div>
-              </div>
-            </Col>
-          )}
-        </Row>
-
+      <div style={{ padding: '4px 0' }}>
         {/* Tariff tier breakdown */}
-        {d?.type === 'tarif' && d.tiers && d.tiers.length > 0 && (
+        {d.type === 'tarif' && d.tiers && d.tiers.length > 0 && (
           <div style={{ marginTop: 4 }}>
             <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6b7280', marginBottom: 6 }}>
               Satsfordeling — {d.totalHours} timer, {d.hoursWithPrice} med pris
@@ -356,141 +318,25 @@ export default function SettlementDetailPage() {
         )}
 
         {/* Margin detail */}
-        {d?.type === 'margin' && (
+        {d.type === 'margin' && (
           <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
-            {row.recalcQty?.toFixed(2)} kWh × {fmtRate(d.ratePerKwh!)} DKK/kWh = {formatDKK(row.recalcAmt)}
+            Sats: {fmtRate(d.ratePerKwh!)} DKK/kWh
           </div>
         )}
 
         {/* Daily/hourly breakdown */}
-        {d?.daily && renderDailyBreakdown(d.daily)}
+        {(d.daily ?? daily) && renderDailyBreakdown((d.daily ?? daily)!)}
       </div>
     );
   };
 
-  // Expandable row for main settlement lines table
-  const renderSettlementLineDetail = (line: SettlementDocumentLine) => {
-    const d = line.details;
-    const isSub = d?.type === 'abonnement';
-    const unit = isSub ? 'dage' : 'kWh';
-    const unitLabel = isSub ? 'dag' : 'kWh';
-    // Migrated subscriptions: qty=0, unitPrice=total monthly amount
-    const isMigratedSub = isSub && line.quantity === 0;
+  // Recalc comparison: just delegates to shared renderer
+  const renderLineDetail = (row: ReturnType<typeof buildComparisonRows>[number]) =>
+    renderBreakdownDetail(row.details, row.details?.daily);
 
-    return (
-      <div style={{ padding: '8px 0' }}>
-        {/* Qty × rate breakdown */}
-        <div style={{ background: '#f8fafb', borderRadius: 8, padding: '10px 14px', marginBottom: 8, maxWidth: 480 }}>
-          <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6b7280', marginBottom: 6 }}>
-            {d?.type === 'tarif' ? 'Tarif' : d?.type === 'abonnement' ? 'Abonnement' : d?.type === 'spot' ? 'Spotpris' : d?.type === 'margin' ? 'Leverandørmargin' : line.source}
-            {line.chargeId && <span style={{ marginLeft: 8, fontWeight: 400, textTransform: 'none' }}>Charge: {line.chargeId}</span>}
-            {line.chargeOwnerGln && <span style={{ marginLeft: 8, fontWeight: 400, textTransform: 'none' }}>GLN: {line.chargeOwnerGln}</span>}
-          </div>
-          {isMigratedSub ? (
-            <div style={{ fontSize: 13 }}>
-              <span className="tnum" style={{ fontWeight: 500 }}>{formatDKK(line.lineAmount)}</span>
-              <Text type="secondary"> / måned</Text>
-              {d?.dailyRate != null && d.dailyRate > 0 && (
-                <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
-                  ({d.days?.toFixed(1)} dage × {fmtRate(d.dailyRate)} DKK/dag)
-                </Text>
-              )}
-            </div>
-          ) : (
-            <>
-              <div style={{ fontSize: 13 }}>
-                <span className="tnum" style={{ fontWeight: 500 }}>{line.quantity.toFixed(2)}</span>
-                <Text type="secondary"> {unit} × </Text>
-                <span className="tnum" style={{ fontWeight: 500 }}>{fmtRate(line.unitPrice)}</span>
-                <Text type="secondary"> DKK/{unitLabel}{d?.type === 'tarif' ? ' (vægtet gns.)' : ''}</Text>
-              </div>
-              <div style={{ marginTop: 2 }}>
-                <Text type="secondary" style={{ fontSize: 12 }}>= </Text>
-                <span className="tnum" style={{ fontWeight: 600, fontSize: 14 }}>{formatDKK(line.lineAmount)}</span>
-                {line.taxAmount !== 0 && (
-                  <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>+ {formatDKK(line.taxAmount)} moms</Text>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Tariff tier breakdown */}
-        {d?.type === 'tarif' && d.tiers && d.tiers.length > 0 && (
-          <div style={{ marginTop: 4 }}>
-            <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6b7280', marginBottom: 6 }}>
-              Satsfordeling — {d.totalHours} timer, {d.hoursWithPrice} med pris
-            </div>
-            <table style={{ width: '100%', maxWidth: 480, fontSize: 12, borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
-                  <th style={{ textAlign: 'left', padding: '4px 8px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Sats</th>
-                  <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Timer</th>
-                  <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>kWh</th>
-                  <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Beløb</th>
-                </tr>
-              </thead>
-              <tbody>
-                {d.tiers.map((t, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                    <td className="tnum" style={{ padding: '4px 8px' }}>{fmtRate(t.rate)} DKK/kWh</td>
-                    <td className="tnum" style={{ padding: '4px 8px', textAlign: 'right' }}>{t.hours}</td>
-                    <td className="tnum" style={{ padding: '4px 8px', textAlign: 'right' }}>{t.kwh.toFixed(2)}</td>
-                    <td className="tnum" style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 500 }}>{formatDKK(t.amount)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {d?.type === 'tarif' && d.totalHours === 0 && (
-          <Text type="secondary" style={{ fontSize: 12 }}>Ingen observationer tilgængelige for satsfordeling</Text>
-        )}
-
-        {/* Subscription detail */}
-        {d?.type === 'abonnement' && (
-          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
-            {d.days?.toFixed(1)} dage × {fmtRate(d.dailyRate!)} DKK/dag = {formatDKK(d.days! * d.dailyRate!)}
-          </div>
-        )}
-
-        {/* Spot price stats */}
-        {d?.type === 'spot' && (
-          <div style={{ marginTop: 4 }}>
-            <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6b7280', marginBottom: 4 }}>
-              Spotprisstatistik
-            </div>
-            <div style={{ fontSize: 12, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-              <span>
-                <Text type="secondary">Timer: </Text>
-                <span className="tnum">{d.hoursWithPrice}/{d.totalHours}</span>
-                {d.hoursMissing! > 0 && <Text type="warning" style={{ marginLeft: 4 }}>({d.hoursMissing} mangler)</Text>}
-              </span>
-              <span><Text type="secondary">Gns: </Text><span className="tnum">{fmtRate(d.avgRate!)}</span></span>
-              <span><Text type="secondary">Min: </Text><span className="tnum">{fmtRate(d.minRate!)}</span></span>
-              <span><Text type="secondary">Maks: </Text><span className="tnum">{fmtRate(d.maxRate!)}</span></span>
-              <Text type="secondary">DKK/kWh</Text>
-            </div>
-          </div>
-        )}
-
-        {/* Margin detail */}
-        {d?.type === 'margin' && (
-          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
-            {line.quantity.toFixed(2)} kWh × {fmtRate(d.ratePerKwh!)} DKK/kWh = {formatDKK(line.lineAmount)}
-          </div>
-        )}
-
-        {/* Daily/hourly breakdown */}
-        {d?.daily && renderDailyBreakdown(d.daily)}
-
-        {/* No details available */}
-        {!d && (
-          <Text type="secondary" style={{ fontSize: 12 }}>Ingen yderligere detaljer tilgængelige</Text>
-        )}
-      </div>
-    );
-  };
+  // Settlement line: just delegates to shared renderer
+  const renderSettlementLineDetail = (line: SettlementDocumentLine) =>
+    renderBreakdownDetail(line.details, line.details?.daily);
 
   if (loading) return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
   if (error) return <Alert type="error" message={error} />;
@@ -498,39 +344,6 @@ export default function SettlementDetailPage() {
 
   const config = docTypeConfig[doc.documentType] || docTypeConfig.settlement;
   const canConfirm = doc.status === 'Calculated';
-
-  const lineColumns = [
-    { title: '#', dataIndex: 'lineNumber', key: 'lineNumber', width: 50 },
-    { title: 'BESKRIVELSE', dataIndex: 'description', key: 'description' },
-    {
-      title: 'CHARGE ID', dataIndex: 'chargeId', key: 'chargeId',
-      render: (v: string | null) => v ? <Text className="mono">{v}</Text> : '—',
-    },
-    {
-      title: 'MÆNGDE', dataIndex: 'quantity', key: 'quantity', align: 'right' as const,
-      render: (v: number, r: SettlementDocumentLine) => (
-        <Text className="tnum">{v.toFixed(3)} {r.quantityUnit.toLowerCase()}</Text>
-      ),
-    },
-    {
-      title: 'ENHEDSPRIS', dataIndex: 'unitPrice', key: 'unitPrice', align: 'right' as const,
-      render: (v: number) => <Text className="tnum">{v.toFixed(4)} DKK</Text>,
-    },
-    {
-      title: 'BELØB', dataIndex: 'lineAmount', key: 'lineAmount', align: 'right' as const,
-      render: (v: number) => (
-        <Text strong className="tnum" style={{ color: v < 0 ? '#059669' : undefined }}>
-          {formatDKK(v)}
-        </Text>
-      ),
-    },
-    {
-      title: 'MOMS', key: 'tax', align: 'right' as const,
-      render: (_: any, r: SettlementDocumentLine) => (
-        <Text className="tnum">{formatDKK(r.taxAmount)}</Text>
-      ),
-    },
-  ];
 
   return (
     <Space direction="vertical" size={20} style={{ width: '100%' }}>
@@ -696,58 +509,113 @@ export default function SettlementDetailPage() {
         </Col>
       </Row>
 
-      {/* Line items */}
+      {/* Line items — grouped by category */}
       <Card title="Linjer" style={{ borderRadius: 12 }}>
-        <Table
-          dataSource={doc.lines}
-          columns={lineColumns}
-          rowKey="lineNumber"
-          pagination={false}
-          size="small"
-          expandable={{
-            expandedRowRender: renderSettlementLineDetail,
-            rowExpandable: () => true,
-          }}
-          summary={() => (
-            <>
-              <Table.Summary.Row>
-                <Table.Summary.Cell index={0} colSpan={5} align="right">
-                  <Text strong>Subtotal excl. moms</Text>
-                </Table.Summary.Cell>
-                <Table.Summary.Cell index={5} align="right">
-                  <Text strong className="tnum">{formatDKK(doc.totalExclVat)}</Text>
-                </Table.Summary.Cell>
-                <Table.Summary.Cell index={6} />
-              </Table.Summary.Row>
-              {doc.taxSummary.map(tax => (
-                <Table.Summary.Row key={`${tax.taxCategory}-${tax.taxPercent}`}>
-                  <Table.Summary.Cell index={0} colSpan={5} align="right">
-                    <Text type="secondary">
-                      Moms af {formatDKK(tax.taxableAmount)}
-                    </Text>
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={5} align="right">
-                    <Text className="tnum">{formatDKK(tax.taxAmount)}</Text>
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={6} />
-                </Table.Summary.Row>
-              ))}
-              <Table.Summary.Row style={{ background: '#f8fafb' }}>
-                <Table.Summary.Cell index={0} colSpan={5} align="right">
-                  <Text strong style={{ fontSize: 15 }}>Total inkl. moms</Text>
-                </Table.Summary.Cell>
-                <Table.Summary.Cell index={5} align="right">
-                  <Text strong className="tnum" style={{
-                    fontSize: 15, color: doc.totalInclVat < 0 ? '#059669' : undefined,
-                  }}>
-                    {formatDKK(doc.totalInclVat)}
-                  </Text>
-                </Table.Summary.Cell>
-                <Table.Summary.Cell index={6} />
-              </Table.Summary.Row>
-            </>
-          )}
-        />
+        {(() => {
+          // Classify settlement lines into categories
+          const classifySettleLine = (line: SettlementDocumentLine): string => {
+            if (line.source === 'SpotPrice') return 'spot';
+            if (line.source === 'SupplierMargin') return 'margin';
+            const d = line.description.toLowerCase();
+            if (d.includes('abo') || d.includes('abonnement') || line.details?.type === 'abonnement') return 'subscription';
+            return 'tariff';
+          };
+
+          const categories = ['tariff', 'subscription', 'spot', 'margin'] as const;
+          const grouped = categories.map(cat => {
+            const lines = doc.lines.filter(l => classifySettleLine(l) === cat);
+            if (lines.length === 0) return null;
+            const sum = lines.reduce((s, l) => s + l.lineAmount, 0);
+            const taxSum = lines.reduce((s, l) => s + l.taxAmount, 0);
+            return { cat, lines, sum, taxSum };
+          }).filter(Boolean) as { cat: string; lines: SettlementDocumentLine[]; sum: number; taxSum: number }[];
+
+          return (
+            <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: '#f8fafb', borderBottom: '2px solid #e5e7eb' }}>
+                    <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Beskrivelse</th>
+                    <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase', width: 100 }}>Mængde</th>
+                    <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase', width: 100 }}>Enhedspris</th>
+                    <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase', width: 110 }}>Beløb</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {grouped.map((g, gi) => {
+                    const cc = categoryConfig[g.cat];
+                    return [
+                      <tr key={`cat-${g.cat}`} style={{ background: cc.bg + '40', borderTop: gi > 0 ? '2px solid #e5e7eb' : undefined }}>
+                        <td colSpan={4} style={{ padding: '6px 12px' }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: cc.color }}>
+                            {cc.label}
+                          </span>
+                        </td>
+                      </tr>,
+                      ...g.lines.flatMap((line) => {
+                        const isExpanded = expandedSettleRows.has(line.lineNumber);
+                        const toggleExpand = () => {
+                          setExpandedSettleRows(prev => {
+                            const next = new Set(prev);
+                            if (next.has(line.lineNumber)) next.delete(line.lineNumber);
+                            else next.add(line.lineNumber);
+                            return next;
+                          });
+                        };
+                        const isSub = line.details?.type === 'abonnement';
+                        const unit = isSub ? 'dage' : 'kWh';
+                        return [
+                          <tr key={line.lineNumber} onClick={toggleExpand} style={{ borderBottom: '1px solid #f3f4f6', cursor: 'pointer' }}>
+                            <td style={{ padding: '6px 12px 6px 24px' }}>
+                              <span style={{ display: 'inline-block', width: 16, fontSize: 10, color: '#9ca3af', transition: 'transform 0.2s', transform: isExpanded ? 'rotate(90deg)' : 'none' }}>▶</span>
+                              <span>{line.description}</span>
+                            </td>
+                            <td className="tnum" style={{ textAlign: 'right', padding: '6px 12px', color: '#6b7280' }}>
+                              {line.quantity.toFixed(2)} {unit}
+                            </td>
+                            <td className="tnum" style={{ textAlign: 'right', padding: '6px 12px', color: '#6b7280' }}>
+                              {fmtRate(line.unitPrice)} DKK
+                            </td>
+                            <td className="tnum" style={{ textAlign: 'right', padding: '6px 12px', fontWeight: 500, color: line.lineAmount < 0 ? '#059669' : undefined }}>
+                              {formatDKK(line.lineAmount)}
+                            </td>
+                          </tr>,
+                          isExpanded && (
+                            <tr key={`${line.lineNumber}-detail`}>
+                              <td colSpan={4} style={{ padding: '0 12px 12px 40px', background: '#fafbfc' }}>
+                                {renderSettlementLineDetail(line)}
+                              </td>
+                            </tr>
+                          ),
+                        ].filter(Boolean);
+                      }),
+                      <tr key={`sub-${g.cat}`} style={{ background: '#f8fafb', borderBottom: '1px solid #e5e7eb' }}>
+                        <td colSpan={3} style={{ padding: '6px 12px', fontWeight: 600, fontSize: 12, color: '#374151' }}>Subtotal {cc.label.toLowerCase()}</td>
+                        <td className="tnum" style={{ textAlign: 'right', padding: '6px 12px', fontWeight: 600 }}>{formatDKK(g.sum)}</td>
+                      </tr>,
+                    ];
+                  })}
+                  {/* Tax summary */}
+                  {doc.taxSummary.map(tax => (
+                    <tr key={`tax-${tax.taxCategory}`} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                      <td colSpan={3} style={{ padding: '6px 12px', textAlign: 'right', color: '#6b7280' }}>
+                        Moms af {formatDKK(tax.taxableAmount)}
+                      </td>
+                      <td className="tnum" style={{ textAlign: 'right', padding: '6px 12px' }}>{formatDKK(tax.taxAmount)}</td>
+                    </tr>
+                  ))}
+                  {/* Grand total */}
+                  <tr style={{ background: '#f0f4f8', borderTop: '2px solid #cbd5e1' }}>
+                    <td colSpan={3} style={{ padding: '10px 12px', fontWeight: 700, fontSize: 14, textAlign: 'right' }}>Total inkl. moms</td>
+                    <td className="tnum" style={{ textAlign: 'right', padding: '10px 12px', fontWeight: 700, fontSize: 14, color: doc.totalInclVat < 0 ? '#059669' : undefined }}>
+                      {formatDKK(doc.totalInclVat)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
       </Card>
 
       {/* Recalculation comparison */}
