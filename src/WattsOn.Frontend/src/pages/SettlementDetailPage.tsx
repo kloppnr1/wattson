@@ -10,7 +10,7 @@ import {
   ExclamationCircleOutlined, CalculatorOutlined,
   InfoCircleOutlined,
 } from '@ant-design/icons';
-import type { SettlementDocument, SettlementDocumentLine, RecalcResult, RecalcLine, LineDetails, DailyDetail } from '../api/client';
+import type { SettlementDocument, SettlementDocumentLine, RecalcResult, RecalcLine, LineDetails, DailyDetail, MigratedHourlyEntry } from '../api/client';
 import { getSettlementDocument, confirmSettlement, recalculateSettlement } from '../api/client';
 
 const { Title, Text } = Typography;
@@ -173,6 +173,7 @@ export default function SettlementDetailPage() {
         onlyOrig: !recalc && !!orig,
         onlyRecalc: !orig && !!recalc,
         details: recalc?.details ?? null,
+        origDetails: orig?.details ?? null,
         category,
       };
     })
@@ -256,40 +257,21 @@ export default function SettlementDetailPage() {
 
   // Expandable row: per-line calculation breakdown
   // Shared detail renderer for both settlement lines and recalc comparison rows
+  // Check if a line has visible expandable detail
+  const hasVisibleDetail = (d: LineDetails | undefined | null, daily?: DailyDetail[] | null): boolean => {
+    if (!d) return false;
+    if (d.type === 'tarif' && (d.daily || daily) && ((d.daily ?? daily)!.length > 0)) return true;
+    if (d.type === 'abonnement' && d.days && d.dailyRate) return true;
+    if (d.type === 'spot' && (d.totalHours || d.daily || daily)) return true;
+    if (d.type === 'margin' && d.ratePerKwh !== undefined) return true;
+    return false;
+  };
+
   const renderBreakdownDetail = (d: LineDetails | undefined | null, daily?: DailyDetail[] | null) => {
-    if (!d) return <Text type="secondary" style={{ fontSize: 12 }}>Ingen yderligere detaljer tilgængelige</Text>;
+    if (!d) return null;
 
     return (
       <div style={{ padding: '4px 0' }}>
-        {/* Tariff tier breakdown */}
-        {d.type === 'tarif' && d.tiers && d.tiers.length > 0 && (
-          <div style={{ marginTop: 4 }}>
-            <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6b7280', marginBottom: 6 }}>
-              Satsfordeling — {d.totalHours} timer, {d.hoursWithPrice} med pris
-            </div>
-            <table style={{ width: '100%', maxWidth: 480, fontSize: 12, borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
-                  <th style={{ textAlign: 'left', padding: '4px 8px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Sats</th>
-                  <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Timer</th>
-                  <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>kWh</th>
-                  <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Beløb</th>
-                </tr>
-              </thead>
-              <tbody>
-                {d.tiers.map((t, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                    <td className="tnum" style={{ padding: '4px 8px' }}>{fmtRate(t.rate)} DKK/kWh</td>
-                    <td className="tnum" style={{ padding: '4px 8px', textAlign: 'right' }}>{t.hours}</td>
-                    <td className="tnum" style={{ padding: '4px 8px', textAlign: 'right' }}>{t.kwh.toFixed(2)}</td>
-                    <td className="tnum" style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 500 }}>{formatDKK(t.amount)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
         {/* Subscription detail */}
         {d?.type === 'abonnement' && (
           <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
@@ -324,15 +306,215 @@ export default function SettlementDetailPage() {
           </div>
         )}
 
-        {/* Daily/hourly breakdown */}
-        {(d.daily ?? daily) && renderDailyBreakdown((d.daily ?? daily)!)}
+        {/* Daily/hourly breakdown — rendered flat, no collapsible wrapper */}
+        {(d.daily ?? daily) && (() => {
+          const dayData = (d.daily ?? daily)!;
+          if (!dayData || dayData.length === 0) return null;
+          return (
+            <div style={{ marginTop: 8, maxHeight: 420, overflowY: 'auto', fontSize: 12 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid #e5e7eb', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
+                    <th style={{ textAlign: 'left', padding: '4px 6px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Dato / Time</th>
+                    <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>kWh</th>
+                    <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Sats</th>
+                    <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Beløb</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dayData.map((day) => {
+                    const dayLabel = new Date(day.date + 'T12:00:00').toLocaleDateString('da-DK', { day: 'numeric', month: 'short', year: 'numeric' });
+                    return [
+                      <tr key={`day-${day.date}`} style={{ background: '#f8fafb', borderTop: '1px solid #e5e7eb' }}>
+                        <td style={{ padding: '5px 6px', fontWeight: 600, color: '#374151' }}>{dayLabel}</td>
+                        <td className="tnum" style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>{day.kwh.toFixed(2)}</td>
+                        <td style={{ padding: '5px 6px' }}></td>
+                        <td className="tnum" style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>{formatDKK(day.amount)}</td>
+                      </tr>,
+                      ...day.hours.map((h) => (
+                        <tr key={`${day.date}-${h.hour}`} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                          <td style={{ padding: '3px 6px 3px 20px', color: '#6b7280' }}>{String(h.hour).padStart(2, '0')}:00</td>
+                          <td className="tnum" style={{ padding: '3px 6px', textAlign: 'right' }}>{h.kwh.toFixed(3)}</td>
+                          <td className="tnum" style={{ padding: '3px 6px', textAlign: 'right', color: '#6b7280' }}>{fmtRate(h.rate)}</td>
+                          <td className="tnum" style={{ padding: '3px 6px', textAlign: 'right' }}>{formatDKK(h.amount)}</td>
+                        </tr>
+                      )),
+                    ];
+                  })}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
       </div>
     );
   };
 
-  // Recalc comparison: just delegates to shared renderer
-  const renderLineDetail = (row: ReturnType<typeof buildComparisonRows>[number]) =>
-    renderBreakdownDetail(row.details, row.details?.daily);
+  // Recalc comparison: shows both original and recalculated hourly data
+  const renderLineDetail = (row: ReturnType<typeof buildComparisonRows>[number]) => {
+    const recalcDaily = row.details?.daily;
+    const origDaily = row.origDetails?.daily;
+
+    // If we have hourly data from both sides, show side-by-side comparison
+    if (recalcDaily && recalcDaily.length > 0 && origDaily && origDaily.length > 0) {
+      // Build lookup: date → hour → origHour
+      const origLookup = new Map<string, Map<number, { kwh: number; rate: number; amount: number }>>();
+      for (const day of origDaily) {
+        const hourMap = new Map<number, { kwh: number; rate: number; amount: number }>();
+        for (const h of day.hours) hourMap.set(h.hour, h);
+        origLookup.set(day.date, hourMap);
+      }
+
+      return (
+        <div style={{ padding: '4px 0' }}>
+          {/* Non-hourly details (subscription, margin, spot stats) */}
+          {row.details?.type === 'abonnement' && row.details.days != null && row.details.dailyRate != null && (
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+              {row.details.days} dage × {fmtRate(row.details.dailyRate)} DKK/dag = {formatDKK(row.details.days * row.details.dailyRate)}
+            </div>
+          )}
+          {row.details?.type === 'spot' && row.details.totalHours != null && (
+            <div style={{ marginTop: 4 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6b7280', marginBottom: 4 }}>
+                Spotprisstatistik
+              </div>
+              <div style={{ fontSize: 12, display: 'flex', gap: 16 }}>
+                <span><Text type="secondary">Timer: </Text><span className="tnum">{row.details.hoursWithPrice}/{row.details.totalHours}</span></span>
+                <span><Text type="secondary">Gns: </Text><span className="tnum">{fmtRate(row.details.avgRate!)}</span></span>
+                <span><Text type="secondary">Min: </Text><span className="tnum">{fmtRate(row.details.minRate!)}</span></span>
+                <span><Text type="secondary">Maks: </Text><span className="tnum">{fmtRate(row.details.maxRate!)}</span></span>
+                <Text type="secondary">DKK/kWh</Text>
+              </div>
+            </div>
+          )}
+          {row.details?.type === 'margin' && row.details.ratePerKwh !== undefined && (
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+              Sats: {fmtRate(row.details.ratePerKwh)} DKK/kWh
+            </div>
+          )}
+
+          {/* Hourly comparison table */}
+          <div style={{ marginTop: 8, maxHeight: 420, overflowY: 'auto', fontSize: 12 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid #e5e7eb', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
+                  <th style={{ textAlign: 'left', padding: '4px 6px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Dato / Time</th>
+                  <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Orig. sats</th>
+                  <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Ny sats</th>
+                  <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Orig. beløb</th>
+                  <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Nyt beløb</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recalcDaily.map((day) => {
+                  const dayLabel = new Date(day.date + 'T12:00:00').toLocaleDateString('da-DK', { day: 'numeric', month: 'short', year: 'numeric' });
+                  const origDay = origDaily.find(d => d.date === day.date);
+                  return [
+                    <tr key={`day-${day.date}`} style={{ background: '#f8fafb', borderTop: '1px solid #e5e7eb' }}>
+                      <td style={{ padding: '5px 6px', fontWeight: 600, color: '#374151' }}>{dayLabel}</td>
+                      <td style={{ padding: '5px 6px' }}></td>
+                      <td style={{ padding: '5px 6px' }}></td>
+                      <td className="tnum" style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 600, color: '#6b7280' }}>{origDay ? formatDKK(origDay.amount) : '—'}</td>
+                      <td className="tnum" style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>{formatDKK(day.amount)}</td>
+                    </tr>,
+                    ...day.hours.map((h) => {
+                      const origHour = origLookup.get(day.date)?.get(h.hour);
+                      const rateDiff = origHour ? h.rate - origHour.rate : null;
+                      const rateChanged = rateDiff !== null && Math.abs(rateDiff) > 0.000001;
+                      return (
+                        <tr key={`${day.date}-${h.hour}`} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                          <td style={{ padding: '3px 6px 3px 20px', color: '#6b7280' }}>{String(h.hour).padStart(2, '0')}:00</td>
+                          <td className="tnum" style={{ padding: '3px 6px', textAlign: 'right', color: rateChanged ? '#d97706' : '#6b7280' }}>
+                            {origHour ? fmtRate(origHour.rate) : '—'}
+                          </td>
+                          <td className="tnum" style={{ padding: '3px 6px', textAlign: 'right', color: rateChanged ? '#d97706' : undefined }}>
+                            {fmtRate(h.rate)}
+                          </td>
+                          <td className="tnum" style={{ padding: '3px 6px', textAlign: 'right', color: '#6b7280' }}>
+                            {origHour ? formatDKK(origHour.amount) : '—'}
+                          </td>
+                          <td className="tnum" style={{ padding: '3px 6px', textAlign: 'right' }}>{formatDKK(h.amount)}</td>
+                        </tr>
+                      );
+                    }),
+                  ];
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    }
+
+    // One side has hourly data — show with original unit price as reference
+    const dailyData = row.details?.daily;
+    if (dailyData && dailyData.length > 0 && row.origUnit !== null) {
+      return (
+        <div style={{ padding: '4px 0' }}>
+          {row.details?.type === 'spot' && row.details.totalHours != null && (
+            <div style={{ marginTop: 4, marginBottom: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6b7280', marginBottom: 4 }}>
+                Spotprisstatistik
+              </div>
+              <div style={{ fontSize: 12, display: 'flex', gap: 16 }}>
+                <span><Text type="secondary">Timer: </Text><span className="tnum">{row.details.hoursWithPrice}/{row.details.totalHours}</span></span>
+                <span><Text type="secondary">Gns: </Text><span className="tnum">{fmtRate(row.details.avgRate!)}</span></span>
+                <span><Text type="secondary">Min: </Text><span className="tnum">{fmtRate(row.details.minRate!)}</span></span>
+                <span><Text type="secondary">Maks: </Text><span className="tnum">{fmtRate(row.details.maxRate!)}</span></span>
+                <Text type="secondary">DKK/kWh</Text>
+              </div>
+            </div>
+          )}
+          <div style={{ marginTop: 8, maxHeight: 420, overflowY: 'auto', fontSize: 12 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid #e5e7eb', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
+                  <th style={{ textAlign: 'left', padding: '4px 6px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Dato / Time</th>
+                  <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>kWh</th>
+                  <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Orig. sats</th>
+                  <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Ny sats</th>
+                  <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Beløb</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dailyData.map((day) => {
+                  const dayLabel = new Date(day.date + 'T12:00:00').toLocaleDateString('da-DK', { day: 'numeric', month: 'short', year: 'numeric' });
+                  return [
+                    <tr key={`day-${day.date}`} style={{ background: '#f8fafb', borderTop: '1px solid #e5e7eb' }}>
+                      <td style={{ padding: '5px 6px', fontWeight: 600, color: '#374151' }}>{dayLabel}</td>
+                      <td className="tnum" style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>{day.kwh.toFixed(2)}</td>
+                      <td style={{ padding: '5px 6px' }}></td>
+                      <td style={{ padding: '5px 6px' }}></td>
+                      <td className="tnum" style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 600, color: '#374151' }}>{formatDKK(day.amount)}</td>
+                    </tr>,
+                    ...day.hours.map((h) => {
+                      const rateChanged = Math.abs(h.rate - row.origUnit!) > 0.000001;
+                      return (
+                        <tr key={`${day.date}-${h.hour}`} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                          <td style={{ padding: '3px 6px 3px 20px', color: '#6b7280' }}>{String(h.hour).padStart(2, '0')}:00</td>
+                          <td className="tnum" style={{ padding: '3px 6px', textAlign: 'right' }}>{h.kwh.toFixed(3)}</td>
+                          <td className="tnum" style={{ padding: '3px 6px', textAlign: 'right', color: '#6b7280' }}>
+                            {fmtRate(row.origUnit!)}
+                          </td>
+                          <td className="tnum" style={{ padding: '3px 6px', textAlign: 'right', color: rateChanged ? '#d97706' : undefined }}>
+                            {fmtRate(h.rate)}
+                          </td>
+                          <td className="tnum" style={{ padding: '3px 6px', textAlign: 'right' }}>{formatDKK(h.amount)}</td>
+                        </tr>
+                      );
+                    }),
+                  ];
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    }
+
+    // No hourly data — use shared renderer
+    return renderBreakdownDetail(row.details, row.details?.daily);
+  };
 
   // Settlement line: just delegates to shared renderer
   const renderSettlementLineDetail = (line: SettlementDocumentLine) =>
@@ -553,22 +735,28 @@ export default function SettlementDetailPage() {
                         </td>
                       </tr>,
                       ...g.lines.flatMap((line) => {
-                        const isExpanded = expandedSettleRows.has(line.lineNumber);
-                        const toggleExpand = () => {
+                        const canExpand = hasVisibleDetail(line.details, line.details?.daily);
+                        const isExpanded = canExpand && expandedSettleRows.has(line.lineNumber);
+                        const toggleExpand = canExpand ? () => {
                           setExpandedSettleRows(prev => {
                             const next = new Set(prev);
                             if (next.has(line.lineNumber)) next.delete(line.lineNumber);
                             else next.add(line.lineNumber);
                             return next;
                           });
-                        };
+                        } : undefined;
                         const isSub = line.details?.type === 'abonnement';
                         const unit = isSub ? 'dage' : 'kWh';
                         return [
-                          <tr key={line.lineNumber} onClick={toggleExpand} style={{ borderBottom: '1px solid #f3f4f6', cursor: 'pointer' }}>
+                          <tr key={line.lineNumber} onClick={toggleExpand} style={{ borderBottom: '1px solid #f3f4f6', cursor: canExpand ? 'pointer' : undefined }}>
                             <td style={{ padding: '6px 12px 6px 24px' }}>
-                              <span style={{ display: 'inline-block', width: 16, fontSize: 10, color: '#9ca3af', transition: 'transform 0.2s', transform: isExpanded ? 'rotate(90deg)' : 'none' }}>▶</span>
+                              {canExpand && <span style={{ display: 'inline-block', width: 16, fontSize: 10, color: '#9ca3af', transition: 'transform 0.2s', transform: isExpanded ? 'rotate(90deg)' : 'none' }}>▶</span>}
                               <span>{line.description}</span>
+                              {line.details?.totalHours != null && (
+                                <span style={{ marginLeft: 8, fontSize: 11, color: '#9ca3af' }}>
+                                  {line.details.totalHours} timer
+                                </span>
+                              )}
                             </td>
                             <td className="tnum" style={{ textAlign: 'right', padding: '6px 12px', color: '#6b7280' }}>
                               {line.quantity.toFixed(2)} {unit}
@@ -784,27 +972,31 @@ export default function SettlementDetailPage() {
                             </tr>,
                             // Line rows (with expandable detail)
                             ...cs.rows.flatMap((r) => {
-                              const isExpanded = expandedCompRows.has(r.key);
-                              const hasDetail = r.origQty !== null || r.recalcQty !== null;
-                              const toggleExpand = () => {
-                                if (!hasDetail) return;
+                              const canExpand = hasVisibleDetail(r.details, r.details?.daily);
+                              const isExpanded = canExpand && expandedCompRows.has(r.key);
+                              const toggleExpand = canExpand ? () => {
                                 setExpandedCompRows(prev => {
                                   const next = new Set(prev);
                                   if (next.has(r.key)) next.delete(r.key);
                                   else next.add(r.key);
                                   return next;
                                 });
-                              };
+                              } : undefined;
                               return [
                                 <tr key={r.key}
                                   onClick={toggleExpand}
-                                  style={{ borderBottom: '1px solid #f3f4f6', cursor: hasDetail ? 'pointer' : undefined }}
+                                  style={{ borderBottom: '1px solid #f3f4f6', cursor: canExpand ? 'pointer' : undefined }}
                                 >
                                   <td style={{ padding: '6px 12px 6px 24px' }}>
-                                    {hasDetail && (
+                                    {canExpand && (
                                       <span style={{ display: 'inline-block', width: 16, fontSize: 10, color: '#9ca3af', transition: 'transform 0.2s', transform: isExpanded ? 'rotate(90deg)' : 'none' }}>▶</span>
                                     )}
                                     <span>{r.description}</span>
+                                    {r.details?.totalHours != null && (
+                                      <span style={{ marginLeft: 8, fontSize: 11, color: '#9ca3af' }}>
+                                        {r.details.totalHours} timer
+                                      </span>
+                                    )}
                                     {r.onlyOrig && <Tag style={{ marginLeft: 6, background: '#f3f4f6', color: '#6b7280', border: '1px solid #d1d5db', fontSize: 10 }}>kun original</Tag>}
                                     {r.onlyRecalc && <Tag style={{ marginLeft: 6, background: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd', fontSize: 10 }}>kun genberegnet</Tag>}
                                   </td>
@@ -819,7 +1011,7 @@ export default function SettlementDetailPage() {
                                   </td>
                                 </tr>,
                                 // Expanded detail row
-                                isExpanded && hasDetail && (
+                                isExpanded && canExpand && (
                                   <tr key={`${r.key}-detail`}>
                                     <td colSpan={4} style={{ padding: '0 12px 12px 24px', background: '#fafbfc' }}>
                                       {renderLineDetail(r)}
@@ -847,6 +1039,171 @@ export default function SettlementDetailPage() {
                       </tbody>
                     </table>
                   </div>
+
+                  {/* Energy (kWh) hourly breakdown — merged from both sources with diff navigation */}
+                  {(() => {
+                    const kwhLine = compRows.find(r => r.details?.daily && r.details.daily.length > 0);
+                    if (!kwhLine?.details?.daily && !recalc.migratedHourly?.length) return null;
+
+                    const dkTz = 'Europe/Copenhagen';
+
+                    // Build new (recalculated) lookup: "YYYY-MM-DD|HH" → kwh
+                    const newHourLookup = new Map<string, number>();
+                    const newDaySums = new Map<string, number>();
+                    if (kwhLine?.details?.daily) {
+                      for (const d of kwhLine.details.daily) {
+                        for (const h of d.hours) {
+                          newHourLookup.set(`${d.date}|${h.hour}`, h.kwh);
+                        }
+                        newDaySums.set(d.date, d.kwh);
+                      }
+                    }
+
+                    // Build orig (Xellent) lookup
+                    const origHourLookup = new Map<string, number>();
+                    const origDaySums = new Map<string, number>();
+                    if (recalc.migratedHourly && recalc.migratedHourly.length > 0) {
+                      for (const h of recalc.migratedHourly) {
+                        const lt = new Date(h.t).toLocaleString('sv-SE', { timeZone: dkTz });
+                        const [dateStr, timeStr] = lt.split(' ');
+                        const hour = parseInt(timeStr.split(':')[0], 10);
+                        const key = `${dateStr}|${hour}`;
+                        origHourLookup.set(key, (origHourLookup.get(key) ?? 0) + h.k);
+                        origDaySums.set(dateStr, (origDaySums.get(dateStr) ?? 0) + h.k);
+                      }
+                    }
+                    const hasOrigHourly = origHourLookup.size > 0;
+
+                    // Merge all dates + hours from both sources
+                    const allDates = new Set([...newDaySums.keys(), ...origDaySums.keys()]);
+                    const sortedDates = Array.from(allDates).sort();
+
+                    type MergedHour = { hour: number; origKwh: number | null; newKwh: number | null; diff: boolean };
+                    type MergedDay = { date: string; hours: MergedHour[]; origTotal: number; newTotal: number; diff: boolean };
+                    const mergedDays: MergedDay[] = sortedDates.map(date => {
+                      // Collect all hours for this date from both sources
+                      const allHours = new Set<number>();
+                      for (const [key] of origHourLookup) {
+                        const [d, h] = key.split('|');
+                        if (d === date) allHours.add(parseInt(h, 10));
+                      }
+                      for (const [key] of newHourLookup) {
+                        const [d, h] = key.split('|');
+                        if (d === date) allHours.add(parseInt(h, 10));
+                      }
+                      const sortedHours = Array.from(allHours).sort((a, b) => a - b);
+
+                      const hours: MergedHour[] = sortedHours.map(hour => {
+                        const key = `${date}|${hour}`;
+                        const orig = origHourLookup.get(key) ?? null;
+                        const nw = newHourLookup.get(key) ?? null;
+                        const diff = orig !== null && nw !== null
+                          ? Math.abs(orig - nw) > 0.0001
+                          : orig !== nw; // one side missing
+                        return { hour, origKwh: orig, newKwh: nw, diff };
+                      });
+
+                      const origTotal = origDaySums.get(date) ?? 0;
+                      const newTotal = newDaySums.get(date) ?? 0;
+                      const diff = Math.abs(origTotal - newTotal) > 0.001;
+                      return { date, hours, origTotal, newTotal, diff };
+                    });
+
+                    const totalOrigKwh = Array.from(origDaySums.values()).reduce((s, v) => s + v, 0);
+                    const totalNewKwh = Array.from(newDaySums.values()).reduce((s, v) => s + v, 0);
+                    const totalHours = mergedDays.reduce((s, d) => s + d.hours.length, 0);
+                    const energyDiff = totalNewKwh - totalOrigKwh;
+                    const diffCount = mergedDays.reduce((s, d) => s + d.hours.filter(h => h.diff).length, 0);
+
+                    const jumpToDiff = (direction: 'next' | 'prev') => {
+                      const container = document.getElementById('energy-kwh-scroll');
+                      if (!container) return;
+                      const diffRows = container.querySelectorAll<HTMLElement>('[data-kwh-diff]');
+                      if (diffRows.length === 0) return;
+                      const scrollTop = container.scrollTop;
+                      const mid = scrollTop + container.clientHeight / 2;
+                      let currentIdx = 0;
+                      for (let i = 0; i < diffRows.length; i++) {
+                        if (diffRows[i].offsetTop <= mid) currentIdx = i;
+                      }
+                      const targetIdx = direction === 'next'
+                        ? Math.min(currentIdx + 1, diffRows.length - 1)
+                        : Math.max(currentIdx - 1, 0);
+                      diffRows[targetIdx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    };
+
+                    return (
+                      <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+                        <div style={{ padding: '10px 12px', background: '#f0f9ff', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                          <div>
+                            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#0369a1' }}>
+                              Energi (kWh) — {totalHours} timer
+                            </span>
+                            <span style={{ marginLeft: 12, fontSize: 11, color: '#6b7280' }}>
+                              Xellent: {totalOrigKwh.toFixed(2)} kWh → WattsOn: {totalNewKwh.toFixed(2)} kWh
+                              <span style={{ marginLeft: 6, color: Math.abs(energyDiff) < 0.01 ? '#059669' : '#d97706' }}>
+                                ({(energyDiff >= 0 ? '+' : '')}{energyDiff.toFixed(2)} kWh)
+                              </span>
+                            </span>
+                          </div>
+                          {diffCount > 0 && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontSize: 11, color: '#d97706', fontWeight: 600 }}>{diffCount} afvigelser</span>
+                              <button onClick={() => jumpToDiff('prev')}
+                                style={{ border: '1px solid #d1d5db', borderRadius: 4, background: '#fff', padding: '2px 8px', cursor: 'pointer', fontSize: 11, color: '#374151' }}
+                              >▲ Forrige</button>
+                              <button onClick={() => jumpToDiff('next')}
+                                style={{ border: '1px solid #d1d5db', borderRadius: 4, background: '#fff', padding: '2px 8px', cursor: 'pointer', fontSize: 11, color: '#374151' }}
+                              >▼ Næste</button>
+                            </div>
+                          )}
+                        </div>
+                        <div id="energy-kwh-scroll" style={{ maxHeight: 380, overflowY: 'auto', fontSize: 12 }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead>
+                              <tr style={{ borderBottom: '2px solid #e5e7eb', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
+                                <th style={{ textAlign: 'left', padding: '4px 8px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Dato / Time</th>
+                                <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>Xellent kWh</th>
+                                <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600, color: '#6b7280', fontSize: 10, textTransform: 'uppercase' }}>WattsOn kWh</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {mergedDays.map((day) => {
+                                const dayLabel = new Date(day.date + 'T12:00:00').toLocaleDateString('da-DK', { day: 'numeric', month: 'short', year: 'numeric' });
+                                return [
+                                  <tr key={`ekwh-${day.date}`} style={{ background: day.diff ? '#fef3c7' : '#f8fafb', borderTop: '1px solid #e5e7eb' }}>
+                                    <td style={{ padding: '5px 8px', fontWeight: 600, color: day.diff ? '#92400e' : '#374151' }}>{dayLabel}</td>
+                                    <td className="tnum" style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 600, color: day.diff ? '#92400e' : '#6b7280' }}>
+                                      {day.origTotal > 0 ? day.origTotal.toFixed(2) : '—'}
+                                    </td>
+                                    <td className="tnum" style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 600, color: day.diff ? '#92400e' : '#374151' }}>
+                                      {day.newTotal > 0 ? day.newTotal.toFixed(2) : '—'}
+                                    </td>
+                                  </tr>,
+                                  ...day.hours.map((h) => (
+                                    <tr key={`ekwh-${day.date}-${h.hour}`}
+                                      {...(h.diff ? { 'data-kwh-diff': '' } as any : {})}
+                                      style={{ borderBottom: '1px solid #f3f4f6', background: h.diff ? '#fef9c3' : undefined }}
+                                    >
+                                      <td style={{ padding: '3px 8px 3px 24px', color: h.diff ? '#92400e' : '#6b7280' }}>
+                                        {String(h.hour).padStart(2, '0')}:00
+                                      </td>
+                                      <td className="tnum" style={{ padding: '3px 8px', textAlign: 'right', color: h.diff ? '#d97706' : '#6b7280' }}>
+                                        {h.origKwh !== null ? h.origKwh.toFixed(3) : '—'}
+                                      </td>
+                                      <td className="tnum" style={{ padding: '3px 8px', textAlign: 'right', color: h.diff ? '#d97706' : undefined }}>
+                                        {h.newKwh !== null ? h.newKwh.toFixed(3) : '—'}
+                                      </td>
+                                    </tr>
+                                  )),
+                                ];
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   <Alert
                     type="info" showIcon icon={<InfoCircleOutlined />}

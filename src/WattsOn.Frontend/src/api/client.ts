@@ -368,6 +368,13 @@ export interface RecalcLine {
   details?: LineDetails;
 }
 
+export interface MigratedHourlyEntry {
+  t: string;  // timestamp
+  k: number;  // kwh
+  s: number;  // spot price
+  c: number;  // calculated price
+}
+
 export interface RecalcResult {
   settlementId: string;
   status: string;
@@ -377,6 +384,7 @@ export interface RecalcResult {
   spotPricesInPeriod: number;
   datahubPriceLinks: number;
   marginRate: number | null;
+  migratedHourly: MigratedHourlyEntry[] | null;
   original: { totalEnergyKwh: number; totalAmount: number; lines: RecalcLine[] };
   recalculated: { totalEnergyKwh: number; totalAmount: number; lines: RecalcLine[] } | null;
   recalcError: string | null;

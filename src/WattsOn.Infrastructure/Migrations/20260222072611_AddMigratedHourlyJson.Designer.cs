@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using WattsOn.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using WattsOn.Infrastructure.Persistence;
 namespace WattsOn.Infrastructure.Migrations
 {
     [DbContext(typeof(WattsOnDbContext))]
-    partial class WattsOnDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260222072611_AddMigratedHourlyJson")]
+    partial class AddMigratedHourlyJson
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

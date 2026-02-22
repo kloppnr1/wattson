@@ -398,7 +398,9 @@ pushCommand.SetHandler(async (context) =>
                 billingLogNum = s.BillingLogNum, externalInvoiceReference = s.HistKeyNumber,
                 totalEnergyKwh = s.TotalEnergyKwh, spotAmountDkk = s.SpotAmountDkk, marginAmountDkk = s.MarginAmountDkk,
                 tariffLines = s.TariffLines.Select(t => new
-                { chargeId = t.PartyChargeTypeId, description = t.Description, energyKwh = t.EnergyKwh, avgUnitPrice = t.AvgUnitPrice, amountDkk = t.AmountDkk, isSubscription = t.IsSubscription }).ToList()
+                { chargeId = t.PartyChargeTypeId, description = t.Description, energyKwh = t.EnergyKwh, avgUnitPrice = t.AvgUnitPrice, amountDkk = t.AmountDkk, isSubscription = t.IsSubscription }).ToList(),
+                hourlyLines = s.HourlyLines.Select(h => new
+                { timestamp = h.Timestamp, kwh = h.Kwh, spotPrice = h.SpotPriceDkkPerKwh, calcPrice = h.CalculatedPriceDkkPerKwh }).ToList()
             }).ToList()
         });
         result.SettlementsCreated = settlementResult.GetProperty("created").GetInt32();

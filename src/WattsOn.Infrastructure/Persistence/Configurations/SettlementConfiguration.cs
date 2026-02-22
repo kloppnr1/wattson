@@ -32,6 +32,10 @@ public class SettlementConfiguration : IEntityTypeConfiguration<Settlement>
         builder.Property(a => a.ExternalInvoiceReference).HasColumnName("external_invoice_reference").HasMaxLength(100);
         builder.Property(a => a.InvoicedAt).HasColumnName("invoiced_at");
 
+        // Migrated hourly data from source system (JSON blob, nullable)
+        builder.Property(a => a.MigratedHourlyJson).HasColumnName("migrated_hourly_json")
+            .HasColumnType("jsonb").IsRequired(false);
+
         builder.HasIndex(a => a.Status); // Fast lookup for uninvoiced settlements
 
         builder.OwnsOne(a => a.SettlementPeriod, period =>

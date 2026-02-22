@@ -51,6 +51,13 @@ public class Settlement : Entity
     /// <summary>Sequential document number for external reference (WO-YYYY-NNNNN)</summary>
     public long DocumentNumber { get; private set; }
 
+    /// <summary>
+    /// JSON blob of hourly data from source system (Xellent) for migrated settlements.
+    /// Used for comparison with WattsOn's recalculation. Null for WattsOn-calculated settlements.
+    /// Format: [{ "timestamp": "...", "kwh": 0.45, "spotPrice": 0.85, "calcPrice": 1.23 }, ...]
+    /// </summary>
+    public string? MigratedHourlyJson { get; private set; }
+
     /// <summary>Individual line items of this settlement</summary>
     private readonly List<SettlementLine> _lines = new();
     public IReadOnlyList<SettlementLine> Lines => _lines.AsReadOnly();
@@ -142,7 +149,8 @@ public class Settlement : Entity
         Guid timeSeriesId,
         int timeSeriesVersion,
         EnergyQuantity totalEnergy,
-        string? externalInvoiceReference)
+        string? externalInvoiceReference,
+        string? migratedHourlyJson = null)
     {
         return new Settlement
         {
@@ -157,7 +165,8 @@ public class Settlement : Entity
             Status = SettlementStatus.Migrated,
             ExternalInvoiceReference = externalInvoiceReference,
             InvoicedAt = DateTimeOffset.UtcNow,
-            CalculatedAt = DateTimeOffset.UtcNow
+            CalculatedAt = DateTimeOffset.UtcNow,
+            MigratedHourlyJson = migratedHourlyJson
         };
     }
 

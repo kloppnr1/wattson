@@ -456,6 +456,11 @@ public static class SettlementEndpoints
                 marginRate = namedMargins.Sum(m => m.Margin.PriceDkkPerKwh),
                 margins = namedMargins.Select(m => new { name = m.Name, rate = m.Margin.PriceDkkPerKwh }),
 
+                // Xellent hourly data for migrated settlements (for kWh comparison)
+                migratedHourly = !string.IsNullOrEmpty(original.MigratedHourlyJson)
+                    ? System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(original.MigratedHourlyJson)
+                    : (System.Text.Json.JsonElement?)null,
+
                 original = new
                 {
                     totalEnergyKwh = original.TotalEnergy.Value,
@@ -467,6 +472,7 @@ public static class SettlementEndpoints
                         quantityKwh = l.Quantity.Value,
                         unitPrice = l.UnitPrice,
                         amount = l.Amount.Amount,
+                        details = BuildLineDetails(l),
                     }),
                 },
 

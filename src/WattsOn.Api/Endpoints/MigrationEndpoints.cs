@@ -513,13 +513,23 @@ public static class MigrationEndpoints
                     await db.SaveChangesAsync();
                 }
 
+                // Serialize Xellent hourly data if provided
+                string? hourlyJson = null;
+                if (s.HourlyLines is { Count: > 0 })
+                {
+                    hourlyJson = System.Text.Json.JsonSerializer.Serialize(
+                        s.HourlyLines.Select(h => new { t = h.Timestamp, k = h.Kwh, s = h.SpotPrice, c = h.CalcPrice }),
+                        new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+                }
+
                 // Create migrated settlement — clearly marked as imported, not calculated by WattsOn
                 var settlement = Settlement.CreateMigrated(
                     mp.Id, supply.Id,
                     Period.Create(s.PeriodStart, s.PeriodEnd),
                     timeSeries.Id, timeSeries.Version,
                     EnergyQuantity.Create(s.TotalEnergyKwh),
-                    s.ExternalInvoiceReference ?? s.BillingLogNum);
+                    s.ExternalInvoiceReference ?? s.BillingLogNum,
+                    hourlyJson);
 
                 // Add spot line
                 if (s.SpotAmountDkk != 0)
@@ -743,7 +753,8 @@ record MigrationSettlementDto(
     decimal TotalEnergyKwh,
     decimal SpotAmountDkk,
     decimal MarginAmountDkk,
-    List<MigrationSettlementTariffLineDto>? TariffLines);
+    List<MigrationSettlementTariffLineDto>? TariffLines,
+    List<MigrationHourlyLineDto>? HourlyLines = null);
 
 record MigrationSettlementTariffLineDto(
     string ChargeId,
@@ -752,3 +763,9 @@ record MigrationSettlementTariffLineDto(
     decimal AvgUnitPrice,
     decimal? AmountDkk = null,
     bool IsSubscription = false);
+
+record MigrationHourlyLineDto(
+    DateTimeOffset Timestamp,
+    decimal Kwh,
+    decimal SpotPrice,
+    decimal CalcPrice);
