@@ -232,16 +232,11 @@ pushCommand.SetHandler(async (context) =>
     var data = JsonSerializer.Deserialize<ExtractedData>(await File.ReadAllTextAsync(cacheFile), jsonOptions)!;
     logger.LogInformation("Loaded cache: {Summary}", data.Summary.Replace("\n", " ").Trim());
 
-    // ─── Apply migration window: only push data from (supply end - yearsBack) ───
-    // Find the latest supply end date across all customers/MPs
-    var allSupplyEnds = data.Customers
-        .SelectMany(c => c.MeteringPoints)
-        .Select(mp => mp.SupplyEnd ?? DateTimeOffset.UtcNow)
-        .ToList();
-    var latestSupplyEnd = allSupplyEnds.Count > 0 ? allSupplyEnds.Max() : DateTimeOffset.UtcNow;
-    var migrationCutoff = latestSupplyEnd.AddYears(-yearsBack);
-    logger.LogInformation("Migration window: {YearsBack} years back from {SupplyEnd:yyyy-MM-dd} → cutoff {Cutoff:yyyy-MM-dd}",
-        yearsBack, latestSupplyEnd, migrationCutoff);
+    // ─── Apply migration window: only push data from (today - yearsBack) ───
+    var migrationAnchor = DateTimeOffset.UtcNow;
+    var migrationCutoff = migrationAnchor.AddYears(-yearsBack);
+    logger.LogInformation("Migration window: {YearsBack} years back from today ({Anchor:yyyy-MM-dd}) → cutoff {Cutoff:yyyy-MM-dd}",
+        yearsBack, migrationAnchor, migrationCutoff);
 
     // Filter settlements
     var origSettlementCount = data.Settlements.Count;
