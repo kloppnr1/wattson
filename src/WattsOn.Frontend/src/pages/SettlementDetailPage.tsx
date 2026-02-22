@@ -41,6 +41,7 @@ export default function SettlementDetailPage() {
   const [recalc, setRecalc] = useState<RecalcResult | null>(null);
   const [recalcLoading, setRecalcLoading] = useState(false);
   const [recalcOpen, setRecalcOpen] = useState(false);
+  const [expandedCompRows, setExpandedCompRows] = useState<Set<string>>(new Set());
   const recalcRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
@@ -913,25 +914,52 @@ export default function SettlementDetailPage() {
                                 </span>
                               </td>
                             </tr>,
-                            // Line rows
-                            ...cs.rows.map((r) => (
-                              <tr key={r.key} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                                <td style={{ padding: '6px 12px 6px 24px' }}>
-                                  <span>{r.description}</span>
-                                  {r.onlyOrig && <Tag style={{ marginLeft: 6, background: '#f3f4f6', color: '#6b7280', border: '1px solid #d1d5db', fontSize: 10 }}>kun original</Tag>}
-                                  {r.onlyRecalc && <Tag style={{ marginLeft: 6, background: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd', fontSize: 10 }}>kun genberegnet</Tag>}
-                                </td>
-                                <td className="tnum" style={{ textAlign: 'right', padding: '6px 12px', color: r.origAmt === 0 ? '#9ca3af' : undefined }}>
-                                  {r.origAmt !== 0 ? formatDKK(r.origAmt) : '—'}
-                                </td>
-                                <td className="tnum" style={{ textAlign: 'right', padding: '6px 12px', color: r.recalcAmt === 0 ? '#9ca3af' : undefined }}>
-                                  {r.recalcAmt !== 0 ? formatDKK(r.recalcAmt) : '—'}
-                                </td>
-                                <td style={{ textAlign: 'right', padding: '6px 12px' }}>
-                                  {diffPctBadge(r.diff, r.diffPct)}
-                                </td>
-                              </tr>
-                            )),
+                            // Line rows (with expandable detail)
+                            ...cs.rows.flatMap((r) => {
+                              const isExpanded = expandedCompRows.has(r.key);
+                              const hasDetail = r.origQty !== null || r.recalcQty !== null;
+                              const toggleExpand = () => {
+                                if (!hasDetail) return;
+                                setExpandedCompRows(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(r.key)) next.delete(r.key);
+                                  else next.add(r.key);
+                                  return next;
+                                });
+                              };
+                              return [
+                                <tr key={r.key}
+                                  onClick={toggleExpand}
+                                  style={{ borderBottom: '1px solid #f3f4f6', cursor: hasDetail ? 'pointer' : undefined }}
+                                >
+                                  <td style={{ padding: '6px 12px 6px 24px' }}>
+                                    {hasDetail && (
+                                      <span style={{ display: 'inline-block', width: 16, fontSize: 10, color: '#9ca3af', transition: 'transform 0.2s', transform: isExpanded ? 'rotate(90deg)' : 'none' }}>▶</span>
+                                    )}
+                                    <span>{r.description}</span>
+                                    {r.onlyOrig && <Tag style={{ marginLeft: 6, background: '#f3f4f6', color: '#6b7280', border: '1px solid #d1d5db', fontSize: 10 }}>kun original</Tag>}
+                                    {r.onlyRecalc && <Tag style={{ marginLeft: 6, background: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd', fontSize: 10 }}>kun genberegnet</Tag>}
+                                  </td>
+                                  <td className="tnum" style={{ textAlign: 'right', padding: '6px 12px', color: r.origAmt === 0 ? '#9ca3af' : undefined }}>
+                                    {r.origAmt !== 0 ? formatDKK(r.origAmt) : '—'}
+                                  </td>
+                                  <td className="tnum" style={{ textAlign: 'right', padding: '6px 12px', color: r.recalcAmt === 0 ? '#9ca3af' : undefined }}>
+                                    {r.recalcAmt !== 0 ? formatDKK(r.recalcAmt) : '—'}
+                                  </td>
+                                  <td style={{ textAlign: 'right', padding: '6px 12px' }}>
+                                    {diffPctBadge(r.diff, r.diffPct)}
+                                  </td>
+                                </tr>,
+                                // Expanded detail row
+                                isExpanded && hasDetail && (
+                                  <tr key={`${r.key}-detail`}>
+                                    <td colSpan={4} style={{ padding: '0 12px 12px 24px', background: '#fafbfc' }}>
+                                      {renderLineDetail(r)}
+                                    </td>
+                                  </tr>
+                                ),
+                              ].filter(Boolean);
+                            }),
                             // Category subtotal
                             <tr key={`sub-${cs.cat}`} style={{ background: '#f8fafb', borderBottom: '1px solid #e5e7eb' }}>
                               <td style={{ padding: '6px 12px', fontWeight: 600, fontSize: 12, color: '#374151' }}>Subtotal {cc.label.toLowerCase()}</td>
