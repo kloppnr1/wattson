@@ -334,7 +334,10 @@ public static class SettlementEndpoints
                 recalcError = ex.Message;
             }
 
-            var dkTz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Copenhagen");
+            // .NET 6+ supports IANA on Windows, but fall back to Windows ID just in case
+            TimeZoneInfo dkTz;
+            try { dkTz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Copenhagen"); }
+            catch (TimeZoneNotFoundException) { dkTz = TimeZoneInfo.FindSystemTimeZoneById("Romance Standard Time"); }
 
             // ---- Per-line detail builder (tariff tiers + daily/hourly, spot stats, subscription, margin) ----
             object? BuildLineDetails(SettlementLine line)
