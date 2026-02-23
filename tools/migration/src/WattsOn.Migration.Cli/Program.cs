@@ -150,9 +150,10 @@ extractCommand.SetHandler(async (context) =>
     if (includeSettlements)
     {
         data.Settlements = new List<ExtractedSettlement>();
-        foreach (var gsrn in allGsrns)
+        var allMps = data.Customers.SelectMany(c => c.MeteringPoints).ToList();
+        foreach (var mp in allMps)
         {
-            var settlements = await settlementService.BuildSettlementsAsync(gsrn);
+            var settlements = await settlementService.BuildSettlementsAsync(mp.Gsrn, mp.XellentMeteringPoint);
             data.Settlements.AddRange(settlements);
         }
         logger.LogInformation("Settlements: {S}", data.Settlements.Count);
@@ -520,9 +521,10 @@ xellentReportCommand.SetHandler(async (context) =>
 
     // Build settlements using CorrectionService-equivalent logic
     var allSettlements = new List<ExtractedSettlement>();
-    foreach (var gsrn in allGsrns)
+    var allMps = customers.SelectMany(c => c.MeteringPoints).ToList();
+    foreach (var mp in allMps)
     {
-        var settlements = await settlementService.BuildSettlementsAsync(gsrn);
+        var settlements = await settlementService.BuildSettlementsAsync(mp.Gsrn, mp.XellentMeteringPoint);
         allSettlements.AddRange(settlements);
     }
 

@@ -541,8 +541,10 @@ public static class MigrationEndpoints
                     settlement.AddLine(spotLine);
                 }
 
-                // Add margin line
-                if (s.MarginAmountDkk != 0)
+                // Add aggregate margin line — only if no per-product PRODUCT: lines
+                // (new extractions break margin into PRODUCT: lines; old cache files use aggregate)
+                var hasProductLines = s.TariffLines?.Any(t => t.ChargeId.StartsWith("PRODUCT:")) == true;
+                if (s.MarginAmountDkk != 0 && !hasProductLines)
                 {
                     var marginLine = SettlementLine.CreateMargin(
                         settlement.Id, "Leverandørmargin (migreret)",

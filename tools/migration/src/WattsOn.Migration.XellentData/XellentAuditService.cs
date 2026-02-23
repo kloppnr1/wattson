@@ -135,12 +135,17 @@ public class XellentAuditService
         var periodsChecked = 0;
         var periodsMatch = 0;
 
-        foreach (var (gsrn, _) in customers)
+        foreach (var (gsrn, xellentMp) in customers)
         {
+            // Search by GSRN and Xellent metering point (FlexBillingHistory may use either)
+            var searchIds = new List<string> { gsrn };
+            if (!string.IsNullOrEmpty(xellentMp) && xellentMp != gsrn)
+                searchIds.Add(xellentMp);
+
             // Load billing periods
             var periods = await _db.FlexBillingHistoryTables
                 .Where(h => h.DataAreaId == DataAreaId
-                    && h.MeteringPoint == gsrn
+                    && searchIds.Contains(h.MeteringPoint)
                     && h.DeliveryCategory == DeliveryCategory)
                 .OrderBy(h => h.HistKeyNumber)
                 .ToListAsync();
@@ -171,7 +176,7 @@ public class XellentAuditService
                     equals new { inv.DataAreaId, inv.ItemId }
                 where dp.Dataareaid == DataAreaId
                     && CompanyIds.Contains(dp.Companyid)
-                    && dp.Meteringpoint == gsrn
+                    && searchIds.Contains(dp.Meteringpoint)
                     && dp.Deliverycategory == DeliveryCategory
                     && inv.ItemType == 2
                     && inv.ExuUseRateFromFlexPricing == 0

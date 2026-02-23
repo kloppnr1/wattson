@@ -37,20 +37,27 @@ public class XellentSettlementService
     /// Build settlement provenance for a metering point using CorrectionService-equivalent logic.
     /// Pre-loads all reference data in bulk, then iterates in memory.
     /// </summary>
-    public async Task<List<ExtractedSettlement>> BuildSettlementsAsync(string meteringPointId)
+    public async Task<List<ExtractedSettlement>> BuildSettlementsAsync(
+        string gsrn, string? xellentMeteringPoint = null)
     {
         var result = new List<ExtractedSettlement>();
+
+        // Search by GSRN first, fall back to Xellent METERINGPOINT column
+        var searchIds = new List<string> { gsrn };
+        if (!string.IsNullOrEmpty(xellentMeteringPoint) && xellentMeteringPoint != gsrn)
+            searchIds.Add(xellentMeteringPoint);
 
         // ── BULK LOAD 1: All billing periods ──
         var periods = await _db.FlexBillingHistoryTables
             .Where(h => h.DataAreaId == DataAreaId
-                     && h.MeteringPoint == meteringPointId
+                     && searchIds.Contains(h.MeteringPoint)
                      && h.DeliveryCategory == DeliveryCategory)
             .OrderBy(h => h.HistKeyNumber)
             .ToListAsync();
 
         if (periods.Count == 0) return result;
-        _logger.LogInformation("Found {Count} billing periods for {Mp}", periods.Count, meteringPointId);
+        _logger.LogInformation("Found {Count} billing periods for {Mp} (searched: [{Ids}])",
+            periods.Count, gsrn, string.Join(", ", searchIds));
 
         // ── BULK LOAD 2: ALL hourly lines for ALL periods at once ──
         var histKeys = periods.Select(p => p.HistKeyNumber).ToHashSet();
@@ -76,7 +83,7 @@ public class XellentSettlementService
                 on new { pecd.DataAreaId, pecd.PartyChargeTypeId, pecd.ChargeTypeCode }
                 equals new { pet.DataAreaId, pet.PartyChargeTypeId, pet.ChargeTypeCode }
             where pec.DataAreaId == DataAreaId
-               && pec.MeteringPointId == meteringPointId
+               && searchIds.Contains(pec.MeteringPointId)
                && pec.DeliveryCategory == DeliveryCategory
             select new TariffAssignment
             {
@@ -153,7 +160,7 @@ public class XellentSettlementService
                 equals new { inv.DataAreaId, inv.ItemId }
             where dp.Dataareaid == DataAreaId
                && CompanyIds.Contains(dp.Companyid)
-               && dp.Meteringpoint == meteringPointId
+               && searchIds.Contains(dp.Meteringpoint)
                && dp.Deliverycategory == DeliveryCategory
                && inv.ItemType == 2
                && inv.ExuUseRateFromFlexPricing == 0
@@ -191,6 +198,30 @@ public class XellentSettlementService
         _logger.LogInformation("Loaded {Count} product rate entries for {Types} types",
             allProductRates.Count, productRatesByType.Count);
 
+        // ── BULK LOAD 7: Primary product periods (for naming the primary margin line) ──
+        var primaryProducts = await (
+            from dp in _db.ExuDelpoints
+            join agr in _db.ExuAgreementTables
+                on new { dp.Dataareaid, Agreementnum = dp.Attachmentnum }
+                equals new { agr.Dataareaid, agr.Agreementnum }
+            join cp in _db.ExuContractPartTables
+                on new { agr.Dataareaid, Instagreenum = agr.Agreementnum }
+                equals new { cp.Dataareaid, cp.Instagreenum }
+            where dp.Dataareaid == DataAreaId
+               && CompanyIds.Contains(dp.Companyid)
+               && searchIds.Contains(dp.Meteringpoint)
+               && dp.Deliverycategory == DeliveryCategory
+               && cp.Productnum != ""
+            select new PrimaryProductInfo
+            {
+                Productnum = cp.Productnum,
+                CpStartDate = cp.Startdate,
+                CpEndDate = cp.Enddate
+            }
+        ).Distinct().ToListAsync();
+
+        _logger.LogInformation("Loaded {Count} primary product period entries", primaryProducts.Count);
+
         _logger.LogInformation("All reference data loaded — building {Count} settlements in memory", periods.Count);
 
         // ═══════════════════════════════════════════════════════════
@@ -225,15 +256,22 @@ public class XellentSettlementService
             // Tariff lines — in-memory filtering of pre-loaded data
             var tariffLines = BuildTariffLines(periodStart, hourlyLines, tariffAssignments, ratesByKey);
 
-            // Product margin lines — in-memory filtering of pre-loaded data
-            var productMarginLines = BuildProductMarginLines(periodStart, hourlyLines, productTypes, productRatesByType);
+            // Addon product margin lines — in-memory filtering of pre-loaded data
+            var addonMarginLines = BuildProductMarginLines(periodStart, hourlyLines, productTypes, productRatesByType);
+
+            // Primary product margin line — residual from FlexBillingHistory
+            // (total margin minus addon amounts = primary product's share)
+            var primaryLine = BuildPrimaryMarginLine(periodStart, marginAmount, totalEnergy, addonMarginLines, primaryProducts);
+            var productMarginLines = primaryLine != null
+                ? new[] { primaryLine }.Concat(addonMarginLines).ToList()
+                : addonMarginLines;
 
             var allTariffLines = tariffLines.Concat(productMarginLines).ToList();
             var totalAmount = electricityAmount + allTariffLines.Sum(t => t.AmountDkk);
 
             result.Add(new ExtractedSettlement
             {
-                Gsrn = meteringPointId,
+                Gsrn = gsrn,
                 PeriodStart = periodStart,
                 PeriodEnd = period.ReqEndDate,
                 BillingLogNum = period.BillingLogNum,
@@ -241,14 +279,14 @@ public class XellentSettlementService
                 TotalEnergyKwh = totalEnergy,
                 ElectricityAmountDkk = electricityAmount,
                 SpotAmountDkk = spotAmount,
-                MarginAmountDkk = marginAmount,
+                MarginAmountDkk = 0, // all margin is in per-product PRODUCT: lines
                 TariffLines = allTariffLines,
                 TotalAmountDkk = totalAmount,
                 HourlyLines = hourlyProvenance
             });
         }
 
-        _logger.LogInformation("Built {Count} settlements for {Mp}", result.Count, meteringPointId);
+        _logger.LogInformation("Built {Count} settlements for {Mp}", result.Count, gsrn);
         return result;
     }
 
@@ -453,6 +491,55 @@ public class XellentSettlementService
         return lines;
     }
 
+    /// <summary>
+    /// Build a PRODUCT: margin line for the primary product.
+    /// Amount = FlexBillingHistory total margin minus addon product margin amounts.
+    /// This gives the primary product's share of the margin using ground-truth billing data.
+    /// </summary>
+    private ExtractedTariffLine? BuildPrimaryMarginLine(
+        DateTime forDate,
+        decimal totalMarginAmount,
+        decimal totalEnergy,
+        List<ExtractedTariffLine> addonLines,
+        List<PrimaryProductInfo> primaryProducts)
+    {
+        var forDateOnly = forDate.Date;
+
+        // Find active primary product by contract dates
+        var activePrimary = primaryProducts
+            .FirstOrDefault(pp => pp.CpStartDate <= forDateOnly
+                && (pp.CpEndDate >= forDateOnly || pp.CpEndDate == NoEndDate));
+
+        if (activePrimary == null) return null;
+
+        var addonTotal = addonLines.Sum(l => l.AmountDkk);
+        var primaryAmount = totalMarginAmount - addonTotal;
+
+        // Skip if no margin at all
+        if (primaryAmount == 0 && totalMarginAmount == 0) return null;
+
+        var avgRate = totalEnergy != 0 ? primaryAmount / totalEnergy : 0;
+
+        return new ExtractedTariffLine
+        {
+            PartyChargeTypeId = $"PRODUCT:{activePrimary.Productnum}",
+            Description = $"Product Margin ({activePrimary.Productnum}) [primary]",
+            AmountDkk = primaryAmount,
+            EnergyKwh = totalEnergy,
+            AvgUnitPrice = avgRate,
+            RateProvenance = new TariffRateProvenance
+            {
+                Table = "FlexBillingHistoryLine (residual)",
+                PartyChargeTypeId = activePrimary.Productnum,
+                RateStartDate = forDate,
+                IsHourly = false,
+                FlatRate = avgRate,
+                CandidateRateCount = 0,
+                SelectionRule = $"Primary product margin = FlexBillingHistory margin ({totalMarginAmount:F4}) - addon margins ({addonTotal:F4})"
+            }
+        };
+    }
+
     private static bool HasHourlyRates(PriceElementRates rate)
     {
         return rate.Price2 != 0 || rate.Price3 != 0 || rate.Price4 != 0 ||
@@ -492,5 +579,12 @@ public class XellentSettlementService
         public DateTime CpEndDate { get; init; }
         public DateTime PeStartDate { get; init; }
         public DateTime PeEndDate { get; init; }
+    }
+
+    private record PrimaryProductInfo
+    {
+        public string Productnum { get; init; } = null!;
+        public DateTime CpStartDate { get; init; }
+        public DateTime CpEndDate { get; init; }
     }
 }
