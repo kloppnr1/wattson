@@ -3,6 +3,7 @@ using WattsOn.Api.Models;
 using WattsOn.Domain.Entities;
 using WattsOn.Domain.Enums;
 using WattsOn.Domain.Services;
+using WattsOn.Domain.ValueObjects;
 using WattsOn.Infrastructure.Persistence;
 
 namespace WattsOn.Api.Endpoints;
@@ -309,6 +310,15 @@ public static class SettlementEndpoints
 
             var periodObs = timeSeries.Observations;
 
+            // Pre-aggregate observations to hourly buckets.
+            // Migration data may have duplicate timestamps or sub-hourly resolution for some days.
+            var hourlyObs = periodObs
+                .GroupBy(o => o.Timestamp.ToOffset(TimeSpan.Zero)
+                    .AddTicks(-(o.Timestamp.ToOffset(TimeSpan.Zero).Ticks % TimeSpan.TicksPerHour)))
+                .Select(g => new { Timestamp = g.Key, Kwh = g.Sum(o => o.Quantity.Value) })
+                .OrderBy(o => o.Timestamp)
+                .ToList();
+
             // Create a scoped time series for the settlement period.
             // The main time series may span months/years — we need one scoped to this settlement's period.
             var scopedTs = TimeSeries.Create(
@@ -317,8 +327,9 @@ public static class SettlementEndpoints
                 timeSeries.Resolution,
                 timeSeries.Version);
 
-            scopedTs.AddObservations(periodObs.Select(o =>
-                (o.Timestamp, o.Quantity, o.Quality)));
+            // Use hourly-aggregated observations to avoid double-counting from duplicate timestamps
+            scopedTs.AddObservations(hourlyObs.Select(o =>
+                (o.Timestamp, EnergyQuantity.Create(o.Kwh), QuantityQuality.Measured)));
 
             // Recalculate using WattsOn's engine
             Settlement? recalculated = null;
@@ -349,14 +360,14 @@ public static class SettlementEndpoints
 
                     if (pwp.Price.Type == PriceType.Tarif)
                     {
-                        if (periodObs.Count == 0)
+                        if (hourlyObs.Count == 0)
                             return new { type = "tarif", totalHours = 0, hoursWithPrice = 0,
                                 tiers = Array.Empty<object>(), daily = Array.Empty<object>() };
 
-                        var obsData = periodObs.Select(obs =>
+                        var obsData = hourlyObs.Select(obs =>
                         {
                             var rate = pwp.GetPriceAt(obs.Timestamp) ?? 0m;
-                            var kwh = obs.Quantity.Value;
+                            var kwh = obs.Kwh;
                             var lt = TimeZoneInfo.ConvertTime(obs.Timestamp, dkTz);
                             return new { obs.Timestamp, Kwh = kwh, Rate = rate, Amount = kwh * rate,
                                 LocalDate = lt.Date, LocalHour = lt.Hour };
@@ -381,7 +392,7 @@ public static class SettlementEndpoints
                                 }).ToList(),
                             }).ToList();
 
-                        return new { type = "tarif", totalHours = periodObs.Count,
+                        return new { type = "tarif", totalHours = hourlyObs.Count,
                             hoursWithPrice = obsData.Count(o => o.Rate > 0), tiers, daily };
                     }
 
@@ -395,16 +406,16 @@ public static class SettlementEndpoints
 
                 if (line.Source == SettlementLineSource.SpotPrice)
                 {
-                    if (periodObs.Count == 0)
+                    if (hourlyObs.Count == 0)
                         return new { type = "spot", totalHours = 0, hoursWithPrice = 0, hoursMissing = 0,
                             avgRate = 0m, minRate = 0m, maxRate = 0m, daily = Array.Empty<object>() };
 
                     var spotLookup = spotPrices.ToDictionary(s => s.Timestamp);
-                    var obsData = periodObs.Select(obs =>
+                    var obsData = hourlyObs.Select(obs =>
                     {
                         spotLookup.TryGetValue(obs.Timestamp, out var sp);
                         var rate = sp?.PriceDkkPerKwh ?? 0m;
-                        var kwh = obs.Quantity.Value;
+                        var kwh = obs.Kwh;
                         var lt = TimeZoneInfo.ConvertTime(obs.Timestamp, dkTz);
                         return new { obs.Timestamp, Kwh = kwh, Rate = rate, HasPrice = sp != null,
                             Amount = kwh * rate, LocalDate = lt.Date, LocalHour = lt.Hour };
@@ -453,7 +464,7 @@ public static class SettlementEndpoints
                 status = original.Status.ToString(),
                 period = new { start = original.SettlementPeriod.Start, end = original.SettlementPeriod.End },
                 pricingModel = pricingModel.ToString(),
-                observationsInPeriod = periodObs.Count,
+                observationsInPeriod = hourlyObs.Count,
                 spotPricesInPeriod = spotPrices.Count,
                 datahubPriceLinks = datahubPrices.Count,
                 marginRate = namedMargins.Sum(m => m.Margin.PriceDkkPerKwh),
