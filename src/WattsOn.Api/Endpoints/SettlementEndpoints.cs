@@ -15,7 +15,7 @@ public static class SettlementEndpoints
         {
             var settlements = await db.Settlements
                 .AsNoTracking()
-                .OrderByDescending(a => a.CalculatedAt)
+                .OrderByDescending(a => a.SettlementPeriod.Start)
                 .Take(100)
                 .Select(a => new
                 {

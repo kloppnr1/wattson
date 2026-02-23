@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using WattsOn.Migration.Core.Models;
@@ -20,6 +21,17 @@ var wattsOnUrlOption = new Option<string>(
     description: "WattsOn API base URL",
     getDefaultValue: () => "http://localhost:5100");
 
+var companyIdOption = new Option<string[]>(
+    name: "--company-id",
+    description: "Xellent COMPANYID(s) — identifies which supplier/brand (maps to a specific GLN). Multiple values for brands with multiple company IDs (e.g. --company-id hni vhe)")
+{ AllowMultipleArgumentsPerToken = true, IsRequired = false };
+companyIdOption.SetDefaultValue(new[] { "for" });
+
+var dataAreaIdOption = new Option<string>(
+    name: "--data-area-id",
+    description: "Xellent DATAAREAID — partitions data by legal entity (e.g. 'hol' for Verdo, 'han' for Aars Nibe Handel)",
+    getDefaultValue: () => "hol");
+
 // ─── JSON serializer ───
 var jsonOptions = new JsonSerializerOptions
 {
@@ -33,8 +45,8 @@ var jsonOptions = new JsonSerializerOptions
 // ═══════════════════════════════════════════════════════════════
 var accountsOption = new Option<string[]>("--accounts", "Xellent account numbers") { IsRequired = true, AllowMultipleArgumentsPerToken = true };
 var xellentConnectionOption = new Option<string>("--xellent-connection", "Xellent SQL Server connection string") { IsRequired = true };
-var supplierGlnOption = new Option<string>("--supplier-gln", "Supplier GLN") { IsRequired = true };
-var supplierNameOption = new Option<string>("--supplier-name", description: "Supplier name", getDefaultValue: () => "Verdo");
+var supplierGlnOption = new Option<string?>("--supplier-gln", "Supplier GLN (auto-resolved from EXU_SUPPLIER if omitted)");
+var supplierNameOption = new Option<string?>("--supplier-name", "Supplier name (auto-resolved from EXU_SUPPLIER if omitted)");
 var includeTimeSeriesOption = new Option<bool>("--include-timeseries", description: "Include time series", getDefaultValue: () => true);
 var sinceOption = new Option<DateTime?>("--since", "Cutoff for time series (default: 2 years ago)");
 var includeSettlementsOption = new Option<bool>("--include-settlements", description: "Include settlements", getDefaultValue: () => true);
@@ -42,15 +54,17 @@ var includeSettlementsOption = new Option<bool>("--include-settlements", descrip
 var extractCommand = new Command("extract", "Extract data from Xellent and save to local cache (requires VPN)")
 {
     accountsOption, xellentConnectionOption, supplierGlnOption, supplierNameOption,
-    includeTimeSeriesOption, sinceOption, includeSettlementsOption, cacheFileOption
+    companyIdOption, dataAreaIdOption, includeTimeSeriesOption, sinceOption, includeSettlementsOption, cacheFileOption
 };
 
 extractCommand.SetHandler(async (context) =>
 {
     var accounts = context.ParseResult.GetValueForOption(accountsOption)!;
     var xellentConnection = context.ParseResult.GetValueForOption(xellentConnectionOption)!;
-    var supplierGln = context.ParseResult.GetValueForOption(supplierGlnOption)!;
-    var supplierName = context.ParseResult.GetValueForOption(supplierNameOption)!;
+    var supplierGlnOverride = context.ParseResult.GetValueForOption(supplierGlnOption);
+    var supplierNameOverride = context.ParseResult.GetValueForOption(supplierNameOption);
+    var companyIds = context.ParseResult.GetValueForOption(companyIdOption)!;
+    var dataAreaId = context.ParseResult.GetValueForOption(dataAreaIdOption)!;
     var includeTimeSeries = context.ParseResult.GetValueForOption(includeTimeSeriesOption);
     var sinceDate = context.ParseResult.GetValueForOption(sinceOption);
     var includeSettlements = context.ParseResult.GetValueForOption(includeSettlementsOption);
@@ -58,6 +72,7 @@ extractCommand.SetHandler(async (context) =>
 
     var services = new ServiceCollection();
     services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning)); // Quiet EF
+    services.AddSingleton(new XellentConfig { DataAreaId = dataAreaId, CompanyIds = companyIds });
     services.AddDbContext<XellentDbContext>(o => o.UseSqlServer(xellentConnection, s => s.UseCompatibilityLevel(110)));
     services.AddTransient<XellentExtractionService>();
     services.AddTransient<XellentSettlementService>();
@@ -67,6 +82,24 @@ extractCommand.SetHandler(async (context) =>
     var settlementService = sp.GetRequiredService<XellentSettlementService>();
 
     var sw = Stopwatch.StartNew();
+
+    // Auto-resolve supplier GLN from known (DataAreaId, CompanyId) → GLN mapping
+    string supplierGln;
+    string supplierName;
+    if (!string.IsNullOrEmpty(supplierGlnOverride))
+    {
+        supplierGln = supplierGlnOverride;
+        supplierName = supplierNameOverride ?? "Unknown";
+        logger.LogInformation("Using explicit supplier GLN: {Gln} ({Name})", supplierGln, supplierName);
+    }
+    else
+    {
+        var resolved = extraction.ResolveSupplierGln();
+        supplierGln = resolved.Gln;
+        supplierName = supplierNameOverride ?? resolved.Name;
+        logger.LogInformation("Resolved supplier {Name} (GLN {Gln})", supplierName, supplierGln);
+    }
+
     logger.LogInformation("Extracting accounts: {Accounts}", string.Join(", ", accounts));
 
     var data = new ExtractedData
@@ -452,17 +485,20 @@ var xrOutputOption = new Option<string>("--output", description: "Output directo
 
 var xellentReportCommand = new Command("xellent-report", "Build settlement provenance using CorrectionService logic (reference implementation)")
 {
-    xrAccountsOption, xrConnectionOption, xrOutputOption
+    xrAccountsOption, xrConnectionOption, companyIdOption, dataAreaIdOption, xrOutputOption
 };
 
 xellentReportCommand.SetHandler(async (context) =>
 {
     var accounts = context.ParseResult.GetValueForOption(xrAccountsOption)!;
     var connection = context.ParseResult.GetValueForOption(xrConnectionOption)!;
+    var companyIds = context.ParseResult.GetValueForOption(companyIdOption)!;
+    var dataAreaId = context.ParseResult.GetValueForOption(dataAreaIdOption)!;
     var outputDir = context.ParseResult.GetValueForOption(xrOutputOption)!;
 
     var services = new ServiceCollection();
     services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Information));
+    services.AddSingleton(new XellentConfig { DataAreaId = dataAreaId, CompanyIds = companyIds });
     services.AddDbContext<XellentDbContext>(o => o.UseSqlServer(connection, s => s.UseCompatibilityLevel(110)));
     services.AddTransient<XellentExtractionService>();
     services.AddTransient<XellentSettlementService>();
@@ -523,106 +559,6 @@ xellentReportCommand.SetHandler(async (context) =>
 });
 
 // ═══════════════════════════════════════════════════════════════
-// ROOT command (backward compat: direct migration still works)
-// ═══════════════════════════════════════════════════════════════
-// ═══════════════════════════════════════════════════════════════
-// INVESTIGATE command — raw Xellent DB queries for debugging
-// ═══════════════════════════════════════════════════════════════
-var invProductOption = new Option<string>("--product", "Product number to investigate") { IsRequired = true };
-var invConnectionOption = new Option<string>("--xellent-connection", "Xellent SQL Server connection string") { IsRequired = true };
-
-var investigateCommand = new Command("investigate", "Investigate product rate structure in Xellent DB")
-{
-    invProductOption, invConnectionOption
-};
-
-investigateCommand.SetHandler(async (context) =>
-{
-    var productNum = context.ParseResult.GetValueForOption(invProductOption)!;
-    var connection = context.ParseResult.GetValueForOption(invConnectionOption)!;
-
-    var services = new ServiceCollection();
-    services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
-    services.AddDbContext<XellentDbContext>(o => o.UseSqlServer(connection, s => s.UseCompatibilityLevel(110)));
-    var sp = services.BuildServiceProvider();
-    var db = sp.GetRequiredService<XellentDbContext>();
-
-    Console.WriteLine($"═══ Investigating product: {productNum} ═══\n");
-
-    // 1. InventTable
-    var inv = await db.InventTables.FirstOrDefaultAsync(i => i.DataAreaId == "hol" && i.ItemId == productNum);
-    if (inv != null)
-        Console.WriteLine($"InventTable: ItemId={inv.ItemId}, ItemType={inv.ItemType}, UseRateFromFlexPricing={inv.ExuUseRateFromFlexPricing}");
-    else
-        Console.WriteLine($"InventTable: NOT FOUND for ItemId={productNum}");
-
-    // 2. All ExuProductExtendTable entries
-    var extends_ = await db.ExuProductExtendTables
-        .Where(pe => pe.DataAreaId == "hol" && pe.Productnum == productNum)
-        .OrderBy(pe => pe.Startdate)
-        .ToListAsync();
-    Console.WriteLine($"\nExuProductExtendTable ({extends_.Count} entries):");
-    foreach (var pe in extends_)
-        Console.WriteLine($"  Producttype={pe.Producttype,-25} Start={pe.Startdate:yyyy-MM-dd}  End={pe.Enddate:yyyy-MM-dd}");
-
-    // 3. For each product type, check InventTable and RateTable
-    var productTypes = extends_.Select(pe => pe.Producttype).Distinct().ToList();
-    foreach (var pt in productTypes)
-    {
-        var ptInv = await db.InventTables.FirstOrDefaultAsync(i => i.DataAreaId == "hol" && i.ItemId == pt);
-        Console.WriteLine($"\n─── Product type: {pt} ───");
-        if (ptInv != null)
-            Console.WriteLine($"  InventTable: ItemType={ptInv.ItemType}, UseRateFromFlexPricing={ptInv.ExuUseRateFromFlexPricing}");
-        else
-            Console.WriteLine($"  InventTable: NOT FOUND");
-
-        // Generic rates (Productnum = "")
-        var genericRates = await db.ExuRateTables
-            .Where(r => r.Dataareaid == "hol" && r.Ratetype == pt && r.Deliverycategory == "El-ekstern" && r.Productnum == "")
-            .OrderBy(r => r.Startdate)
-            .ToListAsync();
-        Console.WriteLine($"  ExuRateTable (generic, Productnum=''): {genericRates.Count} entries");
-        foreach (var r in genericRates.TakeLast(5))
-            Console.WriteLine($"    Start={r.Startdate:yyyy-MM-dd}  Rate={r.Rate}  CompanyId={r.Companyid}");
-        if (genericRates.Count > 5) Console.WriteLine($"    ... ({genericRates.Count - 5} earlier entries)");
-
-        // Product-specific rates (Productnum = productNum)
-        var specificRates = await db.ExuRateTables
-            .Where(r => r.Dataareaid == "hol" && r.Ratetype == pt && r.Deliverycategory == "El-ekstern" && r.Productnum == productNum)
-            .OrderBy(r => r.Startdate)
-            .ToListAsync();
-        Console.WriteLine($"  ExuRateTable (product-specific, Productnum='{productNum}'): {specificRates.Count} entries");
-        foreach (var r in specificRates.TakeLast(5))
-            Console.WriteLine($"    Start={r.Startdate:yyyy-MM-dd}  Rate={r.Rate}  CompanyId={r.Companyid}");
-        if (specificRates.Count > 5) Console.WriteLine($"    ... ({specificRates.Count - 5} earlier entries)");
-
-        // Any delivery category
-        var allCatRates = await db.ExuRateTables
-            .Where(r => r.Dataareaid == "hol" && r.Ratetype == pt && r.Productnum == "")
-            .Select(r => r.Deliverycategory)
-            .Distinct()
-            .ToListAsync();
-        Console.WriteLine($"  Delivery categories with generic rates: [{string.Join(", ", allCatRates)}]");
-    }
-
-    // 4. Check RateTable for the product itself as Ratetype
-    var selfRates = await db.ExuRateTables
-        .Where(r => r.Dataareaid == "hol" && r.Ratetype == productNum && r.Deliverycategory == "El-ekstern")
-        .OrderBy(r => r.Startdate)
-        .ToListAsync();
-    Console.WriteLine($"\n─── RateTable where Ratetype='{productNum}' ───");
-    Console.WriteLine($"  {selfRates.Count} entries");
-    foreach (var r in selfRates.TakeLast(5))
-        Console.WriteLine($"    Start={r.Startdate:yyyy-MM-dd}  Rate={r.Rate}  Productnum={r.Productnum}  CompanyId={r.Companyid}");
-
-    // 5. Check ALL RateTable entries mentioning this product in ANY column
-    var anyMention = await db.ExuRateTables
-        .Where(r => r.Dataareaid == "hol" && (r.Productnum == productNum || r.Ratetype == productNum))
-        .CountAsync();
-    Console.WriteLine($"\n  Total RateTable rows mentioning '{productNum}' in any column: {anyMention}");
-});
-
-// ═══════════════════════════════════════════════════════════════
 // SCHEMA command — dump actual DB table columns for investigation
 // ═══════════════════════════════════════════════════════════════
 var schemaCommand = new Command("schema", "Dump table columns from Xellent DB")
@@ -638,7 +574,7 @@ schemaCommand.SetHandler(async (context) =>
     var sp = services.BuildServiceProvider();
     var db = sp.GetRequiredService<XellentDbContext>();
 
-    var tables = new[] { "EXU_PRICEELEMENTTABLE", "EXU_PRICEELEMENTRATES", "EXU_PRICEELEMENTCHECKDATA", "EXU_PRICEELEMENTCHECK" };
+    var tables = new[] { "EXU_PRICEELEMENTTABLE", "EXU_PRICEELEMENTRATES", "EXU_PRICEELEMENTCHECKDATA", "EXU_PRICEELEMENTCHECK", "EXU_PRODUCTTABLE", "VDOSALESJOURNALPRODUCT", "EXU_RATETABLE" };
     foreach (var table in tables)
     {
         Console.WriteLine($"\n═══ {table} ═══");
@@ -648,26 +584,111 @@ schemaCommand.SetHandler(async (context) =>
         foreach (var c in cols)
             Console.WriteLine($"  {c.Name,-40} {c.DataType}");
     }
+});
 
-    // Also check CD tariff rate rows to see what differentiates them
-    Console.WriteLine("\n═══ CD tariff rate sample (2024-01, first 10 rows) ═══");
-    var cdRates = await db.Database.SqlQueryRaw<CdRateSample>(
-        @"SELECT TOP 10 RECID as RecId, STARTDATE as StartDate, PRICE as Price1, PRICE2_ as Price2, PRICE24_ as Price24
-          FROM EXU_PRICEELEMENTRATES
-          WHERE DATAAREAID = 'ER' AND PARTYCHARGETYPEID = 'CD' AND CHARGETYPECODE = 3
-            AND STARTDATE >= '2024-01-01' AND STARTDATE < '2024-04-01'
-          ORDER BY STARTDATE, RECID")
-        .ToListAsync();
-    foreach (var r in cdRates)
-        Console.WriteLine($"  RecId={r.RecId} Start={r.StartDate:yyyy-MM-dd} P1={r.Price1:F6} P2={r.Price2:F6} P24={r.Price24:F6}");
+// ═══════════════════════════════════════════════════════════════
+// AUDIT command — diagnostic checks against Xellent DB
+// ═══════════════════════════════════════════════════════════════
+var auditAccountsOption = new Option<string[]>("--accounts", "Xellent account numbers") { IsRequired = true, AllowMultipleArgumentsPerToken = true };
+var auditOutputOption = new Option<string>("--output", description: "Output directory for audit report", getDefaultValue: () => "./cache/audit");
 
-    // Check PriceElementTable entries for CD
-    Console.WriteLine("\n═══ PriceElementTable rows for 'CD' ═══");
-    var cdTables = await db.PriceElementTables
-        .Where(t => t.DataAreaId == "ER" && t.PartyChargeTypeId == "CD")
-        .ToListAsync();
-    foreach (var t in cdTables)
-        Console.WriteLine($"  RecId={t.RecId} ChargeType={t.ChargeTypeCode} Desc='{t.Description}'");
+var auditCommand = new Command("audit", "Run diagnostic audit of migration data quality (requires VPN)")
+{
+    auditAccountsOption, companyIdOption, dataAreaIdOption, auditOutputOption
+};
+
+auditCommand.SetHandler(async (context) =>
+{
+    var accounts = context.ParseResult.GetValueForOption(auditAccountsOption)!;
+    var companyIds = context.ParseResult.GetValueForOption(companyIdOption)!;
+    var dataAreaId = context.ParseResult.GetValueForOption(dataAreaIdOption)!;
+    var outputDir = context.ParseResult.GetValueForOption(auditOutputOption)!;
+
+    // Read connection string from appsettings.json
+    var config = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+        .SetBasePath(AppContext.BaseDirectory)
+        .AddJsonFile("appsettings.json", optional: false)
+        .Build();
+    var xellentConnection = config.GetConnectionString("Xellent")
+        ?? throw new InvalidOperationException("ConnectionStrings:Xellent not found in appsettings.json");
+
+    var services = new ServiceCollection();
+    services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
+    services.AddSingleton(new XellentConfig { DataAreaId = dataAreaId, CompanyIds = companyIds });
+    services.AddDbContext<XellentDbContext>(o => o.UseSqlServer(xellentConnection, s => s.UseCompatibilityLevel(110)));
+    services.AddTransient<XellentAuditService>();
+    var sp = services.BuildServiceProvider();
+    var audit = sp.GetRequiredService<XellentAuditService>();
+
+    Console.WriteLine($"═══ WattsOn Migration Audit ═══");
+    Console.WriteLine($"Accounts: {string.Join(", ", accounts)}");
+    Console.WriteLine($"DataAreaId: {dataAreaId}");
+    Console.WriteLine($"CompanyIds: {string.Join(", ", companyIds)}\n");
+
+    // 1. Rate column comparison
+    Console.WriteLine("RATE COLUMNS (EXU_RATETABLE: Rate vs Accountrate)");
+    var rateAudit = await audit.AuditRateColumnsAsync(accounts);
+    Console.WriteLine($"  Total rate rows checked:     {rateAudit.TotalRateRows}");
+    Console.WriteLine($"  ACCOUNTRATE differs:         {rateAudit.RowsWhereAccountRateDiffers} rows   [{(rateAudit.RowsWhereAccountRateDiffers == 0 ? "OK" : "WARNING")}]");
+    if (rateAudit.Differences.Count > 0)
+    {
+        Console.WriteLine("\n  Differences:");
+        foreach (var d in rateAudit.Differences.Take(20))
+            Console.WriteLine($"    {d.Ratetype,-25} | {d.Startdate:yyyy-MM-dd} | Rate={d.Rate:F6} AccountRate={d.Accountrate:F6} | RecId={d.Recid}");
+        if (rateAudit.Differences.Count > 20)
+            Console.WriteLine($"    ... ({rateAudit.Differences.Count - 20} more)");
+    }
+    Console.WriteLine();
+
+    // 2. Rate accuracy
+    Console.WriteLine("RATE ACCURACY (ExuRateTable vs FlexBillingHistoryLine margin)");
+    var accuracyAudit = await audit.AuditRateAccuracyAsync(accounts);
+    Console.WriteLine($"  Periods checked:             {accuracyAudit.PeriodsChecked}");
+    Console.WriteLine($"  Periods match (<=0.001):     {accuracyAudit.PeriodsMatch,-12} [{(accuracyAudit.PeriodsMatch == accuracyAudit.PeriodsChecked ? "OK" : "")}]");
+    Console.WriteLine($"  Periods mismatch (>0.001):   {accuracyAudit.PeriodsMismatch,-12} [{(accuracyAudit.PeriodsMismatch == 0 ? "OK" : "WARNING")}]");
+    if (accuracyAudit.Mismatches.Count > 0)
+    {
+        Console.WriteLine("\n  Mismatches:");
+        foreach (var m in accuracyAudit.Mismatches.Take(20))
+            Console.WriteLine($"    {m.Gsrn[..Math.Min(12, m.Gsrn.Length)]}... | {m.PeriodStart:yyyy-MM} | Product={m.ProductNum,-15} | Extracted={m.ExtractedRate:F6} AvgBilled={m.AvgBilledMargin:F6} (tier: {m.FallbackTierUsed})");
+        if (accuracyAudit.Mismatches.Count > 20)
+            Console.WriteLine($"    ... ({accuracyAudit.Mismatches.Count - 20} more)");
+    }
+    Console.WriteLine();
+
+    // 3. Product table coverage
+    Console.WriteLine("PRODUCT TABLE COVERAGE (EXU_PRODUCTTABLE vs extraction chain)");
+    var productAudit = await audit.AuditProductTableAsync(accounts);
+    if (productAudit.Error != null)
+    {
+        Console.WriteLine($"  Error querying EXU_PRODUCTTABLE: {productAudit.Error}");
+    }
+    else
+    {
+        Console.WriteLine($"  Products in extraction chain: {productAudit.ExtractionChainProducts.Count}");
+        Console.WriteLine($"  Products in EXU_PRODUCTTABLE: {productAudit.ProductTableProducts.Count}");
+        Console.WriteLine($"  Missing from extraction:      {productAudit.MissingFromExtraction.Count,-12} [{(productAudit.MissingFromExtraction.Count == 0 ? "OK" : "INFO")}]");
+        if (productAudit.MissingFromExtraction.Count > 0)
+            Console.WriteLine($"    {string.Join(", ", productAudit.MissingFromExtraction)}");
+        Console.WriteLine($"  Missing from product table:   {productAudit.MissingFromProductTable.Count,-12} [{(productAudit.MissingFromProductTable.Count == 0 ? "OK" : "INFO")}]");
+        if (productAudit.MissingFromProductTable.Count > 0)
+            Console.WriteLine($"    {string.Join(", ", productAudit.MissingFromProductTable)}");
+    }
+    Console.WriteLine();
+
+    // Save detailed JSON report
+    Directory.CreateDirectory(outputDir);
+    var report = new
+    {
+        generatedAt = DateTimeOffset.UtcNow,
+        accounts,
+        rateColumns = rateAudit,
+        rateAccuracy = accuracyAudit,
+        productTable = productAudit
+    };
+    var reportPath = Path.Combine(outputDir, $"audit-{accounts.FirstOrDefault() ?? "unknown"}.json");
+    await File.WriteAllTextAsync(reportPath, JsonSerializer.Serialize(report, jsonOptions));
+    Console.WriteLine($"Detailed report: {Path.GetFullPath(reportPath)}");
 });
 
 var rootCommand = new RootCommand("WattsOn Migration Tool — extract from Xellent, push to WattsOn")
@@ -676,12 +697,11 @@ var rootCommand = new RootCommand("WattsOn Migration Tool — extract from Xelle
     pushCommand,
     reportCommand,
     xellentReportCommand,
-    investigateCommand,
-    schemaCommand
+    schemaCommand,
+    auditCommand
 };
 
 return await rootCommand.InvokeAsync(args);
 
 // Helper types for schema query
 public record SchemaRow { public string Name { get; init; } = ""; public string DataType { get; init; } = ""; }
-public record CdRateSample { public long RecId { get; init; } public DateTime StartDate { get; init; } public decimal Price1 { get; init; } public decimal Price2 { get; init; } public decimal Price24 { get; init; } }

@@ -14,15 +14,59 @@ public class XellentExtractionService
 {
     private readonly XellentDbContext _db;
     private readonly ILogger<XellentExtractionService> _logger;
-    private const string DataAreaId = "hol";
-    private const string DeliveryCategory = "El-ekstern";
+    private readonly string DataAreaId;
+    private readonly string[] CompanyIds;
+    private readonly string DeliveryCategory;
     private static readonly DateTime NoEndDate = new(1900, 1, 1);
     private static readonly TimeZoneInfo DanishTz = TimeZoneInfo.FindSystemTimeZoneById("Central European Standard Time");
 
-    public XellentExtractionService(XellentDbContext db, ILogger<XellentExtractionService> logger)
+    public XellentExtractionService(XellentDbContext db, ILogger<XellentExtractionService> logger, XellentConfig config)
     {
         _db = db;
         _logger = logger;
+        DataAreaId = config.DataAreaId;
+        CompanyIds = config.CompanyIds;
+        DeliveryCategory = config.DeliveryCategory;
+    }
+
+    // Known (DataAreaId, CompanyId) → (GLN, Name) mapping.
+    // Xellent has no single table linking CompanyId to supplier GLN — the relationship is
+    // implicit across EXU_SUPPLIER (TYPE=0 at parent DataAreaId level, ambiguous for hol)
+    // and COMPANYINFO (no GLN column). Verified by querying EXU_SUPPLIER, COMPANYINFO,
+    // EMS_ENERGYSUPPLIERTABLE, EXU_TMPFLEXCOMMERCE, EXU_AGREEMENTTABLE, and EXU_DELPOINT.
+    private static readonly Dictionary<(string DataAreaId, string CompanyId), (string Gln, string Name)> KnownSupplierMap = new()
+    {
+        [("hol", "for")] = ("5790001103033", "Verdo Go Green"),
+        [("hol", "meh")] = ("5790001103040", "Midtjysk Elhandel"),
+        [("Han", "hni")] = ("5790002388309", "Aars Nibe Handel"),
+        [("Han", "vhe")] = ("5790002388309", "Aars Nibe Handel"),
+        [("HJH", "HJH")] = ("5790002529283", "Hjerting Handel"),
+    };
+
+    /// <summary>
+    /// Resolve the supplier GLN from the known static mapping.
+    /// All CompanyIds must resolve to the same GLN. Throws if no match or ambiguous.
+    /// </summary>
+    public (string Gln, string Name) ResolveSupplierGln()
+    {
+        var resolved = new HashSet<(string Gln, string Name)>();
+        foreach (var companyId in CompanyIds)
+        {
+            if (KnownSupplierMap.TryGetValue((DataAreaId, companyId), out var match))
+                resolved.Add(match);
+            else
+                throw new InvalidOperationException(
+                    $"No known supplier GLN mapping for DataAreaId='{DataAreaId}', CompanyId='{companyId}'. Use --supplier-gln to specify explicitly.");
+        }
+
+        if (resolved.Count > 1)
+            throw new InvalidOperationException(
+                $"Ambiguous: CompanyIds [{string.Join(", ", CompanyIds)}] resolve to multiple GLNs: [{string.Join(", ", resolved.Select(r => $"{r.Gln} ({r.Name})"))}]. Use --supplier-gln to specify explicitly.");
+
+        var result = resolved.Single();
+        _logger.LogInformation("Resolved supplier {Name} (GLN {Gln}) for DataAreaId={DataArea}, CompanyIds=[{Ids}]",
+            result.Name, result.Gln, DataAreaId, string.Join(", ", CompanyIds));
+        return result;
     }
 
     /// <summary>
@@ -50,6 +94,7 @@ public class XellentExtractionService
             where cust.Dataareaid == DataAreaId
                 && accountNumbers.Contains(cust.Accountnum)
                 && contract.Deliverycategory == DeliveryCategory
+                && CompanyIds.Contains(contract.Companyid)
                 && delpoint.Deliverycategory == DeliveryCategory
             select new
             {
@@ -218,6 +263,7 @@ public class XellentExtractionService
             where cust.Dataareaid == DataAreaId
                 && accountNumbers.Contains(cust.Accountnum)
                 && contract.Deliverycategory == DeliveryCategory
+                && CompanyIds.Contains(contract.Companyid)
                 && contractPart.Productnum != ""
             select contractPart.Productnum
         ).Distinct().ToListAsync();
@@ -246,6 +292,7 @@ public class XellentExtractionService
                 // Try 1: Generic rates (Productnum == "") — most common
                 rates = await _db.ExuRateTables
                     .Where(r => r.Dataareaid == DataAreaId
+                        && CompanyIds.Contains(r.Companyid)
                         && r.Deliverycategory == DeliveryCategory
                         && r.Ratetype == productExtend.Producttype
                         && r.Productnum == "")
@@ -257,6 +304,7 @@ public class XellentExtractionService
                 {
                     var specific = await _db.ExuRateTables
                         .Where(r => r.Dataareaid == DataAreaId
+                            && CompanyIds.Contains(r.Companyid)
                             && r.Deliverycategory == DeliveryCategory
                             && r.Ratetype == productExtend.Producttype
                             && r.Productnum == productNum)
@@ -272,6 +320,7 @@ public class XellentExtractionService
                 {
                     var selfRates = await _db.ExuRateTables
                         .Where(r => r.Dataareaid == DataAreaId
+                            && CompanyIds.Contains(r.Companyid)
                             && r.Deliverycategory == DeliveryCategory
                             && r.Ratetype == productNum
                             && r.Productnum == productNum)
@@ -291,6 +340,7 @@ public class XellentExtractionService
                 {
                     var anyRates = await _db.ExuRateTables
                         .Where(r => r.Dataareaid == DataAreaId
+                            && CompanyIds.Contains(r.Companyid)
                             && r.Deliverycategory == DeliveryCategory
                             && r.Ratetype == productExtend.Producttype)
                         .OrderBy(r => r.Startdate)
@@ -307,6 +357,7 @@ public class XellentExtractionService
                 // No ProductExtend — try self-referencing rates as last resort
                 var selfRates = await _db.ExuRateTables
                     .Where(r => r.Dataareaid == DataAreaId
+                        && CompanyIds.Contains(r.Companyid)
                         && r.Deliverycategory == DeliveryCategory
                         && r.Ratetype == productNum
                         && r.Productnum == productNum)
@@ -379,6 +430,7 @@ public class XellentExtractionService
             where cust.Dataareaid == DataAreaId
                 && accountNumbers.Contains(cust.Accountnum)
                 && contract.Deliverycategory == DeliveryCategory
+                && CompanyIds.Contains(contract.Companyid)
                 && inv.ItemType == 2
                 && inv.ExuUseRateFromFlexPricing == 0
             select new { pe.Producttype, cp.Productnum }
@@ -392,6 +444,7 @@ public class XellentExtractionService
 
             var rates = await _db.ExuRateTables
                 .Where(r => r.Dataareaid == DataAreaId
+                    && CompanyIds.Contains(r.Companyid)
                     && r.Deliverycategory == DeliveryCategory
                     && r.Ratetype == pt.Producttype
                     && r.Productnum == "")
@@ -1058,3 +1111,4 @@ public class XellentExtractionService
     private static string? NullIfEmpty(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
+

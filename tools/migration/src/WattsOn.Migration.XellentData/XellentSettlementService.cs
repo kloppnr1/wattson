@@ -17,16 +17,20 @@ public class XellentSettlementService
 {
     private readonly XellentDbContext _db;
     private readonly ILogger<XellentSettlementService> _logger;
-    private const string DataAreaId = "hol";
-    private const string DeliveryCategory = "El-ekstern";
+    private readonly string DataAreaId;
+    private readonly string[] CompanyIds;
+    private readonly string DeliveryCategory;
     private const int TariffChargeTypeCode = 3;
     private static readonly DateTime NoEndDate = new(1900, 1, 1);
     private static readonly TimeZoneInfo DanishTz = TimeZoneInfo.FindSystemTimeZoneById("Central European Standard Time");
 
-    public XellentSettlementService(XellentDbContext db, ILogger<XellentSettlementService> logger)
+    public XellentSettlementService(XellentDbContext db, ILogger<XellentSettlementService> logger, XellentConfig config)
     {
         _db = db;
         _logger = logger;
+        DataAreaId = config.DataAreaId;
+        CompanyIds = config.CompanyIds;
+        DeliveryCategory = config.DeliveryCategory;
     }
 
     /// <summary>
@@ -148,6 +152,7 @@ public class XellentSettlementService
                 on new { DataAreaId = pe.DataAreaId, ItemId = pe.Producttype }
                 equals new { inv.DataAreaId, inv.ItemId }
             where dp.Dataareaid == DataAreaId
+               && CompanyIds.Contains(dp.Companyid)
                && dp.Meteringpoint == meteringPointId
                && dp.Deliverycategory == DeliveryCategory
                && inv.ItemType == 2
@@ -170,6 +175,7 @@ public class XellentSettlementService
         var allProductRates = productTypeNames.Count > 0
             ? await _db.ExuRateTables
                 .Where(r => r.Dataareaid == DataAreaId
+                         && CompanyIds.Contains(r.Companyid)
                          && productTypeNames.Contains(r.Ratetype)
                          && r.Deliverycategory == DeliveryCategory
                          && r.Productnum == "")

@@ -33,7 +33,7 @@ if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
     {
         db.SupplierIdentities.AddRange(
             SupplierIdentity.Create(GlnNumber.Create("5790002529283"), "Hjerting Handel"),
-            SupplierIdentity.Create(GlnNumber.Create("5790002388309"), "Års"),
+            SupplierIdentity.Create(GlnNumber.Create("5790002388309"), "Aars Nibe Handel"),
             SupplierIdentity.Create(GlnNumber.Create("5790001103040"), "Midtjysk Elhandel"),
             SupplierIdentity.Create(GlnNumber.Create("5790001103033"), "Verdo Go Green")
         );

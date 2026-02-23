@@ -35,6 +35,9 @@ public class ExuRateTable
     [Column("RATE", TypeName = "numeric(28, 12)")]
     public decimal Rate { get; set; }
 
+    [Column("ACCOUNTRATE", TypeName = "numeric(28, 12)")]
+    public decimal Accountrate { get; set; }
+
     [Key]
     [Column("RECID")]
     public long Recid { get; set; }

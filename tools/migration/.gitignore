@@ -1,2 +1,5 @@
 publish/
+win-pub/
+win-out/
 cache/
+appsettings.json
