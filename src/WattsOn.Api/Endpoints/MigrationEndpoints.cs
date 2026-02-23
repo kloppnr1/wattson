@@ -13,6 +13,15 @@ namespace WattsOn.Api.Endpoints;
 /// These bypass BRS process flows and insert directly — intended for one-time migration only.
 /// All endpoints are prefixed with /api/migration/.
 /// </summary>
+// Helper: Npgsql requires UTC offset for timestamptz columns
+static file class UtcNormalizer
+{
+    public static DateTimeOffset ToUtc(DateTimeOffset dto) =>
+        dto.Offset == TimeSpan.Zero ? dto : dto.ToUniversalTime();
+
+    public static DateTimeOffset? ToUtc(DateTimeOffset? dto) =>
+        dto.HasValue ? ToUtc(dto.Value) : null;
+}
 public static class MigrationEndpoints
 {
     public static WebApplication MapMigrationEndpoints(this WebApplication app)
@@ -86,8 +95,8 @@ public static class MigrationEndpoints
                     if (mp.SupplyStart.HasValue)
                     {
                         var period = mp.SupplyEnd.HasValue
-                            ? Period.Create(mp.SupplyStart.Value, mp.SupplyEnd.Value)
-                            : Period.From(mp.SupplyStart.Value);
+                            ? Period.Create(UtcNormalizer.ToUtc(mp.SupplyStart.Value), UtcNormalizer.ToUtc(mp.SupplyEnd.Value))
+                            : Period.From(UtcNormalizer.ToUtc(mp.SupplyStart.Value));
                         var supply = Supply.Create(meteringPoint.Id, customer.Id, period);
                         db.Supplies.Add(supply);
                         suppliesCreated++;
@@ -171,10 +180,13 @@ public static class MigrationEndpoints
                 var mp = await db.MeteringPoints.FirstOrDefaultAsync(m => m.Gsrn.Value == pp.Gsrn);
                 if (mp is null) { skipped++; continue; }
 
+                var productStart = UtcNormalizer.ToUtc(pp.ProductStart);
+                var productEnd = UtcNormalizer.ToUtc(pp.ProductEnd);
+
                 var supply = await db.Supplies
                     .Where(s => s.MeteringPointId == mp.Id)
-                    .Where(s => s.SupplyPeriod.Start <= pp.ProductStart)
-                    .Where(s => s.SupplyPeriod.End == null || s.SupplyPeriod.End > pp.ProductStart)
+                    .Where(s => s.SupplyPeriod.Start <= productStart)
+                    .Where(s => s.SupplyPeriod.End == null || s.SupplyPeriod.End > productStart)
                     .FirstOrDefaultAsync();
                 if (supply is null) { skipped++; continue; }
 
@@ -183,14 +195,14 @@ public static class MigrationEndpoints
                     .FirstOrDefaultAsync(p => p.Name == pp.ProductName && p.SupplierIdentityId == req.SupplierIdentityId);
                 if (product is null) { skipped++; continue; }
 
-                var period = pp.ProductEnd.HasValue
-                    ? Period.Create(pp.ProductStart, pp.ProductEnd)
-                    : Period.From(pp.ProductStart);
+                var period = productEnd.HasValue
+                    ? Period.Create(productStart, productEnd)
+                    : Period.From(productStart);
 
                 // Check for existing period (dedup on re-push)
                 var exists = await db.SupplyProductPeriods.AnyAsync(x =>
                     x.SupplyId == supply.Id && x.SupplierProductId == product.Id
-                    && x.Period.Start == pp.ProductStart);
+                    && x.Period.Start == productStart);
                 if (exists) { skipped++; continue; }
 
                 var spp = SupplyProductPeriod.Create(supply.Id, product.Id, period);
@@ -240,7 +252,7 @@ public static class MigrationEndpoints
                 {
                     price = Price.Create(
                         p.ChargeId, ownerGln, priceType, p.Description,
-                        Period.From(p.EffectiveDate), false, resolution,
+                        Period.From(UtcNormalizer.ToUtc(p.EffectiveDate)), false, resolution,
                         p.IsTax, p.IsPassThrough, category: category);
                     db.Prices.Add(price);
                     created++;
@@ -250,15 +262,15 @@ public static class MigrationEndpoints
                     price = existing;
                     price.UpdatePriceInfo(p.Description, p.IsTax, p.IsPassThrough);
                     price.UpdateCategory(category);
-                    price.UpdateValidity(Period.From(p.EffectiveDate));
+                    price.UpdateValidity(Period.From(UtcNormalizer.ToUtc(p.EffectiveDate)));
                     updated++;
                 }
 
                 if (p.Points is { Count: > 0 })
                 {
-                    var start = p.Points.Min(pt => pt.Timestamp);
-                    var end = p.Points.Max(pt => pt.Timestamp).AddHours(1);
-                    var tuples = p.Points.Select(pt => (pt.Timestamp, pt.Price)).ToList();
+                    var start = UtcNormalizer.ToUtc(p.Points.Min(pt => pt.Timestamp));
+                    var end = UtcNormalizer.ToUtc(p.Points.Max(pt => pt.Timestamp)).AddHours(1);
+                    var tuples = p.Points.Select(pt => (UtcNormalizer.ToUtc(pt.Timestamp), pt.Price)).ToList();
                     price.ReplacePricePoints(start, end, tuples);
                     pointsCreated += p.Points.Count;
                 }
@@ -290,7 +302,7 @@ public static class MigrationEndpoints
                 if (batch.PriceArea != "DK1" && batch.PriceArea != "DK2")
                     return Results.BadRequest(new { error = $"PriceArea must be DK1 or DK2, got '{batch.PriceArea}'" });
 
-                var timestamps = batch.Points.Select(p => p.Timestamp).ToList();
+                var timestamps = batch.Points.Select(p => UtcNormalizer.ToUtc(p.Timestamp)).ToList();
                 if (timestamps.Count == 0) continue;
 
                 var existing = await db.SpotPrices
@@ -298,7 +310,7 @@ public static class MigrationEndpoints
                                  sp.Timestamp >= timestamps.Min() && sp.Timestamp <= timestamps.Max())
                     .ToDictionaryAsync(sp => sp.Timestamp);
 
-                var points = batch.Points.Select(p => (p.Timestamp, p.PriceDkkPerKwh)).ToList();
+                var points = batch.Points.Select(p => (UtcNormalizer.ToUtc(p.Timestamp), p.PriceDkkPerKwh)).ToList();
                 var result = SpotPriceService.Upsert(batch.PriceArea, points, existing, e => db.SpotPrices.Add(e));
                 totalInserted += result.Inserted;
                 totalUpdated += result.Updated;
@@ -374,7 +386,7 @@ public static class MigrationEndpoints
                     ? Enum.Parse<Resolution>(ts.Resolution)
                     : Resolution.PT1H;
 
-                var period = Period.Create(ts.PeriodStart, ts.PeriodEnd);
+                var period = Period.Create(UtcNormalizer.ToUtc(ts.PeriodStart), UtcNormalizer.ToUtc(ts.PeriodEnd));
                 var series = TimeSeries.Create(mp.Id, period, resolution, ts.Version ?? 1);
                 db.TimeSeriesCollection.Add(series);
                 seriesCreated++;
@@ -383,7 +395,7 @@ public static class MigrationEndpoints
                 {
                     var quantity = EnergyQuantity.Create(obs.Kwh);
                     var quality = ParseQuality(obs.Quality);
-                    series.AddObservation(obs.Timestamp, quantity, quality);
+                    series.AddObservation(UtcNormalizer.ToUtc(obs.Timestamp), quantity, quality);
                     observationsCreated++;
                 }
             }
@@ -441,8 +453,8 @@ public static class MigrationEndpoints
                 if (exists) { skipped++; continue; }
 
                 var linkPeriod = link.EndDate.HasValue
-                    ? Period.Create(link.EffectiveDate, link.EndDate.Value)
-                    : Period.From(link.EffectiveDate);
+                    ? Period.Create(UtcNormalizer.ToUtc(link.EffectiveDate), UtcNormalizer.ToUtc(link.EndDate.Value))
+                    : Period.From(UtcNormalizer.ToUtc(link.EffectiveDate));
                 var priceLink = PriceLink.Create(mp.Id, price.Id, linkPeriod);
                 db.PriceLinks.Add(priceLink);
                 created++;
@@ -470,6 +482,10 @@ public static class MigrationEndpoints
 
             foreach (var s in req.Settlements)
             {
+                // Normalize to UTC (Npgsql requires offset 0 for timestamptz)
+                var periodStart = UtcNormalizer.ToUtc(s.PeriodStart);
+                var periodEnd = UtcNormalizer.ToUtc(s.PeriodEnd);
+
                 // Find metering point by GSRN
                 var mp = await db.MeteringPoints
                     .FirstOrDefaultAsync(m => m.Gsrn.Value == s.Gsrn);
@@ -481,8 +497,8 @@ public static class MigrationEndpoints
                 // not for validating whether the supply was active during that period.
                 var supply = await db.Supplies
                     .Where(l => l.MeteringPointId == mp.Id)
-                    .Where(l => l.SupplyPeriod.Start <= s.PeriodStart)
-                    .Where(l => l.SupplyPeriod.End == null || l.SupplyPeriod.End > s.PeriodStart)
+                    .Where(l => l.SupplyPeriod.Start <= periodStart)
+                    .Where(l => l.SupplyPeriod.End == null || l.SupplyPeriod.End > periodStart)
                     .FirstOrDefaultAsync();
                 supply ??= await db.Supplies
                     .Where(l => l.MeteringPointId == mp.Id)
@@ -492,22 +508,22 @@ public static class MigrationEndpoints
                 // Check if settlement already exists for this period
                 var existing = await db.Settlements
                     .AnyAsync(a => a.MeteringPointId == mp.Id
-                        && a.SettlementPeriod.Start == s.PeriodStart
-                        && a.SettlementPeriod.End == s.PeriodEnd);
+                        && a.SettlementPeriod.Start == periodStart
+                        && a.SettlementPeriod.End == periodEnd);
                 if (existing) { skippedExists++; continue; }
 
                 // Find or create a time series for this period (settlements need a TS reference)
                 var timeSeries = await db.TimeSeriesCollection
                     .Where(ts => ts.MeteringPointId == mp.Id)
-                    .Where(ts => ts.Period.Start == s.PeriodStart)
-                    .Where(ts => ts.Period.End == s.PeriodEnd)
+                    .Where(ts => ts.Period.Start == periodStart)
+                    .Where(ts => ts.Period.End == periodEnd)
                     .FirstOrDefaultAsync();
 
                 if (timeSeries is null)
                 {
                     // Create a placeholder time series — the actual observations may come from time series migration
                     timeSeries = TimeSeries.Create(mp.Id,
-                        Period.Create(s.PeriodStart, s.PeriodEnd),
+                        Period.Create(periodStart, periodEnd),
                         Resolution.PT1H, 1);
                     db.TimeSeriesCollection.Add(timeSeries);
                     await db.SaveChangesAsync();
@@ -518,14 +534,14 @@ public static class MigrationEndpoints
                 if (s.HourlyLines is { Count: > 0 })
                 {
                     hourlyJson = System.Text.Json.JsonSerializer.Serialize(
-                        s.HourlyLines.Select(h => new { t = h.Timestamp, k = h.Kwh, s = h.SpotPrice, c = h.CalcPrice }),
+                        s.HourlyLines.Select(h => new { t = UtcNormalizer.ToUtc(h.Timestamp), k = h.Kwh, s = h.SpotPrice, c = h.CalcPrice }),
                         new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
                 }
 
                 // Create migrated settlement — clearly marked as imported, not calculated by WattsOn
                 var settlement = Settlement.CreateMigrated(
                     mp.Id, supply.Id,
-                    Period.Create(s.PeriodStart, s.PeriodEnd),
+                    Period.Create(periodStart, periodEnd),
                     timeSeries.Id, timeSeries.Version,
                     EnergyQuantity.Create(s.TotalEnergyKwh),
                     s.ExternalInvoiceReference ?? s.BillingLogNum,
