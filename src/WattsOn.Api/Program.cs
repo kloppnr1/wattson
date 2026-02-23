@@ -28,14 +28,15 @@ if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
     var db = scope.ServiceProvider.GetRequiredService<WattsOnDbContext>();
     await db.Database.MigrateAsync();
 
-    // Ensure at least one supplier identity exists
+    // Seed supplier identities
     if (!await db.SupplierIdentities.AnyAsync())
     {
-        var identity = SupplierIdentity.Create(
-            GlnNumber.Create("5790001330552"),
-            "WattsOn Energy A/S",
-            CvrNumber.Create("12345678"));
-        db.SupplierIdentities.Add(identity);
+        db.SupplierIdentities.AddRange(
+            SupplierIdentity.Create(GlnNumber.Create("5790002529283"), "Hjerting Handel"),
+            SupplierIdentity.Create(GlnNumber.Create("5790002388309"), "Års"),
+            SupplierIdentity.Create(GlnNumber.Create("5790001103040"), "MEH"),
+            SupplierIdentity.Create(GlnNumber.Create("5790001103033"), "Verdo Go Green")
+        );
         await db.SaveChangesAsync();
     }
     app.MapOpenApi();
