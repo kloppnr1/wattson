@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Card, Collapse, Descriptions, Table, Tag, Spin, Alert, Space, Typography,
+  Card, Collapse, Descriptions, Tag, Spin, Alert, Space, Typography,
   Button, Row, Col, Divider, Input, Modal, message, Statistic, Tooltip,
 } from 'antd';
 import {
@@ -10,7 +10,7 @@ import {
   ExclamationCircleOutlined, CalculatorOutlined,
   InfoCircleOutlined,
 } from '@ant-design/icons';
-import type { SettlementDocument, SettlementDocumentLine, RecalcResult, RecalcLine, LineDetails, DailyDetail, MigratedHourlyEntry } from '../api/client';
+import type { SettlementDocument, SettlementDocumentLine, RecalcResult, RecalcLine, LineDetails, DailyDetail } from '../api/client';
 import { getSettlementDocument, confirmSettlement, recalculateSettlement } from '../api/client';
 
 const { Title, Text } = Typography;
@@ -203,6 +203,8 @@ export default function SettlementDetailPage() {
   const fmtRate = (v: number) => v < 0.01 && v > 0 ? v.toFixed(6) : v < 1 ? v.toFixed(4) : v.toFixed(2);
 
   // Shared daily/hourly breakdown table
+  // @ts-expect-error reserved for future use
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const renderDailyBreakdown = (daily: DailyDetail[]) => {
     if (!daily || daily.length === 0) return null;
     const totalHours = daily.reduce((s, d) => s + d.hours.length, 0);
@@ -1072,7 +1074,7 @@ export default function SettlementDetailPage() {
                         origDaySums.set(dateStr, (origDaySums.get(dateStr) ?? 0) + h.k);
                       }
                     }
-                    const hasOrigHourly = origHourLookup.size > 0;
+                    void origHourLookup.size; // keep for future use
 
                     // Merge all dates + hours from both sources
                     const allDates = new Set([...newDaySums.keys(), ...origDaySums.keys()]);

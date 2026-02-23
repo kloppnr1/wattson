@@ -8,8 +8,6 @@ import {
   ExperimentOutlined,
   SettingOutlined,
   DollarOutlined,
-  ThunderboltOutlined,
-  LinkOutlined,
   SendOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';

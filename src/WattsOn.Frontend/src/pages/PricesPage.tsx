@@ -112,7 +112,7 @@ export default function PricesPage() {
   const nonSpotPrices = prices.filter(p => !isSpot(p));
 
   // Supplier prices = owned by our GLN(s); DataHub prices = owned by external parties
-  const supplierPrices = nonSpotPrices.filter(p => ourGlns.has(p.ownerGln));
+  void nonSpotPrices.filter(p => ourGlns.has(p.ownerGln)); // supplierPrices — reserved for future use
   const datahubPrices = nonSpotPrices.filter(p => !ourGlns.has(p.ownerGln));
 
   // ─── Shared collapse panel styles ───

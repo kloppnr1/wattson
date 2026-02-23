@@ -1,0 +1,84 @@
+# WattsOn Staging — docker-compose.staging.yml
+# Usage: docker compose -f docker-compose.staging.yml up -d --build
+
+services:
+  db:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: ${DB_USER:-wattson}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env.staging}
+      POSTGRES_DB: ${DB_NAME:-wattson}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/home/postgres/pgdata/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-wattson}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: src/WattsOn.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Staging
+      ConnectionStrings__WattsOn: "Host=db;Port=5432;Database=${DB_NAME:-wattson};Username=${DB_USER:-wattson};Password=${DB_PASSWORD}"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    # No ports exposed — Nginx proxies to api:8080
+
+  worker:
+    build:
+      context: .
+      dockerfile: src/WattsOn.Worker/Dockerfile
+    environment:
+      DOTNET_ENVIRONMENT: Staging
+      ConnectionStrings__WattsOn: "Host=db;Port=5432;Database=${DB_NAME:-wattson};Username=${DB_USER:-wattson};Password=${DB_PASSWORD}"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: src/WattsOn.Frontend/Dockerfile.staging
+    ports:
+      - "${APP_PORT:-80}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:80/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Optional: Portainer for web-based Docker management
+  # Access at http://<server-ip>:9443
+  portainer:
+    image: portainer/portainer-ce:latest
+    ports:
+      - "9443:9443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    restart: unless-stopped
+    profiles:
+      - management
+
+volumes:
+  pgdata:
+  portainer_data:

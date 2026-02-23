@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Card, Descriptions, Table, Tag, Spin, Alert, Space, Typography,
+  Card, Table, Tag, Spin, Alert, Space, Typography,
   Button, Tabs, Row, Col, Statistic, Empty, Modal, Form, Input,
   Select, DatePicker, message,
 } from 'antd';
