@@ -1,5 +1,7 @@
 # ⚡ WattsOn
 
+[![CI](https://github.com/kloppnr1/wattson/actions/workflows/ci.yml/badge.svg)](https://github.com/kloppnr1/wattson/actions/workflows/ci.yml)
+
 Settlement engine for the Danish electricity market (DataHub 3.0).
 
 WattsOn handles **forbrugsafregning** (consumption settlement) for an electricity supplier (elleverandør). It processes metering data, calculates settlements with full price breakdowns, detects corrections when DataHub data changes, and exposes everything via API for an external invoicing system.

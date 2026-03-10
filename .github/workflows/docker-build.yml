@@ -1,0 +1,23 @@
+name: Docker Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  docker:
+    name: Validate Docker images build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build API image
+        run: docker build -f src/WattsOn.Api/Dockerfile -t wattsOn-api:ci .
+
+      - name: Build Worker image
+        run: docker build -f src/WattsOn.Worker/Dockerfile -t wattsOn-worker:ci .
+
+      - name: Build Frontend image
+        run: docker build -f src/WattsOn.Frontend/Dockerfile -t wattsOn-frontend:ci src/WattsOn.Frontend
