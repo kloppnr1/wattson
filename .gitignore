@@ -31,6 +31,9 @@ Thumbs.db
 # Environment
 .env
 .env.local
+.env.staging
+.env.production
+.env.*.local
 appsettings.Development.json
 
 # Migrations are tracked
