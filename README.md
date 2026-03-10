@@ -249,4 +249,4 @@ Documentation for all supported BRS processes is in [`docs/datahub/`](docs/datah
 
 ## License
 
-Proprietary. All rights reserved.
+Proprietary — see [LICENSE](LICENSE). All rights reserved.
