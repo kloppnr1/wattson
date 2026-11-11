@@ -20,7 +20,18 @@ Rule of thumb: **if Energinet cannot observe it on the wire, it does not belong 
 
 ---
 
-## 2. Decisions to make before writing code
+## 2a. Decisions made (2026-11-11)
+
+| Decision | Choice | Consequence |
+|---|---|---|
+| Own actor or IT vendor | **IT vendor** — the platform serves other companies | Use the **IT-Lev** column of the test cases (including the `-IT` cases), and run them for **at least 2 actors** |
+| Market role | **Elleverandør (DDQ)** | One role, one approval |
+| Optional processes | **None** | Skip the cases marked "B" (BRS-005, 034, 038, 039) |
+| Preprod access | **Already have it** | Still needed: users for 2 test actors (e.g. Energinet's Ellev_1A / Ellev_1B), each with its own client id/secret |
+
+The platform is **multi-actor from day one**: every credential, queue poll, message and process is scoped to an actor GLN.
+
+## 2. Decisions to make before writing code (background)
 
 | Decision | Why it matters |
 |---|---|
@@ -259,18 +270,48 @@ Withdrawn or not applicable to an elleverandør's own system: E04-IT, E05/E05A (
 
 The table does not give the RSM or business reason per test case. Take them from the BRS-guide pages and their example ZIPs.
 
-### 6.4 Suggested build order
+### 6.4 Our scope: IT vendor, elleverandør, no optional processes
+
+The IT-Lev column applies, so this is the list to pass, for each of 2 actors:
+
+| BRS | Test cases | Note |
+|---|---|---|
+| 001 | E01, E02 (V), E03, **E04-IT** (defaulted process) | E05/E05A are on pause — watch for them to be released |
+| 002 | E06, **E07-IT** (rejected by grid company), **E08-IT** (cancellation) | |
+| 003 | E10, **E11-IT** (previous supplier rejects), E12 | |
+| 004 | **E13-IT** (new child MP) | "S": open a support case if the system can't do it |
+| 006 | E16, E17B | Required for IT vendors ("s" = support case if not possible); voluntary only for own-system actors |
+| 007 | E18, E19 | |
+| 008 | E20 | |
+| 009 | E21, E22, E23, **E24-IT** (cancellation), **E25-IT** (new MP) | |
+| 010 | E26, **E27-IT** (cancellation) | |
+| 011 | E28, **E29-IT** (rejected), E30 | |
+| 013 | E31 | |
+| 015 | E32 | |
+| 031 | E33–E39 | Prices update on Tuesdays — plan test runs around it |
+| 037 | E42–E47 | E47 uses grid area 804 |
+| 041 | E52B, E53, E54, E55 | E52B is 🟢 despite the "B" in its ID |
+| — | Phase 2 baseline: RSM-012 (E23), all MP types, 15 + 60 min | |
+
+Out of scope, because they are optional (B): E14B, E15-IT (BRS-005), E40B/E41B (034), E48B/E49B (038), E50B/E51B (039). E09, E56 and Aktørdialog are withdrawn.
+
+About 45 test cases × 2 actors ≈ 90 recorded preprod runs. **The evidence log must be built in, not assembled by hand afterwards.**
+
+Process capabilities this implies:
+- **Send:** RSM-001 (E03 change of supplier, E65 move-in, BRS-003), RSM-005 (end of supply / move-out / erroneous move), RSM-024 cancellation, RSM-027 customer master data, RSM-003 confirm/reject (reallocation, as previous supplier).
+- **Receive:** confirm/reject replies, RSM-004 notifications, metering point master data (RSM-022), RSM-012 metered data, RSM-009 validation errors, BRS-031/037 prices and price links, BRS-041 electric heating, BRS-013 disconnect/reconnect.
+
+### 6.5 Suggested build order
 
 | Order | Item | Done when |
 |---|---|---|
 | 1 | Transport: per-actor auth, peek/dequeue on 3 queues (max 1 peek/min per queue), outbox, raw store, RSM-009 handling, dead-letter | Preprod documents fetched, stored, dequeued; a send gets 202 |
 | 2 | Message layer from Energinet's example ZIPs (all RSMs in §6.3) | Round-trip tests pass on every example |
 | 3 | Metered data RSM-012, all MP types, PT15M + PT1H (phase 2 baseline) | The phase 2 rows pass |
-| 4 | BRS-001/002/003/009/010/011 (E01–E03, E06, E10, E12, E21–E23, E26, E28, E30) | Preprod runs recorded |
-| 5 | Notifications in: BRS-007/008 (E18–E20), BRS-013 (E31), BRS-031 (E33–E39), BRS-037 (E42–E47), BRS-041 (E52–E55) | Preprod runs recorded |
-| 6 | BRS-015 customer master data (E32) | Preprod run recorded |
-| 7 | Optional (B / SF): BRS-005, 006, 034, 038, 039 — only if the business needs them | — |
-| 8 | Ops view and evidence export | Approval case sent to `datahub@energinet.dk` |
+| 4 | Requests we start: BRS-001/002/003/009/010/011 including cancellations and the -IT variants (E01–E04, E06–E08, E10–E12, E21–E30) | Preprod runs recorded for both actors |
+| 5 | Notifications in: BRS-004/006/007/008 (E13, E16–E20), BRS-013 (E31), BRS-031 (E33–E39), BRS-037 (E42–E47), BRS-041 (E52–E55) | Preprod runs recorded for both actors |
+| 6 | BRS-015 customer master data (E32) | Preprod runs recorded for both actors |
+| 7 | Ops view and evidence export per test case and actor | Approval case sent to `datahub@energinet.dk` |
 
 ---
 
