@@ -301,7 +301,26 @@ Process capabilities this implies:
 - **Send:** RSM-001 (E03 change of supplier, E65 move-in, BRS-003), RSM-005 (end of supply / move-out / erroneous move), RSM-024 cancellation, RSM-027 customer master data, RSM-003 confirm/reject (reallocation, as previous supplier).
 - **Receive:** confirm/reject replies, RSM-004 notifications, metering point master data (RSM-022), RSM-012 metered data, RSM-009 validation errors, BRS-031/037 prices and price links, BRS-041 electric heating, BRS-013 disconnect/reconnect.
 
-### 6.5 Suggested build order
+### 6.5 Our preprod test data (from Energinet, 30 Mar 2026)
+
+**Phase 2 — `info-til-aktører-0114-8200000008361-fase-2.xlsx`**
+- 15 metering points in grid area 804, all connected (E22), supplied by **GLN `8200000008361`** since 2023-01-01. This is our actor.
+- E17 consumption (8): 3 at PT15M and 1 at PT1H with settlement method E02; 4 at PT1H with D01.
+- E18 production (7): all PT15M.
+- Test customers: CPR `1111111415` / `1111111416`.
+- Energinet sent RSM-012 for some of them, so they should be waiting on `/measuredata`.
+- **Gap:** the phase 2 test cases also list MP types D05–D11, D14, D15 and D19. This file has only E17 and E18. Ask Energinet whether more are needed.
+
+**Phase 3 — `Info_138-fase-3.xlsx`**
+- 50 metering points in grid area 804, valid from 2026-01-01, with **no supplier**. Almost all are in connectionState **D03** (not yet connected).
+  - These are the targets for change of supplier, move-in, and "new MP connected" (BRS-008 / E20).
+- Parents: E17 ×26 (15 at PT15M, 11 at PT1H) and E18 ×14 (PT15M, `psrType D12`).
+- Children: D06 ×2, D07 ×2, D17 ×2, D18 ×2, and D19 ×2 (these two connected, E22). The children cover the "linked child MPs" (E02) and child-MP cases.
+- The columns use CIM names and the value wrapping (`A10,<GSRN>`, `KWT,230.2`, `AMP,64`). This matches the RSM-022 master data shape, so use them to check our master data parser.
+
+**Still missing for the IT-vendor approval:** a second actor with its own test metering points.
+
+### 6.6 Suggested build order
 
 | Order | Item | Done when |
 |---|---|---|
