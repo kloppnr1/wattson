@@ -320,7 +320,25 @@ Process capabilities this implies:
 
 **Still missing for the IT-vendor approval:** a second actor with its own test metering points.
 
-### 6.6 Suggested build order
+### 6.6 Example files to download (Confluence, listed 2026-11-11)
+Open while logged in to Confluence. Base: `https://energinet.atlassian.net/wiki/rest/api/content/{page}/child/attachment/{att}/download`.
+
+| BRS | JSON | XML | Notes |
+|---|---|---|---|
+| 001 | [ZIP](https://energinet.atlassian.net/wiki/rest/api/content/152961338/child/attachment/att2798092289/download) | [ZIP](https://energinet.atlassian.net/wiki/rest/api/content/152961338/child/attachment/att2796519468/download) | |
+| 002 | [ZIP](https://energinet.atlassian.net/wiki/rest/api/content/152961060/child/attachment/att2422014068/download) | [ZIP](https://energinet.atlassian.net/wiki/rest/api/content/152961060/child/attachment/att2422341718/download) | Newest of several; some file names are wrong |
+| 004 | [ZIP](https://energinet.atlassian.net/wiki/rest/api/content/152961393/child/attachment/att2886434883/download) | [ZIP](https://energinet.atlassian.net/wiki/rest/api/content/152961393/child/attachment/att2887286826/download) | Field overview: [Stamdataoverblik v1.2.1](https://energinet.atlassian.net/wiki/rest/api/content/152961393/child/attachment/att2897248263/download) |
+| 006 | — | loose: [1](https://energinet.atlassian.net/wiki/rest/api/content/152961113/child/attachment/att3171254274/download), [2](https://energinet.atlassian.net/wiki/rest/api/content/152961113/child/attachment/att3170336776/download), [3](https://energinet.atlassian.net/wiki/rest/api/content/152961113/child/attachment/att3171516417/download) | [RSM-031 json](https://energinet.atlassian.net/wiki/rest/api/content/152961113/child/attachment/att3141697547/download); [Stamdataoverblik v1.2.1](https://energinet.atlassian.net/wiki/rest/api/content/152961113/child/attachment/att2896953357/download) |
+| 009 | [ZIP](https://energinet.atlassian.net/wiki/rest/api/content/152961091/child/attachment/att2884567056/download) | [ZIP](https://energinet.atlassian.net/wiki/rest/api/content/152961091/child/attachment/att2884272160/download) | |
+| 010 | [ZIP](https://energinet.atlassian.net/wiki/rest/api/content/152961360/child/attachment/att2427551822/download) | [ZIP](https://energinet.atlassian.net/wiki/rest/api/content/152961360/child/attachment/att2426994767/download) | |
+| 031 | [ZIP](https://energinet.atlassian.net/wiki/rest/api/content/152961399/child/attachment/att2907373629/download) | [ZIP](https://energinet.atlassian.net/wiki/rest/api/content/152961399/child/attachment/att2906980371/download) | Newer RSM-034: [prisserie](https://energinet.atlassian.net/wiki/rest/api/content/152961399/child/attachment/att3136094212/download), [stop](https://energinet.atlassian.net/wiki/rest/api/content/152961399/child/attachment/att3135504396/download) |
+| 037 | [ZIP](https://energinet.atlassian.net/wiki/rest/api/content/152961404/child/attachment/att2913730593/download) | [ZIP](https://energinet.atlassian.net/wiki/rest/api/content/152961404/child/attachment/att2913108015/download) | |
+| 041 | [ZIP](https://energinet.atlassian.net/wiki/rest/api/content/152961227/child/attachment/att2778136688/download) | [ZIP](https://energinet.atlassian.net/wiki/rest/api/content/152961227/child/attachment/att2778103848/download) | |
+| API | [Postman collection](https://energinet.atlassian.net/wiki/rest/api/content/653983967/child/attachment/att748290093/download) | | "Datahub 3 public" |
+
+No example messages exist for BRS-003, 007, 008, 011, 013 and 015. Their first fixtures will come from preprod runs.
+
+### 6.7 Suggested build order
 
 | Order | Item | Done when |
 |---|---|---|
